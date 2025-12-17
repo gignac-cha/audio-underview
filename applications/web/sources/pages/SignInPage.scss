@@ -6,7 +6,7 @@
   position: relative;
 
   /* Subtle static gradient instead of moving blobs */
-  background: radial-gradient(circle at 50% 100%, #1e1b4b 0%, var(--bg-deep) 50%);
+  background: radial-gradient(circle at 50% 100%, var(--bg-accent-dark) 0%, var(--bg-deep) 50%);
 }
 
 .sign-in-container {

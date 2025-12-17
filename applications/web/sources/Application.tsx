@@ -19,14 +19,14 @@ function RootRedirect() {
     return <Navigate to="/home" replace />;
   }
 
-  return <Navigate to="/sign-in" replace />;
+  return <Navigate to="/sign/in" replace />;
 }
 
 function ApplicationRoutes() {
   return (
     <Routes>
       <Route path="/" element={<RootRedirect />} />
-      <Route path="/sign-in" element={<SignInPage />} />
+      <Route path="/sign/in" element={<SignInPage />} />
       <Route
         path="/home"
         element={
