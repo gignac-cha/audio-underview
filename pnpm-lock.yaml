@@ -160,7 +160,79 @@ importers:
         specifier: ^3.1.4
         version: 3.2.4(@types/node@25.0.2)(jsdom@26.1.0)(sass@1.97.0)
 
+  packages/apple-oauth-provider:
+    dependencies:
+      '@audio-underview/sign-provider':
+        specifier: workspace:*
+        version: link:../sign-provider
+      zod:
+        specifier: ^3.25.36
+        version: 3.25.76
+
+  packages/discord-oauth-provider:
+    dependencies:
+      '@audio-underview/sign-provider':
+        specifier: workspace:*
+        version: link:../sign-provider
+      zod:
+        specifier: ^3.25.36
+        version: 3.25.76
+
+  packages/facebook-oauth-provider:
+    dependencies:
+      '@audio-underview/sign-provider':
+        specifier: workspace:*
+        version: link:../sign-provider
+      zod:
+        specifier: ^3.25.36
+        version: 3.25.76
+
+  packages/github-oauth-provider:
+    dependencies:
+      '@audio-underview/sign-provider':
+        specifier: workspace:*
+        version: link:../sign-provider
+      zod:
+        specifier: ^3.25.36
+        version: 3.25.76
+
   packages/google-oauth-provider:
+    dependencies:
+      '@audio-underview/sign-provider':
+        specifier: workspace:*
+        version: link:../sign-provider
+      zod:
+        specifier: ^3.25.36
+        version: 3.25.76
+
+  packages/kakao-oauth-provider:
+    dependencies:
+      '@audio-underview/sign-provider':
+        specifier: workspace:*
+        version: link:../sign-provider
+      zod:
+        specifier: ^3.25.36
+        version: 3.25.76
+
+  packages/linkedin-oauth-provider:
+    dependencies:
+      '@audio-underview/sign-provider':
+        specifier: workspace:*
+        version: link:../sign-provider
+      zod:
+        specifier: ^3.25.36
+        version: 3.25.76
+
+  packages/microsoft-oauth-provider:
+    dependencies:
+      '@audio-underview/sign-provider':
+        specifier: workspace:*
+        version: link:../sign-provider
+      zod:
+        specifier: ^3.25.36
+        version: 3.25.76
+
+  packages/naver-oauth-provider:
     dependencies:
       '@audio-underview/sign-provider':
         specifier: workspace:*
@@ -171,6 +243,15 @@ importers:
 
   packages/sign-provider:
     dependencies:
+      zod:
+        specifier: ^3.25.36
+        version: 3.25.76
+
+  packages/x-oauth-provider:
+    dependencies:
+      '@audio-underview/sign-provider':
+        specifier: workspace:*
+        version: link:../sign-provider
       zod:
         specifier: ^3.25.36
         version: 3.25.76
