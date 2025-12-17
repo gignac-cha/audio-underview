@@ -1,12 +1,15 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { googleLogout, type CredentialResponse } from '@react-oauth/google';
-import { jwtDecode } from './jwtDecode.ts';
 import {
-  type GoogleUser,
-  type StoredAuthData,
-  parseGoogleUser,
-  parseStoredAuthData,
-} from '../schemas/authentication.ts';
+  type OAuthUser,
+  type OAuthProviderID,
+  jwtDecode,
+  saveAuthenticationData,
+  loadAuthenticationData,
+  clearAuthenticationData,
+  createStoredAuthenticationData,
+} from '@audio-underview/sign-provider';
+import { parseGoogleUserFromIDToken } from '@audio-underview/google-oauth-provider';
 
 interface LoginResult {
   success: boolean;
@@ -14,10 +17,11 @@ interface LoginResult {
 }
 
 interface AuthenticationContextValue {
-  user: GoogleUser | null;
+  user: OAuthUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (credentialResponse: CredentialResponse) => LoginResult;
+  loginWithProvider: (providerID: OAuthProviderID, user: OAuthUser, credential: string) => LoginResult;
   logout: () => void;
 }
 
@@ -26,28 +30,18 @@ const AuthenticationContext = createContext<AuthenticationContextValue | null>(n
 const STORAGE_KEY = 'audio-underview-auth';
 
 export function AuthenticationProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<GoogleUser | null>(null);
+  const [user, setUser] = useState<OAuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const storedData = localStorage.getItem(STORAGE_KEY);
+    const storedData = loadAuthenticationData(STORAGE_KEY);
     if (storedData) {
-      try {
-        const parsed = JSON.parse(storedData);
-        const validatedData = parseStoredAuthData(parsed);
-
-        if (validatedData && validatedData.expiresAt > Date.now()) {
-          setUser(validatedData.user);
-        } else {
-          localStorage.removeItem(STORAGE_KEY);
-        }
-      } catch {
-        localStorage.removeItem(STORAGE_KEY);
-      }
+      setUser(storedData.user);
     }
     setIsLoading(false);
   }, []);
 
+  // Google OAuth login (using @react-oauth/google)
   const login = useCallback((credentialResponse: CredentialResponse): LoginResult => {
     if (!credentialResponse.credential) {
       console.error('No credential received');
@@ -56,15 +50,14 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
 
     try {
       const decoded = jwtDecode<Record<string, unknown>>(credentialResponse.credential);
-      const userData = parseGoogleUser(decoded);
+      const userData = parseGoogleUserFromIDToken(decoded);
 
-      const authData: StoredAuthData = {
-        user: userData,
-        credential: credentialResponse.credential,
-        expiresAt: Date.now() + 24 * 60 * 60 * 1000,
-      };
+      const authenticationData = createStoredAuthenticationData(
+        userData,
+        credentialResponse.credential
+      );
 
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(authData));
+      saveAuthenticationData(authenticationData, STORAGE_KEY);
       setUser(userData);
       return { success: true };
     } catch (error) {
@@ -74,17 +67,39 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Generic provider login
+  const loginWithProvider = useCallback(
+    (_providerID: OAuthProviderID, userData: OAuthUser, credential: string): LoginResult => {
+      try {
+        const authenticationData = createStoredAuthenticationData(userData, credential);
+
+        saveAuthenticationData(authenticationData, STORAGE_KEY);
+        setUser(userData);
+        return { success: true };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to save authentication';
+        console.error('Login failed:', errorMessage);
+        return { success: false, error: errorMessage };
+      }
+    },
+    []
+  );
+
   const logout = useCallback(() => {
-    googleLogout();
-    localStorage.removeItem(STORAGE_KEY);
+    // Call Google logout if user was logged in with Google
+    if (user?.provider === 'google') {
+      googleLogout();
+    }
+    clearAuthenticationData(STORAGE_KEY);
     setUser(null);
-  }, []);
+  }, [user]);
 
   const value: AuthenticationContextValue = {
     user,
     isAuthenticated: !!user,
     isLoading,
     login,
+    loginWithProvider,
     logout,
   };
 
