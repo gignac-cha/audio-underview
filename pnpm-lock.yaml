@@ -32,6 +32,33 @@ importers:
 
   applications/web:
     dependencies:
+      '@audio-underview/apple-oauth-provider':
+        specifier: workspace:*
+        version: link:../../packages/apple-oauth-provider
+      '@audio-underview/discord-oauth-provider':
+        specifier: workspace:*
+        version: link:../../packages/discord-oauth-provider
+      '@audio-underview/facebook-oauth-provider':
+        specifier: workspace:*
+        version: link:../../packages/facebook-oauth-provider
+      '@audio-underview/github-oauth-provider':
+        specifier: workspace:*
+        version: link:../../packages/github-oauth-provider
+      '@audio-underview/google-oauth-provider':
+        specifier: workspace:*
+        version: link:../../packages/google-oauth-provider
+      '@audio-underview/kakao-oauth-provider':
+        specifier: workspace:*
+        version: link:../../packages/kakao-oauth-provider
+      '@audio-underview/microsoft-oauth-provider':
+        specifier: workspace:*
+        version: link:../../packages/microsoft-oauth-provider
+      '@audio-underview/naver-oauth-provider':
+        specifier: workspace:*
+        version: link:../../packages/naver-oauth-provider
+      '@audio-underview/sign-provider':
+        specifier: workspace:*
+        version: link:../../packages/sign-provider
       '@emotion/react':
         specifier: ^11.14.0
         version: 11.14.0(@types/react@19.2.7)(react@19.2.3)

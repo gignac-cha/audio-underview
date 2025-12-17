@@ -67,13 +67,61 @@
 
 .sign-in-button-container {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: center;
 
-  &>div {
-    transition: opacity 0.2s;
+  .oauth-button-wrapper {
+    width: 100%;
+    display: flex;
+    justify-content: center;
 
-    &:hover {
-      opacity: 0.9;
+    & > div {
+      transition: opacity 0.2s;
+
+      &:hover {
+        opacity: 0.9;
+      }
     }
+  }
+}
+
+.social-login-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+
+  &:hover {
+    opacity: 0.9;
+  }
+
+  &:active {
+    transform: scale(0.98);
+  }
+
+  .social-icon {
+    font-size: 1.25rem;
+    width: 1.25rem;
+  }
+
+  .social-icon-text {
+    font-size: 1rem;
+    font-weight: 700;
+    width: 1.25rem;
+    text-align: center;
+  }
+
+  .social-button-text {
+    flex: 1;
+    text-align: left;
   }
 }

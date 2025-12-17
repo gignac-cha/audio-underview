@@ -1,11 +1,11 @@
 import * as Avatar from '@radix-ui/react-avatar';
-import type { GoogleUser } from '../schemas/authentication.ts';
+import type { OAuthUser } from '@audio-underview/sign-provider';
 import './UserAvatar.scss';
 
 type AvatarSize = 'default' | 'large';
 
 interface UserAvatarProperties {
-  user: GoogleUser | null;
+  user: OAuthUser | null;
   size?: AvatarSize;
 }
 
