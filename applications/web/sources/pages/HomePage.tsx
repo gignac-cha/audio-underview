@@ -1,7 +1,7 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faHeadphones, faSignOutAlt } from '@fortawesome/free-solid-svg-icons';
-import * as Avatar from '@radix-ui/react-avatar';
 import { useAuthentication } from '../contexts/AuthenticationContext.tsx';
+import { UserAvatar } from '../components/UserAvatar.tsx';
 import './HomePage.scss';
 
 export function HomePage() {
@@ -16,16 +16,7 @@ export function HomePage() {
         </div>
 
         <div className="user-section">
-          <Avatar.Root className="avatar-root">
-            <Avatar.Image
-              className="avatar-image"
-              src={user?.picture}
-              alt={user?.name}
-            />
-            <Avatar.Fallback className="avatar-fallback">
-              {user?.name?.charAt(0).toUpperCase()}
-            </Avatar.Fallback>
-          </Avatar.Root>
+          <UserAvatar user={user} />
 
           <button className="logout-button" onClick={logout}>
             <FontAwesomeIcon icon={faSignOutAlt} />
@@ -40,16 +31,7 @@ export function HomePage() {
           <p>You are successfully signed in.</p>
 
           <div className="user-info">
-            <Avatar.Root className="avatar-root large">
-              <Avatar.Image
-                className="avatar-image"
-                src={user?.picture}
-                alt={user?.name}
-              />
-              <Avatar.Fallback className="avatar-fallback">
-                {user?.name?.charAt(0).toUpperCase()}
-              </Avatar.Fallback>
-            </Avatar.Root>
+            <UserAvatar user={user} size="large" />
 
             <div className="user-details">
               <p className="user-name">{user?.name}</p>

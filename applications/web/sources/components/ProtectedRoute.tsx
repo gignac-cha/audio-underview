@@ -18,7 +18,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProperties) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/sign-in" replace />;
+    return <Navigate to="/sign/in" replace />;
   }
 
   return <>{children}</>;
