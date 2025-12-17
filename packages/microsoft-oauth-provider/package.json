@@ -1,0 +1,21 @@
+{
+  "name": "@audio-underview/microsoft-oauth-provider",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./sources/index.ts",
+  "types": "./sources/index.ts",
+  "exports": {
+    ".": {
+      "types": "./sources/index.ts",
+      "import": "./sources/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@audio-underview/sign-provider": "workspace:*",
+    "zod": "^3.25.36"
+  }
+}
