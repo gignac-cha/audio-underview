@@ -160,6 +160,15 @@ importers:
         specifier: ^3.1.4
         version: 3.2.4(@types/node@25.0.2)(jsdom@26.1.0)(sass@1.97.0)
 
+  packages/google-oauth-provider:
+    dependencies:
+      '@audio-underview/sign-provider':
+        specifier: workspace:*
+        version: link:../sign-provider
+      zod:
+        specifier: ^3.25.36
+        version: 3.25.76
+
   packages/sign-provider:
     dependencies:
       zod:
