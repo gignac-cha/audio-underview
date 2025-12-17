@@ -1,23 +1,36 @@
 .home-page {
   min-height: 100vh;
-  background: #f5f7fa;
+  /* Very subtle noise or gradient if desired, otherwise clean */
+  background: var(--bg-deep);
 }
 
 .home-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem 2rem;
-  background: white;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  padding: 0.75rem 1.5rem;
+  /* Reduced padding */
+
+  background: rgba(10, 10, 10, 0.9);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-subtle);
 
   .logo {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    font-size: 1.25rem;
+    /* Tighter gap */
+    font-size: 1rem;
     font-weight: 600;
-    color: #667eea;
+    color: var(--text-primary);
+
+    svg {
+      color: var(--accent-primary);
+      font-size: 1.1em;
+    }
   }
 
   .user-section {
@@ -34,14 +47,23 @@
   vertical-align: middle;
   overflow: hidden;
   user-select: none;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  /* Smaller avatar */
+  height: 32px;
   border-radius: 50%;
-  background-color: #667eea;
+  background-color: var(--bg-surface);
+
+  /* Minimal hover state */
+  transition: opacity 0.2s;
+
+  &:hover {
+    opacity: 0.9;
+  }
 
   &.large {
-    width: 80px;
-    height: 80px;
+    width: 64px;
+    /* Reduced large size */
+    height: 64px;
   }
 }
 
@@ -58,13 +80,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #667eea;
-  color: white;
-  font-size: 1rem;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 0.875rem;
   font-weight: 500;
+  border: 1px solid var(--border-subtle);
 
   .large & {
-    font-size: 2rem;
+    font-size: 1.5rem;
   }
 }
 
@@ -73,56 +96,82 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
-  border: none;
-  background: #f0f0f0;
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 0.875rem;
-  color: #333;
-  transition: background-color 0.2s;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: var(--transition-fast);
 
   &:hover {
-    background: #e0e0e0;
+    color: var(--text-primary);
+    background: var(--bg-surface);
+  }
+
+  span {
+    display: none;
+
+    /* Hide text on minimal mobile, maybe show on desktop media query if needed. Keeping minimal. */
+    @media (min-width: 640px) {
+      display: inline;
+    }
   }
 }
 
 .home-main {
   display: flex;
   justify-content: center;
-  align-items: center;
-  padding: 3rem 1rem;
-  min-height: calc(100vh - 68px);
+  padding: 4rem 1.5rem;
+  /* Reduced top padding */
+
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 .welcome-card {
-  background: white;
-  padding: 3rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
   border-radius: 16px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+
+  padding: 2.5rem;
   text-align: center;
-  max-width: 500px;
+  max-width: 480px;
   width: 100%;
+  box-shadow: var(--shadow-sm);
 
   h1 {
-    margin: 0 0 0.5rem 0;
-    color: #333;
     font-size: 1.75rem;
-    font-weight: 600;
+    font-weight: 700;
+    margin: 0 0 0.5rem 0;
+    color: var(--text-primary);
   }
 
-  > p {
+  >p {
+    font-size: 1rem;
+    color: var(--text-secondary);
     margin: 0 0 2rem 0;
-    color: #666;
   }
 }
 
 .user-info {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
-  padding: 1.5rem;
-  background: #f5f7fa;
+  gap: 1.25rem;
+  padding: 1.25rem;
+  background: var(--bg-deep);
   border-radius: 12px;
+  border: 1px solid var(--border-subtle);
 }
 
 .user-details {
@@ -131,13 +180,13 @@
   .user-name {
     margin: 0 0 0.25rem 0;
     font-weight: 600;
-    color: #333;
-    font-size: 1.125rem;
+    color: var(--text-primary);
+    font-size: 1rem;
   }
 
   .user-email {
     margin: 0;
-    color: #666;
+    color: var(--text-secondary);
     font-size: 0.875rem;
   }
 }
