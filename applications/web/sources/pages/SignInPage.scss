@@ -1,0 +1,79 @@
+.sign-in-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  position: relative;
+
+  /* Subtle static gradient instead of moving blobs */
+  background: radial-gradient(circle at 50% 100%, var(--bg-accent-dark) 0%, var(--bg-deep) 50%);
+}
+
+.sign-in-container {
+  /* Minimal card style */
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  /* Slightly tighter radius */
+
+  padding: 2.5rem 2rem;
+  /* Compact padding */
+  width: 100%;
+  max-width: 380px;
+  /* Reduced max-width */
+  text-align: center;
+  box-shadow: var(--shadow-md);
+
+  animation: fadeUp 0.4s ease-out;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.sign-in-header {
+  margin-bottom: 2rem;
+
+  .sign-in-icon {
+    font-size: 2.5rem;
+    /* Smaller icon */
+    color: var(--accent-primary);
+    margin-bottom: 1rem;
+    display: inline-block;
+  }
+
+  h1 {
+    font-size: 1.5rem;
+    /* Reduced heading size */
+    font-weight: 600;
+    margin: 0 0 0.5rem 0;
+    color: var(--text-primary);
+  }
+
+  p {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin: 0;
+  }
+}
+
+.sign-in-button-container {
+  display: flex;
+  justify-content: center;
+
+  &>div {
+    transition: opacity 0.2s;
+
+    &:hover {
+      opacity: 0.9;
+    }
+  }
+}

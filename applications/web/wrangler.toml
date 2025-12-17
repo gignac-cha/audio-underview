@@ -1,0 +1,6 @@
+name = "audio-underview"
+compatibility_date = "2025-12-17"
+
+[assets]
+directory = "./outputs"
+not_found_handling = "single-page-application"

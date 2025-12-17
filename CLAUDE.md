@@ -61,7 +61,21 @@ node --experimental-strip-types script.ts
 tsc && node script.js
 ```
 
-### 4. Commit Message Convention
+### 4. Nullish Coalescing Operator
+
+**`||` 대신 `??`를 사용합니다.**
+
+```typescript
+// Correct
+const value = input ?? 'default';
+
+// Incorrect
+const value = input || 'default';
+```
+
+`||`는 falsy 값(0, '', false 등)을 모두 대체하지만, `??`는 null과 undefined만 대체합니다.
+
+### 5. Commit Message Convention
 
 **커밋 메시지 첫 줄은 Conventional Commits 형식을 따르되, 줄임말을 풀어서 사용합니다.**
 
