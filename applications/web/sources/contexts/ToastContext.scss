@@ -50,11 +50,11 @@
   }
 
   &.toast-error {
-    border-left: 3px solid #ef4444;
+    border-left: 3px solid var(--color-error);
   }
 
   &.toast-success {
-    border-left: 3px solid #22c55e;
+    border-left: 3px solid var(--color-success);
   }
 
   &.toast-info {
