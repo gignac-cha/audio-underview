@@ -33,12 +33,6 @@ export {
   hasValidAuthentication,
 } from './tools/index.ts';
 
-// Context and hooks
-export { SignProvider, useSign, type SignProviderProps } from './contexts/index.ts';
-
-// Components
-export { SignInButtons, type SignInButtonsProps } from './components/index.ts';
-
 // Provider configurations
 export {
   PROVIDER_DISPLAY_CONFIGURATIONS,

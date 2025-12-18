@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@audio-underview/sign-provider": "workspace:*",
+    "@react-oauth/google": "^0.12.2",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
     "@fortawesome/fontawesome-svg-core": "^6.7.2",
