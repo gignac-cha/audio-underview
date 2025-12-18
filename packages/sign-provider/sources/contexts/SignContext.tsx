@@ -12,17 +12,15 @@ import { z } from 'zod';
 import {
   type OAuthUser,
   type OAuthProviderID,
-  type StoredAuthenticationData,
   parseStoredAuthenticationData,
   isAuthenticationExpired,
   createStoredAuthenticationData,
 } from '../types/index.ts';
-import { jwtDecode } from '../tools/index.ts';
 
 /**
- * Google ID token payload schema for parsing
+ * Google userinfo response schema (from /oauth2/v3/userinfo endpoint)
  */
-const googleIDTokenPayloadSchema = z.object({
+const googleUserInfoSchema = z.object({
   sub: z.string().min(1),
   email: z.string().email(),
   email_verified: z.boolean().optional(),
@@ -35,14 +33,14 @@ const googleIDTokenPayloadSchema = z.object({
 });
 
 /**
- * Parse Google user data from decoded ID token
+ * Parse Google user data from userinfo response
  */
-function parseGoogleUserFromIDToken(decodedToken: Record<string, unknown>): OAuthUser {
-  const result = googleIDTokenPayloadSchema.safeParse(decodedToken);
+function parseGoogleUserInfo(userInfo: Record<string, unknown>): OAuthUser {
+  const result = googleUserInfoSchema.safeParse(userInfo);
 
   if (!result.success) {
     const errors = result.error.errors.map((error) => `${error.path.join('.')}: ${error.message}`).join(', ');
-    throw new Error(`Invalid Google ID token payload: ${errors}`);
+    throw new Error(`Invalid Google user info: ${errors}`);
   }
 
   const payload = result.data;
@@ -67,7 +65,7 @@ interface SignContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
   enabledProviders: OAuthProviderID[];
-  loginWithGoogle: (credentialResponse: CredentialResponse) => LoginResult;
+  loginWithGoogle: (credentialResponse: CredentialResponse, userInfo?: Record<string, unknown>) => LoginResult;
   loginWithProvider: (providerID: OAuthProviderID, user: OAuthUser, credential: string) => LoginResult;
   logout: () => void;
 }
@@ -118,14 +116,19 @@ export function SignProvider({
 
   // Google login handler
   const loginWithGoogle = useCallback(
-    (credentialResponse: CredentialResponse): LoginResult => {
+    (credentialResponse: CredentialResponse, userInfo?: Record<string, unknown>): LoginResult => {
       if (!credentialResponse.credential) {
         return { success: false, error: 'No credential received from Google' };
       }
 
       try {
-        const decoded = jwtDecode<Record<string, unknown>>(credentialResponse.credential);
-        const userData = parseGoogleUserFromIDToken(decoded);
+        // If userInfo is provided (from useGoogleLogin flow), use it directly
+        // Otherwise this would be from GoogleLogin component which provides id_token
+        if (!userInfo) {
+          return { success: false, error: 'User info is required' };
+        }
+
+        const userData = parseGoogleUserInfo(userInfo);
 
         const authenticationData = createStoredAuthenticationData(
           userData,
@@ -137,7 +140,7 @@ export function SignProvider({
         setUser(userData);
         return { success: true };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Failed to decode credential';
+        const errorMessage = error instanceof Error ? error.message : 'Failed to process Google login';
         console.error('Google login failed:', errorMessage);
         return { success: false, error: errorMessage };
       }

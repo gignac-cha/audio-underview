@@ -1,5 +1,5 @@
 import type { ReactNode, CSSProperties } from 'react';
-import { GoogleLogin } from '@react-oauth/google';
+import { useGoogleLogin } from '@react-oauth/google';
 import { useSign } from '../contexts/SignContext.tsx';
 import type { OAuthProviderID } from '../types/index.ts';
 import {
@@ -22,6 +22,90 @@ export interface SignInButtonsProps {
   renderIcon?: (providerID: OAuthProviderID, config: ProviderDisplayConfiguration) => ReactNode;
 }
 
+function GoogleSignInButton({
+  onError,
+  buttonClassName,
+  renderIcon,
+}: {
+  onError?: (error: string) => void;
+  buttonClassName?: string;
+  renderIcon?: (providerID: OAuthProviderID, config: ProviderDisplayConfiguration) => ReactNode;
+}) {
+  const { loginWithGoogle } = useSign();
+  const config = PROVIDER_DISPLAY_CONFIGURATIONS['google'];
+
+  const googleLogin = useGoogleLogin({
+    onSuccess: (tokenResponse) => {
+      // useGoogleLogin with implicit flow returns access_token, not id_token
+      // We need to use the credential response from Google One Tap or redirect flow
+      // For now, we'll fetch user info using the access token
+      fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
+      })
+        .then((response) => response.json())
+        .then((userInfo) => {
+          const result = loginWithGoogle({
+            credential: tokenResponse.access_token,
+            clientId: '',
+            select_by: 'btn',
+          }, userInfo);
+          if (!result.success) {
+            onError?.(result.error ?? 'Google login failed');
+          }
+        })
+        .catch(() => {
+          onError?.('Failed to fetch Google user info');
+        });
+    },
+    onError: () => {
+      onError?.('Google login failed');
+    },
+  });
+
+  const buttonStyle: CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '0.75rem',
+    width: '100%',
+    padding: '0.75rem 1rem',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '0.875rem',
+    fontWeight: 500,
+    cursor: 'pointer',
+    backgroundColor: config.backgroundColor,
+    color: config.textColor,
+    transition: 'opacity 0.2s, transform 0.1s',
+  };
+
+  const iconStyle: CSSProperties = {
+    fontSize: '1.25rem',
+    width: '1.25rem',
+    textAlign: 'center',
+    fontWeight: 700,
+  };
+
+  return (
+    <button
+      className={buttonClassName}
+      style={buttonStyle}
+      onClick={() => googleLogin()}
+      onMouseOver={(event) => (event.currentTarget.style.opacity = '0.9')}
+      onMouseOut={(event) => (event.currentTarget.style.opacity = '1')}
+      onMouseDown={(event) => (event.currentTarget.style.transform = 'scale(0.98)')}
+      onMouseUp={(event) => (event.currentTarget.style.transform = 'scale(1)')}
+    >
+      {renderIcon ? (
+        renderIcon('google', config)
+      ) : (
+        <span style={iconStyle}>G</span>
+      )}
+      <span style={{ flex: 1, textAlign: 'left' }}>Sign in with {config.displayName}</span>
+    </button>
+  );
+}
+
 export function SignInButtons({
   onError,
   onProviderClick,
@@ -30,18 +114,7 @@ export function SignInButtons({
   style,
   renderIcon,
 }: SignInButtonsProps) {
-  const { enabledProviders, loginWithGoogle } = useSign();
-
-  const handleGoogleSuccess = (credentialResponse: Parameters<typeof loginWithGoogle>[0]) => {
-    const result = loginWithGoogle(credentialResponse);
-    if (!result.success) {
-      onError?.(result.error ?? 'Google login failed', 'google');
-    }
-  };
-
-  const handleGoogleError = () => {
-    onError?.('Google login failed', 'google');
-  };
+  const { enabledProviders } = useSign();
 
   const handleProviderClick = (providerID: OAuthProviderID) => {
     if (onProviderClick) {
@@ -54,20 +127,15 @@ export function SignInButtons({
   const renderProviderButton = (providerID: OAuthProviderID) => {
     const config = PROVIDER_DISPLAY_CONFIGURATIONS[providerID];
 
-    // Google uses GoogleLogin component
+    // Google uses custom button with useGoogleLogin hook
     if (providerID === 'google') {
       return (
-        <div key={providerID} className={buttonClassName}>
-          <GoogleLogin
-            onSuccess={handleGoogleSuccess}
-            onError={handleGoogleError}
-            theme="outline"
-            size="large"
-            shape="rectangular"
-            text="signin_with"
-            width="100%"
-          />
-        </div>
+        <GoogleSignInButton
+          key={providerID}
+          onError={(error) => onError?.(error, 'google')}
+          buttonClassName={buttonClassName}
+          renderIcon={renderIcon}
+        />
       );
     }
 
