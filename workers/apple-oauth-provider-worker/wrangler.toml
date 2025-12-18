@@ -1,0 +1,13 @@
+name = "apple-oauth-provider-worker"
+main = "sources/index.ts"
+compatibility_date = "2025-06-13"
+
+[vars]
+ALLOWED_ORIGINS = "http://localhost:3000"
+
+# Required secrets (set via wrangler secret put):
+# - APPLE_CLIENT_ID (Services ID)
+# - APPLE_TEAM_ID
+# - APPLE_KEY_ID
+# - APPLE_PRIVATE_KEY (PEM format)
+# - FRONTEND_URL
