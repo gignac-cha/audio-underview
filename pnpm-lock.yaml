@@ -243,36 +243,6 @@ importers:
 
   packages/sign-provider:
     dependencies:
-      '@audio-underview/apple-oauth-provider':
-        specifier: workspace:*
-        version: link:../apple-oauth-provider
-      '@audio-underview/discord-oauth-provider':
-        specifier: workspace:*
-        version: link:../discord-oauth-provider
-      '@audio-underview/facebook-oauth-provider':
-        specifier: workspace:*
-        version: link:../facebook-oauth-provider
-      '@audio-underview/github-oauth-provider':
-        specifier: workspace:*
-        version: link:../github-oauth-provider
-      '@audio-underview/google-oauth-provider':
-        specifier: workspace:*
-        version: link:../google-oauth-provider
-      '@audio-underview/kakao-oauth-provider':
-        specifier: workspace:*
-        version: link:../kakao-oauth-provider
-      '@audio-underview/linkedin-oauth-provider':
-        specifier: workspace:*
-        version: link:../linkedin-oauth-provider
-      '@audio-underview/microsoft-oauth-provider':
-        specifier: workspace:*
-        version: link:../microsoft-oauth-provider
-      '@audio-underview/naver-oauth-provider':
-        specifier: workspace:*
-        version: link:../naver-oauth-provider
-      '@audio-underview/x-oauth-provider':
-        specifier: workspace:*
-        version: link:../x-oauth-provider
       '@react-oauth/google':
         specifier: ^0.12.2
         version: 0.12.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
