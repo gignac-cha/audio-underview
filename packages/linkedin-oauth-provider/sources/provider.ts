@@ -108,7 +108,7 @@ export const linkedInOAuthProvider: OAuthProvider = {
 
     return {
       id: userInfo.sub,
-      email: userInfo.email ?? '',
+      email: userInfo.email ?? null,
       name: userInfo.name ?? userInfo.given_name ?? userInfo.sub,
       picture: userInfo.picture,
       provider: LINKEDIN_PROVIDER_ID,

@@ -10,7 +10,7 @@ export const X_REVOKE_ENDPOINT = 'https://api.twitter.com/2/oauth2/revoke';
 export const X_USER_INFO_ENDPOINT = 'https://api.twitter.com/2/users/me';
 
 // X OAuth 2.0 requires PKCE
-export const X_DEFAULT_SCOPES = ['users.read', 'tweet.read'];
+export const X_DEFAULT_SCOPES = ['users.read', 'tweet.read', 'offline.access'];
 
 export interface XOAuthConfiguration {
   clientID: string;
