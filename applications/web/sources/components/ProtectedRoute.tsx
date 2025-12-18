@@ -1,5 +1,5 @@
 import { Navigate } from 'react-router';
-import { useAuthentication } from '../contexts/AuthenticationContext.tsx';
+import { useSign } from '@audio-underview/sign-provider';
 import type { ReactNode } from 'react';
 
 interface ProtectedRouteProperties {
@@ -7,7 +7,7 @@ interface ProtectedRouteProperties {
 }
 
 export function ProtectedRoute({ children }: ProtectedRouteProperties) {
-  const { isAuthenticated, isLoading } = useAuthentication();
+  const { isAuthenticated, isLoading } = useSign();
 
   if (isLoading) {
     return (
