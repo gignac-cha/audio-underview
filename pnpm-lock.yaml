@@ -74,6 +74,9 @@ importers:
       '@radix-ui/react-toast':
         specifier: ^1.2.5
         version: 1.2.15(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@react-oauth/google':
+        specifier: ^0.12.2
+        version: 0.12.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@tanstack/react-query':
         specifier: ^5.75.0
         version: 5.90.12(react@19.2.3)
@@ -243,19 +246,9 @@ importers:
 
   packages/sign-provider:
     dependencies:
-      '@react-oauth/google':
-        specifier: ^0.12.2
-        version: 0.12.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      react:
-        specifier: ^19.1.0
-        version: 19.2.3
       zod:
         specifier: ^3.25.36
         version: 3.25.76
-    devDependencies:
-      '@types/react':
-        specifier: ^19.1.5
-        version: 19.2.7
 
   packages/x-oauth-provider:
     dependencies:

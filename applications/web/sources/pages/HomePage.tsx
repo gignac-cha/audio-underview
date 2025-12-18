@@ -1,11 +1,11 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faHeadphones, faSignOutAlt } from '@fortawesome/free-solid-svg-icons';
-import { useSign } from '@audio-underview/sign-provider';
+import { useAuthentication } from '../contexts/AuthenticationContext.tsx';
 import { UserAvatar } from '../components/UserAvatar.tsx';
 import './HomePage.scss';
 
 export function HomePage() {
-  const { user, logout } = useSign();
+  const { user, logout } = useAuthentication();
 
   return (
     <div className="home-page">

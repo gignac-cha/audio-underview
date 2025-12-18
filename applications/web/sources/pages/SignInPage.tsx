@@ -8,18 +8,19 @@ import {
   faFacebook,
   faGithub,
   faDiscord,
+  faGoogle,
 } from '@fortawesome/free-brands-svg-icons';
 import {
-  useSign,
-  SignInButtons,
+  useAuthentication,
   type OAuthProviderID,
   type ProviderDisplayConfiguration,
-} from '@audio-underview/sign-provider';
+} from '../contexts/AuthenticationContext.tsx';
+import { SignInButtons } from '../components/SignInButtons.tsx';
 import { useToast } from '../contexts/ToastContext.tsx';
 import './SignInPage.scss';
 
-// Icon mapping for providers
 const PROVIDER_ICONS: Partial<Record<OAuthProviderID, typeof faApple>> = {
+  google: faGoogle,
   apple: faApple,
   microsoft: faMicrosoft,
   facebook: faFacebook,
@@ -29,7 +30,7 @@ const PROVIDER_ICONS: Partial<Record<OAuthProviderID, typeof faApple>> = {
 
 export function SignInPage() {
   const navigate = useNavigate();
-  const { isAuthenticated } = useSign();
+  const { isAuthenticated } = useAuthentication();
   const { showError, showToast } = useToast();
 
   useEffect(() => {
@@ -44,7 +45,6 @@ export function SignInPage() {
   };
 
   const handleProviderClick = (providerID: OAuthProviderID) => {
-    // TODO: Implement OAuth flow for non-Google providers
     showToast(`${providerID} 로그인`, '아직 구현되지 않았습니다.', 'info');
     console.log(`Login with ${providerID} requested`);
   };

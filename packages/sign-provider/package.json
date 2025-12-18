@@ -15,14 +15,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@react-oauth/google": "^0.12.2",
-    "react": "^19.1.0",
     "zod": "^3.25.36"
-  },
-  "peerDependencies": {
-    "react": "^19.1.0"
-  },
-  "devDependencies": {
-    "@types/react": "^19.1.5"
   }
 }
