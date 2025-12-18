@@ -1,8 +1,23 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
-import { AuthenticationProvider, useAuthentication } from './contexts/AuthenticationContext.tsx';
+import {
+  AuthenticationProvider,
+  useAuthentication,
+  type OAuthProviderID,
+} from './contexts/AuthenticationContext.tsx';
 import { SignInPage } from './pages/SignInPage.tsx';
 import { HomePage } from './pages/HomePage.tsx';
 import { ProtectedRoute } from './components/ProtectedRoute.tsx';
+
+const ENABLED_PROVIDERS: OAuthProviderID[] = [
+  'google',
+  'apple',
+  'microsoft',
+  'facebook',
+  'github',
+  'discord',
+  'kakao',
+  'naver',
+];
 
 function RootRedirect() {
   const { isAuthenticated, isLoading } = useAuthentication();
@@ -39,10 +54,14 @@ function ApplicationRoutes() {
   );
 }
 
-export function Application() {
+interface ApplicationProps {
+  googleClientID: string;
+}
+
+export function Application({ googleClientID }: ApplicationProps) {
   return (
     <BrowserRouter>
-      <AuthenticationProvider>
+      <AuthenticationProvider googleClientID={googleClientID} enabledProviders={ENABLED_PROVIDERS}>
         <ApplicationRoutes />
       </AuthenticationProvider>
     </BrowserRouter>

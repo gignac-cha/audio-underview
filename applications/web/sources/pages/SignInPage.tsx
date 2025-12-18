@@ -1,16 +1,38 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
-import { GoogleLogin } from '@react-oauth/google';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { faHeadphones } from '@fortawesome/free-solid-svg-icons';
-import { useAuthentication } from '../contexts/AuthenticationContext.tsx';
+import {
+  faApple,
+  faMicrosoft,
+  faFacebook,
+  faGithub,
+  faDiscord,
+  faGoogle,
+} from '@fortawesome/free-brands-svg-icons';
+import {
+  useAuthentication,
+  type OAuthProviderID,
+  type ProviderDisplayConfiguration,
+} from '../contexts/AuthenticationContext.tsx';
+import { SignInButtons } from '../components/SignInButtons.tsx';
 import { useToast } from '../contexts/ToastContext.tsx';
 import './SignInPage.scss';
 
+const PROVIDER_ICONS: Partial<Record<OAuthProviderID, IconDefinition>> = {
+  google: faGoogle,
+  apple: faApple,
+  microsoft: faMicrosoft,
+  facebook: faFacebook,
+  github: faGithub,
+  discord: faDiscord,
+};
+
 export function SignInPage() {
   const navigate = useNavigate();
-  const { isAuthenticated, login } = useAuthentication();
-  const { showError } = useToast();
+  const { isAuthenticated } = useAuthentication();
+  const { showError, showToast } = useToast();
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -18,16 +40,28 @@ export function SignInPage() {
     }
   }, [isAuthenticated, navigate]);
 
-  const handleLoginSuccess = (credentialResponse: Parameters<typeof login>[0]) => {
-    const result = login(credentialResponse);
-    if (!result.success) {
-      showError('로그인에 실패했습니다.', result.error ?? '다시 시도해주세요.');
-    }
+  const handleError = (error: string, providerID: OAuthProviderID) => {
+    console.error(`${providerID} login failed:`, error);
+    showError('로그인에 실패했습니다.', error ?? '다시 시도해주세요.');
   };
 
-  const handleLoginError = () => {
-    console.error('Google login failed');
-    showError('로그인에 실패했습니다.', '다시 시도해주세요.');
+  const handleProviderClick = (providerID: OAuthProviderID) => {
+    showToast(`${providerID} 로그인`, '아직 구현되지 않았습니다.', 'info');
+    console.log(`Login with ${providerID} requested`);
+  };
+
+  const renderIcon = (providerID: OAuthProviderID, config: ProviderDisplayConfiguration) => {
+    const icon = PROVIDER_ICONS[providerID];
+
+    if (icon) {
+      return <FontAwesomeIcon icon={icon} className="social-icon" />;
+    }
+
+    if (config.iconType === 'text' && config.iconText) {
+      return <span className="social-icon-text">{config.iconText}</span>;
+    }
+
+    return <span className="social-icon-text">{config.displayName[0]}</span>;
   };
 
   return (
@@ -40,14 +74,11 @@ export function SignInPage() {
         </div>
 
         <div className="sign-in-button-container">
-          <GoogleLogin
-            onSuccess={handleLoginSuccess}
-            onError={handleLoginError}
-            theme="outline"
-            size="large"
-            shape="rectangular"
-            text="signin_with"
-            locale="en"
+          <SignInButtons
+            onError={handleError}
+            onProviderClick={handleProviderClick}
+            buttonClassName="social-login-button"
+            renderIcon={renderIcon}
           />
         </div>
       </div>
