@@ -105,7 +105,7 @@ export const appleOAuthProvider: OAuthProvider = {
     const queryParameters = parsedURL.searchParams;
 
     return {
-      code: queryParameters.get('code') ?? undefined,
+      code: queryParameters.get('code') ?? hashParameters.get('code') ?? undefined,
       state: queryParameters.get('state') ?? hashParameters.get('state') ?? undefined,
       error: queryParameters.get('error') ?? hashParameters.get('error') ?? undefined,
       errorDescription:
@@ -185,7 +185,7 @@ export function parseAppleUserFromIDToken(
       .filter(Boolean)
       .join(' ');
     if (nameParts) {
-      user.name = nameParts;
+      return { ...user, name: nameParts };
     }
   }
 

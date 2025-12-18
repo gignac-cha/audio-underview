@@ -126,11 +126,16 @@ function AuthenticationProviderInner({
         const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
           headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
         });
+        if (!response.ok) {
+          const errorBody = await response.text();
+          throw new Error(`Google API error (${response.status}): ${errorBody || response.statusText}`);
+        }
         const userInfo = await response.json();
         const userData = parseGoogleUserInfo(userInfo);
         saveUser(userData, tokenResponse.access_token);
-      } catch {
-        onGoogleError?.('Failed to fetch Google user info');
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to fetch Google user info';
+        onGoogleError?.(errorMessage);
       }
     },
     onError: () => {

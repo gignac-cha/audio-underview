@@ -20,10 +20,11 @@ export type OAuthProviderID = z.infer<typeof oauthProviderID>;
 
 /**
  * Standard OAuth user schema that all providers must conform to
+ * Note: email is optional as some providers (like X) may not provide it
  */
 export const oauthUserSchema = z.object({
   id: z.string().min(1, 'User ID is required'),
-  email: z.string().email('Invalid email format'),
+  email: z.string().email('Invalid email format').optional().nullable(),
   name: z.string().min(1, 'Name is required'),
   picture: z.string().url('Invalid picture URL').optional(),
   provider: oauthProviderID,

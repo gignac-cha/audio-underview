@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { faHeadphones } from '@fortawesome/free-solid-svg-icons';
 import {
   faApple,
@@ -19,7 +20,7 @@ import { SignInButtons } from '../components/SignInButtons.tsx';
 import { useToast } from '../contexts/ToastContext.tsx';
 import './SignInPage.scss';
 
-const PROVIDER_ICONS: Partial<Record<OAuthProviderID, typeof faApple>> = {
+const PROVIDER_ICONS: Partial<Record<OAuthProviderID, IconDefinition>> = {
   google: faGoogle,
   apple: faApple,
   microsoft: faMicrosoft,

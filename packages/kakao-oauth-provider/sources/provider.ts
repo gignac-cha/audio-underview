@@ -120,13 +120,12 @@ export const kakaoOAuthProvider: OAuthProvider = {
     const userResponse = parseKakaoUserResponse(data);
 
     const kakaoAccount = userResponse.kakao_account;
-    const profile = kakaoAccount?.profile ?? userResponse.properties;
+    const kakaoProfile = kakaoAccount?.profile;
+    const properties = userResponse.properties;
 
     const email = kakaoAccount?.email ?? `${userResponse.id}@kakao.com`;
-    const name = kakaoAccount?.name ?? profile?.nickname ?? `KakaoUser${userResponse.id}`;
-    const picture =
-      (profile as { profile_image_url?: string })?.profile_image_url ??
-      (profile as { profile_image?: string })?.profile_image;
+    const name = kakaoAccount?.name ?? kakaoProfile?.nickname ?? properties?.nickname ?? `KakaoUser${userResponse.id}`;
+    const picture = kakaoProfile?.profile_image_url ?? properties?.profile_image;
 
     return {
       id: userResponse.id.toString(),
