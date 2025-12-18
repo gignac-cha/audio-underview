@@ -12,6 +12,7 @@ import { z } from 'zod';
 import {
   type OAuthUser,
   type OAuthProviderID,
+  type LoginResult,
   parseStoredAuthenticationData,
   isAuthenticationExpired,
   createStoredAuthenticationData,
@@ -50,11 +51,6 @@ function parseGoogleUserInfo(userInfo: Record<string, unknown>): OAuthUser {
     picture: payload.picture,
     provider: 'google',
   };
-}
-
-interface LoginResult {
-  success: boolean;
-  error?: string;
 }
 
 interface AuthenticationContextValue {
@@ -127,7 +123,12 @@ function AuthenticationProviderInner({
           headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
         });
         if (!response.ok) {
-          const errorBody = await response.text();
+          let errorBody = '';
+          try {
+            errorBody = await response.text();
+          } catch {
+            // Ignore text parsing errors
+          }
           throw new Error(`Google API error (${response.status}): ${errorBody || response.statusText}`);
         }
         const userInfo = await response.json();

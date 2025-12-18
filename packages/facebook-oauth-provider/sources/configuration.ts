@@ -10,7 +10,7 @@ export const FACEBOOK_AUTHORIZATION_ENDPOINT = `https://www.facebook.com/${FACEB
 export const FACEBOOK_TOKEN_ENDPOINT = `https://graph.facebook.com/${FACEBOOK_GRAPH_API_VERSION}/oauth/access_token`;
 export const FACEBOOK_USER_INFO_ENDPOINT = `https://graph.facebook.com/${FACEBOOK_GRAPH_API_VERSION}/me`;
 
-export const FACEBOOK_DEFAULT_SCOPES = ['email', 'public_profile'];
+export const FACEBOOK_DEFAULT_SCOPES = ['email', 'public_profile'] as const;
 
 export interface FacebookOAuthConfiguration {
   clientID: string;
