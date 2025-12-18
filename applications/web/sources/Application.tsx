@@ -1,11 +1,23 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
-import { AuthenticationProvider, useAuthentication } from './contexts/AuthenticationContext.tsx';
+import { SignProvider, useSign, type OAuthProviderID } from '@audio-underview/sign-provider';
 import { SignInPage } from './pages/SignInPage.tsx';
 import { HomePage } from './pages/HomePage.tsx';
 import { ProtectedRoute } from './components/ProtectedRoute.tsx';
 
+// Enabled providers for this application
+const ENABLED_PROVIDERS: OAuthProviderID[] = [
+  'google',
+  'apple',
+  'microsoft',
+  'facebook',
+  'github',
+  'discord',
+  'kakao',
+  'naver',
+];
+
 function RootRedirect() {
-  const { isAuthenticated, isLoading } = useAuthentication();
+  const { isAuthenticated, isLoading } = useSign();
 
   if (isLoading) {
     return (
@@ -39,12 +51,16 @@ function ApplicationRoutes() {
   );
 }
 
-export function Application() {
+interface ApplicationProps {
+  googleClientID: string;
+}
+
+export function Application({ googleClientID }: ApplicationProps) {
   return (
     <BrowserRouter>
-      <AuthenticationProvider>
+      <SignProvider googleClientID={googleClientID} enabledProviders={ENABLED_PROVIDERS}>
         <ApplicationRoutes />
-      </AuthenticationProvider>
+      </SignProvider>
     </BrowserRouter>
   );
 }
