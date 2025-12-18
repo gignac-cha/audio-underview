@@ -1,17 +1,46 @@
 import type { OAuthProviderID } from '../types/index.ts';
 
 /**
- * Provider display configuration
+ * Base provider display configuration
  */
-export interface ProviderDisplayConfiguration {
+interface ProviderDisplayConfigurationBase {
   providerID: OAuthProviderID;
   displayName: string;
   backgroundColor: string;
   textColor: string;
-  iconType: 'fontawesome' | 'text' | 'custom';
-  iconName?: string;
-  iconText?: string;
 }
+
+/**
+ * FontAwesome icon configuration
+ */
+interface FontAwesomeIconConfiguration extends ProviderDisplayConfigurationBase {
+  iconType: 'fontawesome';
+  iconName: string;
+}
+
+/**
+ * Custom icon configuration
+ */
+interface CustomIconConfiguration extends ProviderDisplayConfigurationBase {
+  iconType: 'custom';
+  iconName?: string;
+}
+
+/**
+ * Text icon configuration
+ */
+interface TextIconConfiguration extends ProviderDisplayConfigurationBase {
+  iconType: 'text';
+  iconText: string;
+}
+
+/**
+ * Provider display configuration (discriminated union)
+ */
+export type ProviderDisplayConfiguration =
+  | FontAwesomeIconConfiguration
+  | CustomIconConfiguration
+  | TextIconConfiguration;
 
 /**
  * All supported provider display configurations

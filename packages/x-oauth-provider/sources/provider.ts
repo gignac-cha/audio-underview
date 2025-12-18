@@ -65,6 +65,11 @@ export const xOAuthProvider: OAuthProvider = {
   userInfoEndpoint: X_USER_INFO_ENDPOINT,
 
   buildAuthorizationURL(parameters: OAuthAuthorizationParameters): string {
+    // X requires PKCE - validate that codeChallenge is provided
+    if (!parameters.codeChallenge) {
+      throw new Error('X (Twitter) OAuth requires PKCE. Please provide a codeChallenge parameter.');
+    }
+
     const url = new URL(X_AUTHORIZATION_ENDPOINT);
 
     url.searchParams.set('client_id', parameters.clientID);
@@ -73,11 +78,9 @@ export const xOAuthProvider: OAuthProvider = {
     url.searchParams.set('scope', parameters.scopes.join(' '));
     url.searchParams.set('state', parameters.state);
 
-    // X requires PKCE
-    if (parameters.codeChallenge) {
-      url.searchParams.set('code_challenge', parameters.codeChallenge);
-      url.searchParams.set('code_challenge_method', parameters.codeChallengeMethod ?? 'S256');
-    }
+    // Set PKCE parameters
+    url.searchParams.set('code_challenge', parameters.codeChallenge);
+    url.searchParams.set('code_challenge_method', parameters.codeChallengeMethod ?? 'S256');
 
     // Add any additional parameters
     if (parameters.additionalParameters) {
@@ -110,7 +113,7 @@ export const xOAuthProvider: OAuthProvider = {
 
     return {
       id: user.id,
-      email: `${user.username}@x.com`, // Placeholder since X doesn't provide email by default
+      email: null, // X doesn't provide email by default
       name: user.name,
       picture: user.profile_image_url,
       provider: X_PROVIDER_ID,

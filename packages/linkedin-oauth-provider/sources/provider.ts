@@ -12,6 +12,7 @@ import {
   LINKEDIN_AUTHORIZATION_ENDPOINT,
   LINKEDIN_TOKEN_ENDPOINT,
   LINKEDIN_USER_INFO_ENDPOINT,
+  LINKEDIN_DEFAULT_SCOPES,
 } from './configuration.ts';
 
 /**
@@ -133,7 +134,7 @@ export function createLinkedInAuthorizationURL(
     clientID,
     redirectURI,
     responseType: options?.responseType ?? 'code',
-    scopes: options?.scopes ?? ['openid', 'profile', 'email'],
+    scopes: options?.scopes ?? LINKEDIN_DEFAULT_SCOPES,
     state,
     nonce: options?.nonce,
   };
