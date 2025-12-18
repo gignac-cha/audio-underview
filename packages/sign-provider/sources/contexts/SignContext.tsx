@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { GoogleOAuthProvider, googleLogout, type CredentialResponse } from '@react-oauth/google';
+import { z } from 'zod';
 import {
   type OAuthUser,
   type OAuthProviderID,
@@ -17,7 +18,42 @@ import {
   createStoredAuthenticationData,
 } from '../types/index.ts';
 import { jwtDecode } from '../tools/index.ts';
-import { parseGoogleUserFromIDToken } from '@audio-underview/google-oauth-provider';
+
+/**
+ * Google ID token payload schema for parsing
+ */
+const googleIDTokenPayloadSchema = z.object({
+  sub: z.string().min(1),
+  email: z.string().email(),
+  email_verified: z.boolean().optional(),
+  name: z.string().min(1),
+  picture: z.string().url().optional(),
+  given_name: z.string().optional(),
+  family_name: z.string().optional(),
+  locale: z.string().optional(),
+  hd: z.string().optional(),
+});
+
+/**
+ * Parse Google user data from decoded ID token
+ */
+function parseGoogleUserFromIDToken(decodedToken: Record<string, unknown>): OAuthUser {
+  const result = googleIDTokenPayloadSchema.safeParse(decodedToken);
+
+  if (!result.success) {
+    const errors = result.error.errors.map((error) => `${error.path.join('.')}: ${error.message}`).join(', ');
+    throw new Error(`Invalid Google ID token payload: ${errors}`);
+  }
+
+  const payload = result.data;
+  return {
+    id: payload.sub,
+    email: payload.email,
+    name: payload.name,
+    picture: payload.picture,
+    provider: 'google',
+  };
+}
 
 const DEFAULT_STORAGE_KEY = 'sign-provider-auth';
 

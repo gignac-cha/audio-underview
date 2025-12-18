@@ -15,16 +15,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@audio-underview/google-oauth-provider": "workspace:*",
-    "@audio-underview/apple-oauth-provider": "workspace:*",
-    "@audio-underview/microsoft-oauth-provider": "workspace:*",
-    "@audio-underview/facebook-oauth-provider": "workspace:*",
-    "@audio-underview/github-oauth-provider": "workspace:*",
-    "@audio-underview/x-oauth-provider": "workspace:*",
-    "@audio-underview/linkedin-oauth-provider": "workspace:*",
-    "@audio-underview/discord-oauth-provider": "workspace:*",
-    "@audio-underview/kakao-oauth-provider": "workspace:*",
-    "@audio-underview/naver-oauth-provider": "workspace:*",
     "@react-oauth/google": "^0.12.2",
     "react": "^19.1.0",
     "zod": "^3.25.36"
