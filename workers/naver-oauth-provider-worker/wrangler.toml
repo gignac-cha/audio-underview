@@ -1,0 +1,11 @@
+name = "naver-oauth-provider-worker"
+main = "sources/index.ts"
+compatibility_date = "2025-06-13"
+
+[vars]
+ALLOWED_ORIGINS = "http://localhost:3000"
+
+# Required secrets (set via wrangler secret put):
+# - NAVER_CLIENT_ID
+# - NAVER_CLIENT_SECRET
+# - FRONTEND_URL

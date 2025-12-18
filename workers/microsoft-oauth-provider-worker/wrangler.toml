@@ -1,0 +1,12 @@
+name = "microsoft-oauth-provider-worker"
+main = "sources/index.ts"
+compatibility_date = "2025-06-13"
+
+[vars]
+ALLOWED_ORIGINS = "http://localhost:3000"
+MICROSOFT_TENANT = "common"
+
+# Required secrets (set via wrangler secret put):
+# - MICROSOFT_CLIENT_ID
+# - MICROSOFT_CLIENT_SECRET
+# - FRONTEND_URL
