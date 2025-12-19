@@ -17,7 +17,7 @@ interface Environment {
   MICROSOFT_TENANT: string;
   FRONTEND_URL: string;
   ALLOWED_ORIGINS: string;
-  STATE_STORE: KVNamespace;
+  AUDIO_UNDERVIEW_OAUTH_STATE: KVNamespace;
 }
 
 interface OAuthErrorResponse {
@@ -131,7 +131,7 @@ async function handleAuthorize(
 
   // Store state data temporarily (5 minutes TTL)
   const stateData: StateData = { redirectURI, nonce };
-  await environment.STATE_STORE.put(state, JSON.stringify(stateData), { expirationTtl: 300 });
+  await environment.AUDIO_UNDERVIEW_OAUTH_STATE.put(state, JSON.stringify(stateData), { expirationTtl: 300 });
 
   // Build authorization URL
   const authorizationEndpoint = getMicrosoftAuthorizationEndpoint(tenant);
@@ -178,7 +178,7 @@ async function handleCallback(
   }
 
   // Verify state (CSRF protection)
-  const storedStateDataJSON = await environment.STATE_STORE.get(state);
+  const storedStateDataJSON = await environment.AUDIO_UNDERVIEW_OAUTH_STATE.get(state);
   if (!storedStateDataJSON) {
     const frontendURL = new URL(environment.FRONTEND_URL);
     frontendURL.searchParams.set('error', 'invalid_state');
@@ -189,7 +189,7 @@ async function handleCallback(
   const stateData: StateData = JSON.parse(storedStateDataJSON);
 
   // Delete used state
-  await environment.STATE_STORE.delete(state);
+  await environment.AUDIO_UNDERVIEW_OAUTH_STATE.delete(state);
 
   try {
     // Exchange code for tokens
