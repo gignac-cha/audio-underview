@@ -1,4 +1,4 @@
-name = "microsoft-oauth-provider-worker"
+name = "audio-underview-microsoft-oauth-provider-worker"
 main = "sources/index.ts"
 compatibility_date = "2025-06-13"
 
