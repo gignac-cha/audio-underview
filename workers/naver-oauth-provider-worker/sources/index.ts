@@ -13,7 +13,7 @@ interface Environment {
   NAVER_CLIENT_SECRET: string;
   FRONTEND_URL: string;
   ALLOWED_ORIGINS: string;
-  STATE_STORE: KVNamespace;
+  AUDIO_UNDERVIEW_OAUTH_STATE: KVNamespace;
 }
 
 interface OAuthErrorResponse {
@@ -116,7 +116,7 @@ async function handleAuthorize(
   const state = generateState();
 
   // Store state temporarily (5 minutes TTL)
-  await environment.STATE_STORE.put(state, redirectURI, { expirationTtl: 300 });
+  await environment.AUDIO_UNDERVIEW_OAUTH_STATE.put(state, redirectURI, { expirationTtl: 300 });
 
   // Build authorization URL
   // Naver doesn't use scopes in the authorization URL
@@ -161,7 +161,7 @@ async function handleCallback(
   }
 
   // Verify state (CSRF protection)
-  const storedRedirectURI = await environment.STATE_STORE.get(state);
+  const storedRedirectURI = await environment.AUDIO_UNDERVIEW_OAUTH_STATE.get(state);
   if (!storedRedirectURI) {
     const frontendURL = new URL(environment.FRONTEND_URL);
     frontendURL.searchParams.set('error', 'invalid_state');
@@ -170,7 +170,7 @@ async function handleCallback(
   }
 
   // Delete used state
-  await environment.STATE_STORE.delete(state);
+  await environment.AUDIO_UNDERVIEW_OAUTH_STATE.delete(state);
 
   try {
     // Exchange code for tokens
