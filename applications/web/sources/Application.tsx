@@ -6,6 +6,7 @@ import {
 } from './contexts/AuthenticationContext.tsx';
 import { SignInPage } from './pages/SignInPage.tsx';
 import { HomePage } from './pages/HomePage.tsx';
+import { AuthCallbackPage } from './pages/AuthCallbackPage.tsx';
 import { ProtectedRoute } from './components/ProtectedRoute.tsx';
 
 const ENABLED_PROVIDERS: OAuthProviderID[] = [
@@ -42,6 +43,7 @@ function ApplicationRoutes() {
     <Routes>
       <Route path="/" element={<RootRedirect />} />
       <Route path="/sign/in" element={<SignInPage />} />
+      <Route path="/auth/callback" element={<AuthCallbackPage />} />
       <Route
         path="/home"
         element={
@@ -56,12 +58,17 @@ function ApplicationRoutes() {
 
 interface ApplicationProps {
   googleClientID: string;
+  githubWorkerURL?: string;
 }
 
-export function Application({ googleClientID }: ApplicationProps) {
+export function Application({ googleClientID, githubWorkerURL }: ApplicationProps) {
   return (
     <BrowserRouter>
-      <AuthenticationProvider googleClientID={googleClientID} enabledProviders={ENABLED_PROVIDERS}>
+      <AuthenticationProvider
+        googleClientID={googleClientID}
+        githubWorkerURL={githubWorkerURL}
+        enabledProviders={ENABLED_PROVIDERS}
+      >
         <ApplicationRoutes />
       </AuthenticationProvider>
     </BrowserRouter>

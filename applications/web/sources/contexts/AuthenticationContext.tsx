@@ -59,6 +59,7 @@ interface AuthenticationContextValue {
   isLoading: boolean;
   enabledProviders: OAuthProviderID[];
   loginWithGoogle: () => void;
+  loginWithGitHub: () => void;
   loginWithProvider: (providerID: OAuthProviderID, user: OAuthUser, credential: string) => LoginResult;
   logout: () => void;
 }
@@ -70,6 +71,7 @@ interface AuthenticationProviderInnerProps {
   enabledProviders: OAuthProviderID[];
   storageKey: string;
   sessionDuration: number;
+  githubWorkerURL?: string;
   onGoogleError?: (error: string) => void;
 }
 
@@ -78,6 +80,7 @@ function AuthenticationProviderInner({
   enabledProviders,
   storageKey,
   sessionDuration,
+  githubWorkerURL,
   onGoogleError,
 }: AuthenticationProviderInnerProps) {
   const [user, setUser] = useState<OAuthUser | null>(null);
@@ -151,6 +154,21 @@ function AuthenticationProviderInner({
     [saveUser]
   );
 
+  const loginWithGitHub = useCallback(() => {
+    if (!githubWorkerURL) {
+      console.error('GitHub OAuth Worker URL is not configured');
+      return;
+    }
+
+    // Build the callback URL (current origin + /auth/callback)
+    const callbackURL = `${window.location.origin}/auth/callback`;
+    const authorizeURL = new URL('/authorize', githubWorkerURL);
+    authorizeURL.searchParams.set('redirect_uri', callbackURL);
+
+    // Redirect to GitHub OAuth Worker
+    window.location.href = authorizeURL.toString();
+  }, [githubWorkerURL]);
+
   const logout = useCallback(() => {
     if (user?.provider === 'google') {
       googleLogout();
@@ -166,10 +184,11 @@ function AuthenticationProviderInner({
       isLoading,
       enabledProviders,
       loginWithGoogle: googleLogin,
+      loginWithGitHub,
       loginWithProvider,
       logout,
     }),
-    [user, isLoading, enabledProviders, googleLogin, loginWithProvider, logout]
+    [user, isLoading, enabledProviders, googleLogin, loginWithGitHub, loginWithProvider, logout]
   );
 
   return <AuthenticationContext.Provider value={value}>{children}</AuthenticationContext.Provider>;
@@ -178,6 +197,7 @@ function AuthenticationProviderInner({
 export interface AuthenticationProviderProps {
   children: ReactNode;
   googleClientID?: string;
+  githubWorkerURL?: string;
   enabledProviders: OAuthProviderID[];
   storageKey?: string;
   sessionDuration?: number;
@@ -187,6 +207,7 @@ export interface AuthenticationProviderProps {
 export function AuthenticationProvider({
   children,
   googleClientID,
+  githubWorkerURL,
   enabledProviders,
   storageKey = DEFAULT_STORAGE_KEY,
   sessionDuration = 24 * 60 * 60 * 1000,
@@ -197,6 +218,7 @@ export function AuthenticationProvider({
       enabledProviders={enabledProviders}
       storageKey={storageKey}
       sessionDuration={sessionDuration}
+      githubWorkerURL={githubWorkerURL}
       onGoogleError={onGoogleError}
     >
       {children}
