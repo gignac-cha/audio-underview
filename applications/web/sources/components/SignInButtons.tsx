@@ -23,11 +23,16 @@ export function SignInButtons({
   style,
   renderIcon,
 }: SignInButtonsProps) {
-  const { enabledProviders, loginWithGoogle } = useAuthentication();
+  const { enabledProviders, loginWithGoogle, loginWithGitHub } = useAuthentication();
 
   const handleProviderClick = (providerID: OAuthProviderID) => {
     if (providerID === 'google') {
       loginWithGoogle();
+      return;
+    }
+
+    if (providerID === 'github') {
+      loginWithGitHub();
       return;
     }
 

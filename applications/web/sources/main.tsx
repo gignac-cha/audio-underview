@@ -21,7 +21,10 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <Application googleClientID={environment.VITE_GOOGLE_CLIENT_ID} />
+        <Application
+          googleClientID={environment.VITE_GOOGLE_CLIENT_ID}
+          githubWorkerURL={environment.VITE_GITHUB_OAUTH_WORKER_URL}
+        />
       </ToastProvider>
     </QueryClientProvider>
   </StrictMode>,
