@@ -1,4 +1,4 @@
-name = "apple-oauth-provider-worker"
+name = "audio-underview-apple-oauth-provider-worker"
 main = "sources/index.ts"
 compatibility_date = "2025-06-13"
 

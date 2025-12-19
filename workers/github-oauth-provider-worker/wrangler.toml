@@ -1,4 +1,4 @@
-name = "github-oauth-provider-worker"
+name = "audio-underview-github-oauth-provider-worker"
 main = "sources/index.ts"
 compatibility_date = "2025-06-13"
 
