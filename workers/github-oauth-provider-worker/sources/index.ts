@@ -207,6 +207,7 @@ async function handleCallback(
       headers: {
         Authorization: `Bearer ${tokens.access_token}`,
         Accept: 'application/vnd.github+json',
+        'User-Agent': 'audio-underview-oauth-worker',
         'X-GitHub-Api-Version': '2022-11-28',
       },
     });
@@ -228,6 +229,7 @@ async function handleCallback(
           headers: {
             Authorization: `Bearer ${tokens.access_token}`,
             Accept: 'application/vnd.github+json',
+            'User-Agent': 'audio-underview-oauth-worker',
             'X-GitHub-Api-Version': '2022-11-28',
           },
         });
