@@ -40,7 +40,7 @@ const googleUserInfoSchema = z.object({
 function parseGoogleUserInfo(userInfo: Record<string, unknown>): OAuthUser {
   const result = googleUserInfoSchema.safeParse(userInfo);
   if (!result.success) {
-    const errors = result.error.errors.map((error) => `${error.path.join('.')}: ${error.message}`).join(', ');
+    const errors = result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(', ');
     throw new Error(`Invalid Google user info: ${errors}`);
   }
   const payload = result.data;
