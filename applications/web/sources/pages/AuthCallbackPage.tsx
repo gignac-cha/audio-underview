@@ -57,7 +57,7 @@ export function AuthCallbackPage() {
         const validationResult = oAuthUserSchema.safeParse(parsedUserData);
 
         if (!validationResult.success) {
-          const errors = validationResult.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+          const errors = validationResult.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
           console.error('User data validation failed:', errors);
           throw new Error(`Invalid user data: ${errors}`);
         }
