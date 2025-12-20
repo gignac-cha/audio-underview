@@ -269,8 +269,8 @@ importers:
         version: link:../../packages/sign-provider
     devDependencies:
       '@cloudflare/workers-types':
-        specifier: ^4.20251220.0
-        version: 4.20251220.0
+        specifier: 4.20251119.0
+        version: 4.20251119.0
 
   workers/discord-oauth-provider-worker:
     dependencies:
@@ -282,8 +282,8 @@ importers:
         version: link:../../packages/sign-provider
     devDependencies:
       '@cloudflare/workers-types':
-        specifier: ^4.20251220.0
-        version: 4.20251220.0
+        specifier: 4.20251119.0
+        version: 4.20251119.0
 
   workers/facebook-oauth-provider-worker:
     dependencies:
@@ -295,8 +295,8 @@ importers:
         version: link:../../packages/sign-provider
     devDependencies:
       '@cloudflare/workers-types':
-        specifier: ^4.20251220.0
-        version: 4.20251220.0
+        specifier: 4.20251119.0
+        version: 4.20251119.0
 
   workers/github-oauth-provider-worker:
     dependencies:
@@ -308,8 +308,8 @@ importers:
         version: link:../../packages/sign-provider
     devDependencies:
       '@cloudflare/workers-types':
-        specifier: ^4.20251220.0
-        version: 4.20251220.0
+        specifier: 4.20251119.0
+        version: 4.20251119.0
 
   workers/google-oauth-provider-worker:
     dependencies:
@@ -321,8 +321,8 @@ importers:
         version: link:../../packages/sign-provider
     devDependencies:
       '@cloudflare/workers-types':
-        specifier: ^4.20251220.0
-        version: 4.20251220.0
+        specifier: 4.20251119.0
+        version: 4.20251119.0
 
   workers/kakao-oauth-provider-worker:
     dependencies:
@@ -334,8 +334,8 @@ importers:
         version: link:../../packages/sign-provider
     devDependencies:
       '@cloudflare/workers-types':
-        specifier: ^4.20251220.0
-        version: 4.20251220.0
+        specifier: 4.20251119.0
+        version: 4.20251119.0
 
   workers/microsoft-oauth-provider-worker:
     dependencies:
@@ -347,8 +347,8 @@ importers:
         version: link:../../packages/sign-provider
     devDependencies:
       '@cloudflare/workers-types':
-        specifier: ^4.20251220.0
-        version: 4.20251220.0
+        specifier: 4.20251119.0
+        version: 4.20251119.0
 
   workers/naver-oauth-provider-worker:
     dependencies:
@@ -360,8 +360,8 @@ importers:
         version: link:../../packages/sign-provider
     devDependencies:
       '@cloudflare/workers-types':
-        specifier: ^4.20251220.0
-        version: 4.20251220.0
+        specifier: 4.20251119.0
+        version: 4.20251119.0
 
 packages:
 
@@ -515,6 +515,9 @@ packages:
     engines: {node: '>=16'}
     cpu: [x64]
     os: [win32]
+
+  '@cloudflare/workers-types@4.20251119.0':
+    resolution: {integrity: sha512-DfCMGhqhvOow3NDViL3T9SgAtogc+xjtAKCfL+aWpVcAcct31P8FSFFRqlZCjcXJ5Kqw/TOjD/87UEAXAqaQZA==}
 
   '@cloudflare/workers-types@4.20251220.0':
     resolution: {integrity: sha512-TiWnrGblN9IOa0Hg8+D0EOkYTjMVcz3E+NhZnXCHLWh+JGNjx4Dp4mgBEVj1Cyu4rg9mzfEpKE0WG4gDawH55A==}
@@ -3748,7 +3751,10 @@ snapshots:
   '@cloudflare/workerd-windows-64@1.20251217.0':
     optional: true
 
-  '@cloudflare/workers-types@4.20251220.0': {}
+  '@cloudflare/workers-types@4.20251119.0': {}
+
+  '@cloudflare/workers-types@4.20251220.0':
+    optional: true
 
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
