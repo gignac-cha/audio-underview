@@ -19,6 +19,13 @@ import {
   PROVIDER_DISPLAY_CONFIGURATIONS,
   type ProviderDisplayConfiguration,
 } from '@audio-underview/sign-provider';
+import { createBrowserLogger } from '@audio-underview/logger';
+
+const authenticationLogger = createBrowserLogger({
+  defaultContext: {
+    module: 'AuthenticationContext',
+  },
+});
 
 const DEFAULT_STORAGE_KEY = 'sign-provider-auth';
 
@@ -124,10 +131,26 @@ function AuthenticationProviderInner({
 
   const googleLogin = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
+      const requestURL = 'https://www.googleapis.com/oauth2/v3/userinfo';
+      const timer = authenticationLogger.startTimer();
+
+      authenticationLogger.info('Starting Google user info fetch', undefined, {
+        function: 'googleLogin.onSuccess',
+      });
+
+      authenticationLogger.logRequest('Fetching Google user info', {
+        method: 'GET',
+        url: requestURL,
+        headers: { Authorization: 'Bearer [REDACTED]' },
+      }, { function: 'googleLogin.onSuccess' });
+
       try {
-        const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        const response = await fetch(requestURL, {
           headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
         });
+
+        const durationMilliseconds = timer();
+
         if (!response.ok) {
           let errorBody = '';
           try {
@@ -135,24 +158,75 @@ function AuthenticationProviderInner({
           } catch {
             // Ignore text parsing errors
           }
-          throw new Error(`Google API error (${response.status}): ${errorBody || response.statusText}`);
+
+          authenticationLogger.logAPIError(
+            'Google API request failed',
+            { method: 'GET', url: requestURL, headers: { Authorization: 'Bearer [REDACTED]' } },
+            { status: response.status, statusText: response.statusText, body: errorBody, durationMilliseconds },
+            new Error(`Google API error (${response.status}): ${errorBody ?? response.statusText}`),
+            { function: 'googleLogin.onSuccess' }
+          );
+
+          throw new Error(`Google API error (${response.status}): ${errorBody ?? response.statusText}`);
         }
+
         const userInfo = await response.json();
+
+        authenticationLogger.logResponse('Google user info fetch successful', {
+          status: response.status,
+          statusText: response.statusText,
+          durationMilliseconds,
+        }, { function: 'googleLogin.onSuccess' });
+
         const userData = parseGoogleUserInfo(userInfo);
+
+        authenticationLogger.info('Google user authenticated successfully', {
+          userID: userData.id,
+          email: userData.email,
+        }, { function: 'googleLogin.onSuccess' });
+
         saveUser(userData, tokenResponse.access_token);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Failed to fetch Google user info';
+
+        authenticationLogger.error('Google login failed', error, {
+          function: 'googleLogin.onSuccess',
+        });
+
         onGoogleError?.(errorMessage);
       }
     },
-    onError: () => {
+    onError: (errorResponse) => {
+      authenticationLogger.error('Google OAuth error', errorResponse, {
+        function: 'googleLogin.onError',
+      });
       onGoogleError?.('Google login failed');
     },
   });
 
   const loginWithProvider = useCallback(
-    (_providerID: OAuthProviderID, userData: OAuthUser, credential: string): LoginResult => {
-      return saveUser(userData, credential);
+    (providerID: OAuthProviderID, userData: OAuthUser, credential: string): LoginResult => {
+      authenticationLogger.info('Logging in with provider', {
+        providerID,
+        userID: userData.id,
+        email: userData.email,
+      }, { function: 'loginWithProvider' });
+
+      const result = saveUser(userData, credential);
+
+      if (result.success) {
+        authenticationLogger.info('Provider login successful', {
+          providerID,
+          userID: userData.id,
+        }, { function: 'loginWithProvider' });
+      } else {
+        authenticationLogger.error('Provider login failed', new Error(result.error), {
+          function: 'loginWithProvider',
+          metadata: { providerID },
+        });
+      }
+
+      return result;
     },
     [saveUser]
   );
@@ -162,7 +236,9 @@ function AuthenticationProviderInner({
   const loginWithGitHub = useCallback(() => {
     if (!githubWorkerURL) {
       const errorMessage = 'GitHub OAuth Worker URL is not configured';
-      console.error(errorMessage);
+      authenticationLogger.error(errorMessage, undefined, {
+        function: 'loginWithGitHub',
+      });
       onGitHubError?.(errorMessage);
       return;
     }
@@ -172,16 +248,28 @@ function AuthenticationProviderInner({
     const authorizeURL = new URL('/authorize', githubWorkerURL);
     authorizeURL.searchParams.set('redirect_uri', callbackURL);
 
+    authenticationLogger.info('Initiating GitHub OAuth flow', {
+      authorizeURL: authorizeURL.toString(),
+      callbackURL,
+    }, { function: 'loginWithGitHub' });
+
     // Redirect to GitHub OAuth Worker
     window.location.href = authorizeURL.toString();
   }, [githubWorkerURL, onGitHubError]);
 
   const logout = useCallback(() => {
+    authenticationLogger.info('User logging out', {
+      userID: user?.id,
+      provider: user?.provider,
+    }, { function: 'logout' });
+
     if (user?.provider === 'google') {
       googleLogout();
     }
     localStorage.removeItem(storageKey);
     setUser(null);
+
+    authenticationLogger.info('User logged out successfully', undefined, { function: 'logout' });
   }, [user, storageKey]);
 
   const value = useMemo<AuthenticationContextValue>(

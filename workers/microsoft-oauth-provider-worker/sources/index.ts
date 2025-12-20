@@ -10,6 +10,13 @@ import {
   jwtDecode,
   type OAuthUser,
 } from '@audio-underview/sign-provider';
+import { createWorkerLogger } from '@audio-underview/logger';
+
+const logger = createWorkerLogger({
+  defaultContext: {
+    module: 'microsoft-oauth-provider-worker',
+  },
+});
 
 interface Environment {
   MICROSOFT_CLIENT_ID: string;
@@ -69,7 +76,7 @@ function createCORSHeaders(origin: string, allowedOrigins: string): Headers {
   const isAllowed = origins.includes(origin) || origins.includes('*');
 
   if (!isAllowed) {
-    // Return minimal headers for disallowed origins
+    logger.debug('Origin not in allowed list', { origin, allowedOrigins }, { function: 'createCORSHeaders' });
     return headers;
   }
 
@@ -106,6 +113,10 @@ function errorResponse(
   origin: string,
   allowedOrigins: string
 ): Response {
+  logger.error('Error response', new Error(errorDescription), {
+    function: 'errorResponse',
+    metadata: { error, status },
+  });
   return jsonResponse(
     { error, errorDescription } satisfies OAuthErrorResponse,
     status,
@@ -125,7 +136,10 @@ async function handleAuthorize(
   const redirectURI = url.searchParams.get('redirect_uri');
   const tenant = url.searchParams.get('tenant') ?? environment.MICROSOFT_TENANT;
 
+  logger.info('Authorization request received', { redirectURI, tenant }, { function: 'handleAuthorize' });
+
   if (!redirectURI) {
+    logger.warn('Missing redirect_uri parameter', undefined, { function: 'handleAuthorize' });
     return new Response('Missing redirect_uri parameter', { status: 400 });
   }
 
@@ -133,9 +147,16 @@ async function handleAuthorize(
   const state = generateState();
   const nonce = generateNonce();
 
+  logger.debug('Generated state and nonce for CSRF protection', {
+    statePrefix: state.substring(0, 8),
+    noncePrefix: nonce.substring(0, 8),
+  }, { function: 'handleAuthorize' });
+
   // Store state data temporarily (5 minutes TTL)
   const stateData: StateData = { redirectURI, nonce };
   await environment.AUDIO_UNDERVIEW_OAUTH_STATE.put(state, JSON.stringify(stateData), { expirationTtl: 300 });
+
+  logger.debug('State stored in KV', undefined, { function: 'handleAuthorize' });
 
   // Build authorization URL
   const authorizationEndpoint = getMicrosoftAuthorizationEndpoint(tenant);
@@ -148,6 +169,12 @@ async function handleAuthorize(
   authorizationURL.searchParams.set('nonce', nonce);
   authorizationURL.searchParams.set('prompt', 'select_account');
 
+  logger.info('Redirecting to Microsoft authorization', {
+    authorizationURL: authorizationURL.origin + authorizationURL.pathname,
+    tenant,
+    scopes: MICROSOFT_DEFAULT_SCOPES,
+  }, { function: 'handleAuthorize' });
+
   return Response.redirect(authorizationURL.toString(), 302);
 }
 
@@ -159,11 +186,22 @@ async function handleCallback(
   environment: Environment
 ): Promise<Response> {
   const url = new URL(request.url);
+  const timer = logger.startTimer();
+
+  logger.info('Callback received from Microsoft', {
+    hasCode: url.searchParams.has('code'),
+    hasState: url.searchParams.has('state'),
+    hasError: url.searchParams.has('error'),
+  }, { function: 'handleCallback' });
 
   // Check for error from provider
   const error = url.searchParams.get('error');
   if (error) {
     const errorDescription = url.searchParams.get('error_description') ?? 'Unknown error';
+    logger.error('Microsoft returned error', new Error(error), {
+      function: 'handleCallback',
+      metadata: { error, errorDescription },
+    });
     const frontendURL = new URL(environment.FRONTEND_URL);
     frontendURL.searchParams.set('error', error);
     frontendURL.searchParams.set('error_description', errorDescription);
@@ -175,6 +213,10 @@ async function handleCallback(
   const state = url.searchParams.get('state');
 
   if (!code || !state) {
+    logger.error('Missing code or state parameter', undefined, {
+      function: 'handleCallback',
+      metadata: { hasCode: !!code, hasState: !!state },
+    });
     const frontendURL = new URL(environment.FRONTEND_URL);
     frontendURL.searchParams.set('error', 'invalid_request');
     frontendURL.searchParams.set('error_description', 'Missing code or state parameter');
@@ -184,6 +226,10 @@ async function handleCallback(
   // Verify state (CSRF protection)
   const storedStateDataJSON = await environment.AUDIO_UNDERVIEW_OAUTH_STATE.get(state);
   if (!storedStateDataJSON) {
+    logger.error('Invalid or expired state parameter', undefined, {
+      function: 'handleCallback',
+      metadata: { statePrefix: state.substring(0, 8) },
+    });
     const frontendURL = new URL(environment.FRONTEND_URL);
     frontendURL.searchParams.set('error', 'invalid_state');
     frontendURL.searchParams.set('error_description', 'Invalid or expired state parameter');
@@ -192,12 +238,23 @@ async function handleCallback(
 
   const stateData: StateData = JSON.parse(storedStateDataJSON);
 
+  logger.debug('State verified successfully', undefined, { function: 'handleCallback' });
+
   // Delete used state
   await environment.AUDIO_UNDERVIEW_OAUTH_STATE.delete(state);
 
   try {
     // Exchange code for tokens
+    logger.info('Exchanging code for tokens', undefined, { function: 'handleCallback' });
+
     const tokenEndpoint = getMicrosoftTokenEndpoint(environment.MICROSOFT_TENANT);
+
+    logger.logRequest('Token exchange request', {
+      method: 'POST',
+      url: tokenEndpoint,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    }, { function: 'handleCallback' });
+
     const tokenResponse = await fetch(tokenEndpoint, {
       method: 'POST',
       headers: {
@@ -214,7 +271,13 @@ async function handleCallback(
 
     if (!tokenResponse.ok) {
       const errorData = await tokenResponse.text();
-      console.error('Token exchange failed:', errorData);
+      logger.logAPIError(
+        'Token exchange failed',
+        { method: 'POST', url: tokenEndpoint },
+        { status: tokenResponse.status, statusText: tokenResponse.statusText, body: errorData },
+        new Error('Token exchange failed'),
+        { function: 'handleCallback' }
+      );
       const frontendURL = new URL(environment.FRONTEND_URL);
       frontendURL.searchParams.set('error', 'token_exchange_failed');
       frontendURL.searchParams.set('error_description', 'Failed to exchange authorization code for tokens');
@@ -223,14 +286,31 @@ async function handleCallback(
 
     const tokens: TokenResponse = await tokenResponse.json();
 
+    logger.info('Token exchange successful', {
+      tokenType: tokens.token_type,
+      hasIDToken: !!tokens.id_token,
+      expiresIn: tokens.expires_in,
+      scope: tokens.scope,
+    }, { function: 'handleCallback' });
+
     // Get user info
     let user: OAuthUser;
 
     if (tokens.id_token) {
       // Decode ID token to get user info
+      logger.info('Decoding ID token to get user info', undefined, { function: 'handleCallback' });
+
       const decoded = jwtDecode<MicrosoftIDTokenPayload>(tokens.id_token);
       const email = decoded.email ?? decoded.preferred_username ?? '';
       const name = decoded.name ?? decoded.given_name ?? email.split('@')[0] ?? '';
+
+      logger.info('ID token decoded successfully', {
+        userID: decoded.sub,
+        email,
+        hasName: !!decoded.name,
+        oid: decoded.oid,
+        tid: decoded.tid,
+      }, { function: 'handleCallback' });
 
       user = {
         id: decoded.sub,
@@ -240,6 +320,14 @@ async function handleCallback(
       };
     } else {
       // Fallback: fetch user info from Microsoft Graph API
+      logger.info('ID token not available, fetching user info from Graph API', undefined, { function: 'handleCallback' });
+
+      logger.logRequest('User info request', {
+        method: 'GET',
+        url: MICROSOFT_USER_INFO_ENDPOINT,
+        headers: { Authorization: 'Bearer [REDACTED]' },
+      }, { function: 'handleCallback' });
+
       const userInfoResponse = await fetch(MICROSOFT_USER_INFO_ENDPOINT, {
         headers: {
           Authorization: `Bearer ${tokens.access_token}`,
@@ -247,6 +335,14 @@ async function handleCallback(
       });
 
       if (!userInfoResponse.ok) {
+        const errorData = await userInfoResponse.text();
+        logger.logAPIError(
+          'User info fetch failed',
+          { method: 'GET', url: MICROSOFT_USER_INFO_ENDPOINT },
+          { status: userInfoResponse.status, statusText: userInfoResponse.statusText, body: errorData.substring(0, 200) },
+          new Error('User info fetch failed'),
+          { function: 'handleCallback' }
+        );
         const frontendURL = new URL(environment.FRONTEND_URL);
         frontendURL.searchParams.set('error', 'user_info_failed');
         frontendURL.searchParams.set('error_description', 'Failed to fetch user information');
@@ -257,6 +353,12 @@ async function handleCallback(
       const email = userInfo.mail ?? userInfo.userPrincipalName ?? '';
       const name = userInfo.displayName ?? [userInfo.givenName, userInfo.surname].filter(Boolean).join(' ') ?? '';
 
+      logger.info('User info fetched successfully', {
+        userID: userInfo.id,
+        email,
+        hasDisplayName: !!userInfo.displayName,
+      }, { function: 'handleCallback' });
+
       user = {
         id: userInfo.id,
         email,
@@ -264,6 +366,14 @@ async function handleCallback(
         provider: 'microsoft',
       };
     }
+
+    const durationMilliseconds = timer();
+
+    logger.info('OAuth flow completed successfully', {
+      userID: user.id,
+      email: user.email,
+      durationMilliseconds,
+    }, { function: 'handleCallback' });
 
     // Redirect to frontend with user data
     const frontendURL = new URL(stateData.redirectURI);
@@ -275,7 +385,7 @@ async function handleCallback(
 
     return Response.redirect(frontendURL.toString(), 302);
   } catch (error) {
-    console.error('Callback error:', error);
+    logger.error('Unexpected callback error', error, { function: 'handleCallback' });
     const frontendURL = new URL(environment.FRONTEND_URL);
     frontendURL.searchParams.set('error', 'server_error');
     frontendURL.searchParams.set('error_description', 'An unexpected error occurred');
@@ -288,6 +398,7 @@ async function handleCallback(
  */
 function handleOptions(request: Request, environment: Environment): Response {
   const origin = request.headers.get('Origin') ?? '';
+  logger.debug('CORS preflight request', { origin }, { function: 'handleOptions' });
   const headers = createCORSHeaders(origin, environment.ALLOWED_ORIGINS);
   return new Response(null, { status: 204, headers });
 }
@@ -296,6 +407,12 @@ export default {
   async fetch(request: Request, environment: Environment): Promise<Response> {
     const url = new URL(request.url);
     const origin = request.headers.get('Origin') ?? environment.FRONTEND_URL;
+
+    logger.info('Request received', {
+      method: request.method,
+      pathname: url.pathname,
+      origin,
+    }, { function: 'fetch' });
 
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
@@ -311,13 +428,15 @@ export default {
           return handleCallback(request, environment);
 
         case '/health':
+          logger.debug('Health check requested', undefined, { function: 'fetch' });
           return jsonResponse({ status: 'healthy', provider: 'microsoft' }, 200, origin, environment.ALLOWED_ORIGINS);
 
         default:
+          logger.warn('Unknown endpoint requested', { pathname: url.pathname }, { function: 'fetch' });
           return errorResponse('not_found', 'Endpoint not found', 404, origin, environment.ALLOWED_ORIGINS);
       }
     } catch (error) {
-      console.error('Worker error:', error);
+      logger.error('Unhandled worker error', error, { function: 'fetch' });
       return errorResponse(
         'server_error',
         'An unexpected error occurred',
