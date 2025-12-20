@@ -16,6 +16,6 @@
   },
   "dependencies": {
     "@audio-underview/sign-provider": "workspace:*",
-    "zod": "^3.25.36"
+    "zod": "^4.2.1"
   }
 }

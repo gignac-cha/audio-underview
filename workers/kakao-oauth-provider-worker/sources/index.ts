@@ -61,15 +61,19 @@ interface KakaoUserResponse {
 
 /**
  * Create CORS headers for the response
+ * Only sets full CORS headers when origin is in the allowed list
  */
 function createCORSHeaders(origin: string, allowedOrigins: string): Headers {
   const headers = new Headers();
   const origins = allowedOrigins.split(',').map((o) => o.trim());
+  const isAllowed = origins.includes(origin) || origins.includes('*');
 
-  if (origins.includes(origin) || origins.includes('*')) {
-    headers.set('Access-Control-Allow-Origin', origin);
+  if (!isAllowed) {
+    // Return minimal headers for disallowed origins
+    return headers;
   }
 
+  headers.set('Access-Control-Allow-Origin', origin);
   headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   headers.set('Access-Control-Allow-Headers', 'Content-Type');
   headers.set('Access-Control-Allow-Credentials', 'true');
