@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
+import styled from '@emotion/styled';
+import { keyframes } from '@emotion/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { faHeadphones } from '@fortawesome/free-solid-svg-icons';
@@ -18,7 +20,6 @@ import {
 } from '../contexts/AuthenticationContext.tsx';
 import { SignInButtons } from '../components/SignInButtons.tsx';
 import { useToast } from '../contexts/ToastContext.tsx';
-import './SignInPage.scss';
 
 const PROVIDER_ICONS: Partial<Record<OAuthProviderID, IconDefinition>> = {
   google: faGoogle,
@@ -28,6 +29,90 @@ const PROVIDER_ICONS: Partial<Record<OAuthProviderID, IconDefinition>> = {
   github: faGithub,
   discord: faDiscord,
 };
+
+const fadeUp = keyframes`
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+`;
+
+const PageContainer = styled.div`
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  position: relative;
+  background: radial-gradient(
+    circle at 50% 100%,
+    var(--bg-accent-dark) 0%,
+    var(--bg-deep) 50%
+  );
+`;
+
+const Container = styled.div`
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 2.5rem 2rem;
+  width: 100%;
+  max-width: 380px;
+  text-align: center;
+  box-shadow: var(--shadow-md);
+  animation: ${fadeUp} 0.4s ease-out;
+`;
+
+const Header = styled.div`
+  margin-bottom: 2rem;
+
+  h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem 0;
+    color: var(--text-primary);
+  }
+
+  p {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin: 0;
+  }
+`;
+
+const SignInIcon = styled.span`
+  font-size: 2.5rem;
+  color: var(--accent-primary);
+  margin-bottom: 1rem;
+  display: inline-block;
+`;
+
+const ButtonContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: center;
+`;
+
+const SocialIcon = styled.span`
+  font-size: 1.25rem;
+  width: 1.25rem;
+
+  svg {
+    font-size: 1.25rem;
+    width: 1.25rem;
+  }
+`;
+
+const SocialIconText = styled.span`
+  font-size: 1rem;
+  font-weight: 700;
+  width: 1.25rem;
+  text-align: center;
+`;
 
 export function SignInPage() {
   const navigate = useNavigate();
@@ -54,34 +139,39 @@ export function SignInPage() {
     const icon = PROVIDER_ICONS[providerID];
 
     if (icon) {
-      return <FontAwesomeIcon icon={icon} className="social-icon" />;
+      return (
+        <SocialIcon>
+          <FontAwesomeIcon icon={icon} />
+        </SocialIcon>
+      );
     }
 
     if (config.iconType === 'text' && config.iconText) {
-      return <span className="social-icon-text">{config.iconText}</span>;
+      return <SocialIconText>{config.iconText}</SocialIconText>;
     }
 
-    return <span className="social-icon-text">{config.displayName[0]}</span>;
+    return <SocialIconText>{config.displayName[0]}</SocialIconText>;
   };
 
   return (
-    <div className="sign-in-page">
-      <div className="sign-in-container">
-        <div className="sign-in-header">
-          <FontAwesomeIcon icon={faHeadphones} className="sign-in-icon" />
+    <PageContainer>
+      <Container>
+        <Header>
+          <SignInIcon>
+            <FontAwesomeIcon icon={faHeadphones} />
+          </SignInIcon>
           <h1>Audio Underview</h1>
           <p>Sign in to continue</p>
-        </div>
+        </Header>
 
-        <div className="sign-in-button-container">
+        <ButtonContainer>
           <SignInButtons
             onError={handleError}
             onProviderClick={handleProviderClick}
-            buttonClassName="social-login-button"
             renderIcon={renderIcon}
           />
-        </div>
-      </div>
-    </div>
+        </ButtonContainer>
+      </Container>
+    </PageContainer>
   );
 }
