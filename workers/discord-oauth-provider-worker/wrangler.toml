@@ -1,6 +1,6 @@
 name = "audio-underview-discord-oauth-provider-worker"
 main = "sources/index.ts"
-compatibility_date = "2025-06-13"
+compatibility_date = "2025-11-25"
 
 [[kv_namespaces]]
 binding = "AUDIO_UNDERVIEW_OAUTH_STATE"
