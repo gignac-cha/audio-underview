@@ -3,6 +3,13 @@ import { useNavigate, useSearchParams } from 'react-router';
 import { z } from 'zod';
 import { useAuthentication } from '../contexts/AuthenticationContext.tsx';
 import { useToast } from '../contexts/ToastContext.tsx';
+import { createBrowserLogger } from '@audio-underview/logger';
+
+const callbackLogger = createBrowserLogger({
+  defaultContext: {
+    module: 'AuthCallbackPage',
+  },
+});
 
 /**
  * Schema for validating OAuth user data from callback
@@ -32,11 +39,21 @@ export function AuthCallbackPage() {
       processingRef.current = true;
       setIsProcessing(true);
 
+      callbackLogger.info('Processing OAuth callback', {
+        hasUser: searchParameters.has('user'),
+        hasAccessToken: searchParameters.has('access_token'),
+        hasError: searchParameters.has('error'),
+      }, { function: 'processCallback' });
+
       try {
         // Check for error from OAuth provider
         const error = searchParameters.get('error');
         if (error) {
           const errorDescription = searchParameters.get('error_description') ?? 'Authentication failed';
+          callbackLogger.error('OAuth provider returned error', new Error(error), {
+            function: 'processCallback',
+            metadata: { error, errorDescription },
+          });
           showError('로그인 실패', errorDescription);
           navigate('/sign/in', { replace: true });
           return;
@@ -47,6 +64,10 @@ export function AuthCallbackPage() {
         const accessToken = searchParameters.get('access_token');
 
         if (!userParameter || !accessToken) {
+          callbackLogger.error('Missing authentication data in callback', undefined, {
+            function: 'processCallback',
+            metadata: { hasUser: !!userParameter, hasAccessToken: !!accessToken },
+          });
           showError('로그인 실패', 'Missing authentication data');
           navigate('/sign/in', { replace: true });
           return;
@@ -58,23 +79,42 @@ export function AuthCallbackPage() {
 
         if (!validationResult.success) {
           const errors = validationResult.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
-          console.error('User data validation failed:', errors);
+          callbackLogger.error('User data validation failed', new Error(errors), {
+            function: 'processCallback',
+            metadata: { validationErrors: validationResult.error.issues },
+          });
           throw new Error(`Invalid user data: ${errors}`);
         }
 
         const user = validationResult.data;
 
+        callbackLogger.info('OAuth callback data validated successfully', {
+          provider: user.provider,
+          userID: user.id,
+          email: user.email,
+        }, { function: 'processCallback' });
+
         // Login with the provider
         const result = loginWithProvider(user.provider, user, accessToken);
 
         if (result.success) {
+          callbackLogger.info('OAuth login successful, redirecting to home', {
+            provider: user.provider,
+            userID: user.id,
+          }, { function: 'processCallback' });
           navigate('/home', { replace: true });
         } else {
+          callbackLogger.error('Failed to save authentication', new Error(result.error ?? 'Unknown error'), {
+            function: 'processCallback',
+            metadata: { provider: user.provider },
+          });
           showError('로그인 실패', result.error ?? 'Failed to save authentication');
           navigate('/sign/in', { replace: true });
         }
       } catch (error) {
-        console.error('Failed to parse user data:', error);
+        callbackLogger.error('Failed to process OAuth callback', error, {
+          function: 'processCallback',
+        });
         showError('로그인 실패', 'Invalid authentication response');
         navigate('/sign/in', { replace: true });
       } finally {
