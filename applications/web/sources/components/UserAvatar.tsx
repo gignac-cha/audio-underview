@@ -45,7 +45,7 @@ const AvatarFallback = styled(Avatar.Fallback)<{ size: AvatarSize }>`
 export function UserAvatar({ user, size = 'default' }: UserAvatarProperties) {
   return (
     <AvatarRoot size={size}>
-      <AvatarImage src={user?.picture} alt={user?.name} />
+      <AvatarImage src={user?.picture} alt={user?.name ?? 'User avatar'} />
       <AvatarFallback size={size}>
         {user?.name?.charAt(0).toUpperCase()}
       </AvatarFallback>

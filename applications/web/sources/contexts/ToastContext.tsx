@@ -5,6 +5,12 @@ import * as Toast from '@radix-ui/react-toast';
 
 type ToastType = 'success' | 'error' | 'info';
 
+const TOAST_BORDER_COLORS: Record<ToastType, string> = {
+  error: 'var(--color-error)',
+  success: 'var(--color-success)',
+  info: 'var(--accent-primary)',
+};
+
 interface ToastMessage {
   id: string;
   title: string;
@@ -105,13 +111,7 @@ const StyledRoot = styled(Toast.Root)<{ toastType: ToastType }>`
     animation: ${swipeOut} 100ms ease-out;
   }
 
-  border-left: 3px solid
-    ${({ toastType }) =>
-      toastType === 'error'
-        ? 'var(--color-error)'
-        : toastType === 'success'
-          ? 'var(--color-success)'
-          : 'var(--accent-primary)'};
+  border-left: 3px solid ${({ toastType }) => TOAST_BORDER_COLORS[toastType]};
 `;
 
 const StyledTitle = styled(Toast.Title)`
