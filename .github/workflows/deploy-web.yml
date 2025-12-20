@@ -37,7 +37,7 @@ jobs:
         id: deploy
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy ./applications/web/outputs --project-name=audio-underview
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
