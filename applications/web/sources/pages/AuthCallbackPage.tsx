@@ -1,7 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { useAuthentication, type OAuthUser } from '../contexts/AuthenticationContext.tsx';
+import { z } from 'zod';
+import { useAuthentication } from '../contexts/AuthenticationContext.tsx';
 import { useToast } from '../contexts/ToastContext.tsx';
+
+/**
+ * Schema for validating OAuth user data from callback
+ */
+const oAuthUserSchema = z.object({
+  id: z.string().min(1),
+  email: z.string().email(),
+  name: z.string().min(1),
+  picture: z.string().url().optional(),
+  provider: z.enum(['google', 'github', 'apple', 'microsoft', 'facebook', 'discord', 'kakao', 'naver', 'linkedin', 'x']),
+});
 
 export function AuthCallbackPage() {
   const navigate = useNavigate();
@@ -9,35 +21,48 @@ export function AuthCallbackPage() {
   const { loginWithProvider } = useAuthentication();
   const { showError } = useToast();
   const [isProcessing, setIsProcessing] = useState(true);
+  const processingRef = useRef(false);
 
   useEffect(() => {
     const processCallback = () => {
-      // Check for error from OAuth provider
-      const error = searchParameters.get('error');
-      if (error) {
-        const errorDescription = searchParameters.get('error_description') ?? 'Authentication failed';
-        showError('로그인 실패', errorDescription);
-        navigate('/sign/in', { replace: true });
+      // Prevent re-entrancy
+      if (processingRef.current) {
         return;
       }
-
-      // Get user data and access token
-      const userParameter = searchParameters.get('user');
-      const accessToken = searchParameters.get('access_token');
-
-      if (!userParameter || !accessToken) {
-        showError('로그인 실패', 'Missing authentication data');
-        navigate('/sign/in', { replace: true });
-        return;
-      }
+      processingRef.current = true;
+      setIsProcessing(true);
 
       try {
-        const user: OAuthUser = JSON.parse(decodeURIComponent(userParameter));
-
-        // Validate required fields
-        if (!user.id || !user.email || !user.name || !user.provider) {
-          throw new Error('Invalid user data');
+        // Check for error from OAuth provider
+        const error = searchParameters.get('error');
+        if (error) {
+          const errorDescription = searchParameters.get('error_description') ?? 'Authentication failed';
+          showError('로그인 실패', errorDescription);
+          navigate('/sign/in', { replace: true });
+          return;
         }
+
+        // Get user data and access token
+        const userParameter = searchParameters.get('user');
+        const accessToken = searchParameters.get('access_token');
+
+        if (!userParameter || !accessToken) {
+          showError('로그인 실패', 'Missing authentication data');
+          navigate('/sign/in', { replace: true });
+          return;
+        }
+
+        // Parse and validate user data with Zod schema
+        const parsedUserData = JSON.parse(decodeURIComponent(userParameter));
+        const validationResult = oAuthUserSchema.safeParse(parsedUserData);
+
+        if (!validationResult.success) {
+          const errors = validationResult.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+          console.error('User data validation failed:', errors);
+          throw new Error(`Invalid user data: ${errors}`);
+        }
+
+        const user = validationResult.data;
 
         // Login with the provider
         const result = loginWithProvider(user.provider, user, accessToken);
@@ -54,10 +79,15 @@ export function AuthCallbackPage() {
         navigate('/sign/in', { replace: true });
       } finally {
         setIsProcessing(false);
+        processingRef.current = false;
       }
     };
 
     processCallback();
+
+    return () => {
+      processingRef.current = false;
+    };
   }, [searchParameters, loginWithProvider, navigate, showError]);
 
   if (isProcessing) {

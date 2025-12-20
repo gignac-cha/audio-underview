@@ -54,15 +54,19 @@ interface StateData {
 
 /**
  * Create CORS headers for the response
+ * Only sets full CORS headers when origin is in the allowed list
  */
 function createCORSHeaders(origin: string, allowedOrigins: string): Headers {
   const headers = new Headers();
   const origins = allowedOrigins.split(',').map((o) => o.trim());
+  const isAllowed = origins.includes(origin) || origins.includes('*');
 
-  if (origins.includes(origin) || origins.includes('*')) {
-    headers.set('Access-Control-Allow-Origin', origin);
+  if (!isAllowed) {
+    // Return minimal headers for disallowed origins
+    return headers;
   }
 
+  headers.set('Access-Control-Allow-Origin', origin);
   headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   headers.set('Access-Control-Allow-Headers', 'Content-Type');
   headers.set('Access-Control-Allow-Credentials', 'true');
@@ -252,7 +256,24 @@ async function handleCallback(
     return Response.redirect(frontendURL.toString(), 302);
   }
 
-  const stateData: StateData = JSON.parse(storedStateDataJSON);
+  // Parse and validate stored state data
+  let stateData: StateData;
+  try {
+    const parsed = JSON.parse(storedStateDataJSON);
+    // Validate StateData shape
+    if (typeof parsed !== 'object' || parsed === null ||
+        typeof parsed.redirectURI !== 'string' ||
+        typeof parsed.nonce !== 'string') {
+      throw new Error('Invalid state data structure');
+    }
+    stateData = parsed as StateData;
+  } catch (parseError) {
+    console.error('Failed to parse state data:', parseError, 'Raw data:', storedStateDataJSON);
+    const frontendURL = new URL(environment.FRONTEND_URL);
+    frontendURL.searchParams.set('error', 'invalid_state');
+    frontendURL.searchParams.set('error_description', 'Corrupted state data');
+    return Response.redirect(frontendURL.toString(), 302);
+  }
 
   // Delete used state
   await environment.AUDIO_UNDERVIEW_OAUTH_STATE.delete(state);

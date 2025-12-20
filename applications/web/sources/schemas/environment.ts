@@ -22,8 +22,5 @@ export function validateEnvironment(): Environment {
 }
 
 export function getEnvironment(): Environment {
-  return {
-    VITE_GOOGLE_CLIENT_ID: import.meta.env.VITE_GOOGLE_CLIENT_ID ?? '',
-    VITE_GITHUB_OAUTH_WORKER_URL: import.meta.env.VITE_GITHUB_OAUTH_WORKER_URL,
-  };
+  return validateEnvironment();
 }
