@@ -1,0 +1,20 @@
+{
+  "name": "@audio-underview/sign-provider",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./sources/index.ts",
+  "types": "./sources/index.ts",
+  "exports": {
+    ".": {
+      "types": "./sources/index.ts",
+      "import": "./sources/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.2.1"
+  }
+}
