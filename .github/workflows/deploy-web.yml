@@ -31,6 +31,7 @@ jobs:
         run: pnpm --filter @audio-underview/web build
         env:
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          VITE_GITHUB_OAUTH_WORKER_URL: ${{ vars.VITE_GITHUB_OAUTH_WORKER_URL }}
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
