@@ -1,0 +1,16 @@
+name = "audio-underview-microsoft-oauth-provider-worker"
+main = "sources/index.ts"
+compatibility_date = "2025-11-25"
+
+[[kv_namespaces]]
+binding = "AUDIO_UNDERVIEW_OAUTH_STATE"
+id = "6a8c4022e9984b0fb81957ed410ad9b0"
+
+[vars]
+ALLOWED_ORIGINS = "http://localhost:5173,https://audio-underview.pages.dev"
+MICROSOFT_TENANT = "common"
+
+# Required secrets (set via wrangler secret put):
+# - MICROSOFT_CLIENT_ID
+# - MICROSOFT_CLIENT_SECRET
+# - FRONTEND_URL

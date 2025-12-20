@@ -1,8 +1,24 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
-import { AuthenticationProvider, useAuthentication } from './contexts/AuthenticationContext.tsx';
+import {
+  AuthenticationProvider,
+  useAuthentication,
+  type OAuthProviderID,
+} from './contexts/AuthenticationContext.tsx';
 import { SignInPage } from './pages/SignInPage.tsx';
 import { HomePage } from './pages/HomePage.tsx';
+import { AuthCallbackPage } from './pages/AuthCallbackPage.tsx';
 import { ProtectedRoute } from './components/ProtectedRoute.tsx';
+
+const ENABLED_PROVIDERS: OAuthProviderID[] = [
+  'google',
+  'apple',
+  'microsoft',
+  'facebook',
+  'github',
+  'discord',
+  'kakao',
+  'naver',
+];
 
 function RootRedirect() {
   const { isAuthenticated, isLoading } = useAuthentication();
@@ -27,6 +43,7 @@ function ApplicationRoutes() {
     <Routes>
       <Route path="/" element={<RootRedirect />} />
       <Route path="/sign/in" element={<SignInPage />} />
+      <Route path="/auth/callback" element={<AuthCallbackPage />} />
       <Route
         path="/home"
         element={
@@ -39,10 +56,19 @@ function ApplicationRoutes() {
   );
 }
 
-export function Application() {
+interface ApplicationProps {
+  googleClientID: string;
+  githubWorkerURL?: string;
+}
+
+export function Application({ googleClientID, githubWorkerURL }: ApplicationProps) {
   return (
     <BrowserRouter>
-      <AuthenticationProvider>
+      <AuthenticationProvider
+        googleClientID={googleClientID}
+        githubWorkerURL={githubWorkerURL}
+        enabledProviders={ENABLED_PROVIDERS}
+      >
         <ApplicationRoutes />
       </AuthenticationProvider>
     </BrowserRouter>
