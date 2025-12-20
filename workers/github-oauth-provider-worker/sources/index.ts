@@ -213,9 +213,11 @@ async function handleCallback(
     });
 
     if (!userInfoResponse.ok) {
+      const errorData = await userInfoResponse.text();
+      console.error('User info fetch failed:', userInfoResponse.status, errorData);
       const frontendURL = new URL(environment.FRONTEND_URL);
       frontendURL.searchParams.set('error', 'user_info_failed');
-      frontendURL.searchParams.set('error_description', 'Failed to fetch user information');
+      frontendURL.searchParams.set('error_description', `GitHub API error: ${userInfoResponse.status} - ${errorData.substring(0, 100)}`);
       return Response.redirect(frontendURL.toString(), 302);
     }
 
