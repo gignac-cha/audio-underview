@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@audio-underview/kakao-oauth-provider": "workspace:*",
+    "@audio-underview/logger": "workspace:*",
     "@audio-underview/sign-provider": "workspace:*"
   },
   "devDependencies": {

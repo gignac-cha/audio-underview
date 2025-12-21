@@ -14,3 +14,8 @@ MICROSOFT_TENANT = "common"
 # - MICROSOFT_CLIENT_ID
 # - MICROSOFT_CLIENT_SECRET
 # - FRONTEND_URL
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true

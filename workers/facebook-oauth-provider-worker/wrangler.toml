@@ -13,3 +13,8 @@ ALLOWED_ORIGINS = "http://localhost:5173,https://audio-underview.pages.dev"
 # - FACEBOOK_CLIENT_ID (App ID)
 # - FACEBOOK_CLIENT_SECRET (App Secret)
 # - FRONTEND_URL
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
