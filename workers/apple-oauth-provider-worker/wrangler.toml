@@ -15,3 +15,8 @@ ALLOWED_ORIGINS = "http://localhost:5173,https://audio-underview.pages.dev"
 # - APPLE_KEY_ID
 # - APPLE_PRIVATE_KEY (PEM format)
 # - FRONTEND_URL
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
