@@ -32,6 +32,9 @@ importers:
 
   applications/web:
     dependencies:
+      '@audio-underview/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@audio-underview/sign-provider':
         specifier: workspace:*
         version: link:../../packages/sign-provider
@@ -226,6 +229,8 @@ importers:
         specifier: ^4.2.1
         version: 4.2.1
 
+  packages/logger: {}
+
   packages/microsoft-oauth-provider:
     dependencies:
       '@audio-underview/sign-provider':
@@ -264,6 +269,9 @@ importers:
       '@audio-underview/apple-oauth-provider':
         specifier: workspace:*
         version: link:../../packages/apple-oauth-provider
+      '@audio-underview/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@audio-underview/sign-provider':
         specifier: workspace:*
         version: link:../../packages/sign-provider
@@ -277,6 +285,9 @@ importers:
       '@audio-underview/discord-oauth-provider':
         specifier: workspace:*
         version: link:../../packages/discord-oauth-provider
+      '@audio-underview/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@audio-underview/sign-provider':
         specifier: workspace:*
         version: link:../../packages/sign-provider
@@ -290,6 +301,9 @@ importers:
       '@audio-underview/facebook-oauth-provider':
         specifier: workspace:*
         version: link:../../packages/facebook-oauth-provider
+      '@audio-underview/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@audio-underview/sign-provider':
         specifier: workspace:*
         version: link:../../packages/sign-provider
@@ -303,6 +317,9 @@ importers:
       '@audio-underview/github-oauth-provider':
         specifier: workspace:*
         version: link:../../packages/github-oauth-provider
+      '@audio-underview/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@audio-underview/sign-provider':
         specifier: workspace:*
         version: link:../../packages/sign-provider
@@ -316,6 +333,9 @@ importers:
       '@audio-underview/google-oauth-provider':
         specifier: workspace:*
         version: link:../../packages/google-oauth-provider
+      '@audio-underview/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@audio-underview/sign-provider':
         specifier: workspace:*
         version: link:../../packages/sign-provider
@@ -329,6 +349,9 @@ importers:
       '@audio-underview/kakao-oauth-provider':
         specifier: workspace:*
         version: link:../../packages/kakao-oauth-provider
+      '@audio-underview/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@audio-underview/sign-provider':
         specifier: workspace:*
         version: link:../../packages/sign-provider
@@ -339,6 +362,9 @@ importers:
 
   workers/microsoft-oauth-provider-worker:
     dependencies:
+      '@audio-underview/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@audio-underview/microsoft-oauth-provider':
         specifier: workspace:*
         version: link:../../packages/microsoft-oauth-provider
@@ -352,6 +378,9 @@ importers:
 
   workers/naver-oauth-provider-worker:
     dependencies:
+      '@audio-underview/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@audio-underview/naver-oauth-provider':
         specifier: workspace:*
         version: link:../../packages/naver-oauth-provider
