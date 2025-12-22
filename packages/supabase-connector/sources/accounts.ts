@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { traceDatabaseOperation, SpanStatusCode } from '@audio-underview/axiom-logger/tracers';
 import type {
   Database,
   SocialLoginInput,
@@ -23,22 +24,31 @@ export async function findAccount(
   client: SupabaseClientType,
   input: SocialLoginInput
 ): Promise<AccountRow | null> {
-  const { data, error } = await client
-    .from('accounts')
-    .select('*')
-    .eq('provider', input.provider)
-    .eq('identifier', input.identifier)
-    .single();
+  return traceDatabaseOperation(
+    { operation: 'select', table: 'accounts' },
+    async (span) => {
+      span.setAttribute('db.query.provider', input.provider);
 
-  if (error) {
-    if (error.code === 'PGRST116') {
-      // No rows found
-      return null;
+      const { data, error } = await client
+        .from('accounts')
+        .select('*')
+        .eq('provider', input.provider)
+        .eq('identifier', input.identifier)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          span.setAttribute('db.rows_affected', 0);
+          return null;
+        }
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw new Error(`Failed to find account: ${error.message}`);
+      }
+
+      span.setAttribute('db.rows_affected', 1);
+      return data as AccountRow;
     }
-    throw new Error(`Failed to find account: ${error.message}`);
-  }
-
-  return data as AccountRow;
+  );
 }
 
 /**
@@ -52,20 +62,30 @@ export async function findUser(
   client: SupabaseClientType,
   userUUID: string
 ): Promise<UserRow | null> {
-  const { data, error } = await client
-    .from('users')
-    .select('*')
-    .eq('uuid', userUUID)
-    .single();
+  return traceDatabaseOperation(
+    { operation: 'select', table: 'users' },
+    async (span) => {
+      span.setAttribute('db.query.uuid', userUUID);
 
-  if (error) {
-    if (error.code === 'PGRST116') {
-      return null;
+      const { data, error } = await client
+        .from('users')
+        .select('*')
+        .eq('uuid', userUUID)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          span.setAttribute('db.rows_affected', 0);
+          return null;
+        }
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw new Error(`Failed to find user: ${error.message}`);
+      }
+
+      span.setAttribute('db.rows_affected', 1);
+      return data as UserRow;
     }
-    throw new Error(`Failed to find user: ${error.message}`);
-  }
-
-  return data as UserRow;
+  );
 }
 
 /**
@@ -79,16 +99,26 @@ export async function getAccountsByUser(
   client: SupabaseClientType,
   userUUID: string
 ): Promise<AccountRow[]> {
-  const { data, error } = await client
-    .from('accounts')
-    .select('*')
-    .eq('uuid', userUUID);
+  return traceDatabaseOperation(
+    { operation: 'select', table: 'accounts' },
+    async (span) => {
+      span.setAttribute('db.query.uuid', userUUID);
 
-  if (error) {
-    throw new Error(`Failed to get accounts: ${error.message}`);
-  }
+      const { data, error } = await client
+        .from('accounts')
+        .select('*')
+        .eq('uuid', userUUID);
 
-  return (data ?? []) as AccountRow[];
+      if (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw new Error(`Failed to get accounts: ${error.message}`);
+      }
+
+      const accounts = (data ?? []) as AccountRow[];
+      span.setAttribute('db.rows_affected', accounts.length);
+      return accounts;
+    }
+  );
 }
 
 /**
@@ -100,19 +130,27 @@ export async function getAccountsByUser(
 export async function createUser(
   client: SupabaseClientType
 ): Promise<UserRow> {
-  const insertData: UserInsert = {};
+  return traceDatabaseOperation(
+    { operation: 'insert', table: 'users' },
+    async (span) => {
+      const insertData: UserInsert = {};
 
-  const { data, error } = await client
-    .from('users')
-    .insert(insertData as never)
-    .select()
-    .single();
+      const { data, error } = await client
+        .from('users')
+        .insert(insertData as never)
+        .select()
+        .single();
 
-  if (error) {
-    throw new Error(`Failed to create user: ${error.message}`);
-  }
+      if (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw new Error(`Failed to create user: ${error.message}`);
+      }
 
-  return data as UserRow;
+      span.setAttribute('db.rows_affected', 1);
+      span.setAttribute('db.created_uuid', (data as UserRow).uuid);
+      return data as UserRow;
+    }
+  );
 }
 
 /**
@@ -126,23 +164,33 @@ export async function createAccount(
   client: SupabaseClientType,
   input: SocialLoginInput & { userUUID: string }
 ): Promise<AccountRow> {
-  const insertData: AccountInsert = {
-    provider: input.provider,
-    identifier: input.identifier,
-    uuid: input.userUUID,
-  };
+  return traceDatabaseOperation(
+    { operation: 'insert', table: 'accounts' },
+    async (span) => {
+      span.setAttribute('db.insert.provider', input.provider);
+      span.setAttribute('db.insert.uuid', input.userUUID);
 
-  const { data, error } = await client
-    .from('accounts')
-    .insert(insertData as never)
-    .select()
-    .single();
+      const insertData: AccountInsert = {
+        provider: input.provider,
+        identifier: input.identifier,
+        uuid: input.userUUID,
+      };
 
-  if (error) {
-    throw new Error(`Failed to create account: ${error.message}`);
-  }
+      const { data, error } = await client
+        .from('accounts')
+        .insert(insertData as never)
+        .select()
+        .single();
 
-  return data as AccountRow;
+      if (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw new Error(`Failed to create account: ${error.message}`);
+      }
+
+      span.setAttribute('db.rows_affected', 1);
+      return data as AccountRow;
+    }
+  );
 }
 
 /**
@@ -265,18 +313,28 @@ export async function unlinkAccount(
   }
 
   // Delete the account
-  const { error } = await client
-    .from('accounts')
-    .delete()
-    .eq('provider', input.provider)
-    .eq('identifier', input.identifier)
-    .eq('uuid', userUUID);
+  return traceDatabaseOperation(
+    { operation: 'delete', table: 'accounts' },
+    async (span) => {
+      span.setAttribute('db.delete.provider', input.provider);
+      span.setAttribute('db.delete.uuid', userUUID);
 
-  if (error) {
-    throw new Error(`Failed to unlink account: ${error.message}`);
-  }
+      const { error } = await client
+        .from('accounts')
+        .delete()
+        .eq('provider', input.provider)
+        .eq('identifier', input.identifier)
+        .eq('uuid', userUUID);
 
-  return true;
+      if (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw new Error(`Failed to unlink account: ${error.message}`);
+      }
+
+      span.setAttribute('db.rows_affected', 1);
+      return true;
+    }
+  );
 }
 
 /**
@@ -290,12 +348,21 @@ export async function deleteUser(
   client: SupabaseClientType,
   userUUID: string
 ): Promise<boolean> {
-  // Accounts will be deleted via CASCADE
-  const { error } = await client.from('users').delete().eq('uuid', userUUID);
+  return traceDatabaseOperation(
+    { operation: 'delete', table: 'users' },
+    async (span) => {
+      span.setAttribute('db.delete.uuid', userUUID);
 
-  if (error) {
-    throw new Error(`Failed to delete user: ${error.message}`);
-  }
+      // Accounts will be deleted via CASCADE
+      const { error } = await client.from('users').delete().eq('uuid', userUUID);
 
-  return true;
+      if (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw new Error(`Failed to delete user: ${error.message}`);
+      }
+
+      span.setAttribute('db.rows_affected', 1);
+      return true;
+    }
+  );
 }
