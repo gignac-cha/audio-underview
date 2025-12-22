@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@audio-underview/axiom-logger": "workspace:*",
     "@audio-underview/sign-provider": "workspace:*",
     "@supabase/supabase-js": "^2.89.0"
   }
