@@ -25,7 +25,7 @@ export async function findAccount(
   input: SocialLoginInput
 ): Promise<AccountRow | null> {
   return traceDatabaseOperation(
-    { operation: 'select', table: 'accounts' },
+    { serviceName: 'supabase-connector', operation: 'select', table: 'accounts' },
     async (span) => {
       span.setAttribute('db.query.provider', input.provider);
 
@@ -63,7 +63,7 @@ export async function findUser(
   userUUID: string
 ): Promise<UserRow | null> {
   return traceDatabaseOperation(
-    { operation: 'select', table: 'users' },
+    { serviceName: 'supabase-connector', operation: 'select', table: 'users' },
     async (span) => {
       span.setAttribute('db.query.uuid', userUUID);
 
@@ -100,7 +100,7 @@ export async function getAccountsByUser(
   userUUID: string
 ): Promise<AccountRow[]> {
   return traceDatabaseOperation(
-    { operation: 'select', table: 'accounts' },
+    { serviceName: 'supabase-connector', operation: 'select', table: 'accounts' },
     async (span) => {
       span.setAttribute('db.query.uuid', userUUID);
 
@@ -131,7 +131,7 @@ export async function createUser(
   client: SupabaseClientType
 ): Promise<UserRow> {
   return traceDatabaseOperation(
-    { operation: 'insert', table: 'users' },
+    { serviceName: 'supabase-connector', operation: 'insert', table: 'users' },
     async (span) => {
       const insertData: UserInsert = {};
 
@@ -165,7 +165,7 @@ export async function createAccount(
   input: SocialLoginInput & { userUUID: string }
 ): Promise<AccountRow> {
   return traceDatabaseOperation(
-    { operation: 'insert', table: 'accounts' },
+    { serviceName: 'supabase-connector', operation: 'insert', table: 'accounts' },
     async (span) => {
       span.setAttribute('db.insert.provider', input.provider);
       span.setAttribute('db.insert.uuid', input.userUUID);
@@ -314,7 +314,7 @@ export async function unlinkAccount(
 
   // Delete the account
   return traceDatabaseOperation(
-    { operation: 'delete', table: 'accounts' },
+    { serviceName: 'supabase-connector', operation: 'delete', table: 'accounts' },
     async (span) => {
       span.setAttribute('db.delete.provider', input.provider);
       span.setAttribute('db.delete.uuid', userUUID);
@@ -349,7 +349,7 @@ export async function deleteUser(
   userUUID: string
 ): Promise<boolean> {
   return traceDatabaseOperation(
-    { operation: 'delete', table: 'users' },
+    { serviceName: 'supabase-connector', operation: 'delete', table: 'users' },
     async (span) => {
       span.setAttribute('db.delete.uuid', userUUID);
 

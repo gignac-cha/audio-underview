@@ -8,6 +8,11 @@ export type DatabaseOperation = 'select' | 'insert' | 'update' | 'delete';
  */
 export interface TraceDatabaseOperationOptions {
   /**
+   * Service name for identifying the source of the log
+   */
+  serviceName: string;
+
+  /**
    * Type of database operation
    */
   operation: DatabaseOperation;
