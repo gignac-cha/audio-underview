@@ -14,7 +14,7 @@ const TRACER_NAME = 'database';
  * @example
  * ```typescript
  * const user = await traceDatabaseOperation(
- *   { operation: 'insert', table: 'users' },
+ *   { serviceName: 'supabase-connector', operation: 'insert', table: 'users' },
  *   async (span) => {
  *     const { data, error } = await client.from('users').insert({}).select().single();
  *     if (error) {
@@ -35,6 +35,9 @@ export async function traceDatabaseOperation<T>(
   const spanName = `db.${options.operation} ${options.table}`;
 
   return tracer.startActiveSpan(spanName, async (span) => {
+    // Set service name for identifying the source
+    span.setAttribute('service.name', options.serviceName);
+
     // Set semantic convention attributes for database
     span.setAttribute('db.system', 'postgresql');
     span.setAttribute('db.name', 'supabase');
@@ -84,6 +87,9 @@ export function createDatabaseSpan(options: TraceDatabaseOperationOptions): Span
   const spanName = `db.${options.operation} ${options.table}`;
 
   const span = tracer.startSpan(spanName);
+
+  // Set service name for identifying the source
+  span.setAttribute('service.name', options.serviceName);
 
   span.setAttribute('db.system', 'postgresql');
   span.setAttribute('db.name', 'supabase');
