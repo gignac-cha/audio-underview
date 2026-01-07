@@ -10,9 +10,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@audio-underview/axiom-logger": "workspace:*",
     "@audio-underview/github-oauth-provider": "workspace:*",
     "@audio-underview/logger": "workspace:*",
-    "@audio-underview/sign-provider": "workspace:*"
+    "@audio-underview/sign-provider": "workspace:*",
+    "@audio-underview/supabase-connector": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "4.20251119.0"

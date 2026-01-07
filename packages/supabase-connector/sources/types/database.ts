@@ -54,7 +54,7 @@ export interface LinkAccountResult {
  */
 export interface SupabaseConnectorConfiguration {
   supabaseURL: string;
-  supabaseServiceRoleKey: string;
+  supabaseSecretKey: string;
 }
 
 /**

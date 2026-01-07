@@ -26,7 +26,7 @@ const DEFAULT_AXIOM_URL = 'https://api.axiom.co';
  * }));
  * ```
  */
-export function instrumentWorker<E extends Record<string, unknown>>(
+export function instrumentWorker<E>(
   handler: ExportedHandler<E>,
   configResolver: ConfigurationResolver<E>
 ): ExportedHandler<E> {

@@ -8,11 +8,15 @@ id = "6a8c4022e9984b0fb81957ed410ad9b0"
 
 [vars]
 ALLOWED_ORIGINS = "http://localhost:5173,https://audio-underview.pages.dev"
+AXIOM_DATASET = "audio-underview"
 
 # Required secrets (set via wrangler secret put):
 # - GITHUB_CLIENT_ID
 # - GITHUB_CLIENT_SECRET
 # - FRONTEND_URL
+# - SUPABASE_URL
+# - SUPABASE_SECRET_KEY
+# - AXIOM_API_TOKEN
 
 [observability.logs]
 enabled = true
