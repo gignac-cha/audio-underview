@@ -15,6 +15,26 @@ export {
   createDatabaseSpan,
 } from './tracers/index.ts';
 
+// Span utilities
+export {
+  getActiveSpan,
+  addSpanEvent,
+  setSpanAttribute,
+  setSpanAttributes,
+  setSpanError,
+  withSpan,
+} from './tracers/span.ts';
+
+// Log functions
+export {
+  log,
+  logDebug,
+  logInfo,
+  logWarn,
+  logError,
+  type LogLevel,
+} from './log.ts';
+
 // Re-export OpenTelemetry API for convenience
 export { SpanStatusCode, trace } from '@opentelemetry/api';
 export type { Span } from '@opentelemetry/api';

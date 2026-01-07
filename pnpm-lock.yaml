@@ -339,6 +339,9 @@ importers:
 
   workers/github-oauth-provider-worker:
     dependencies:
+      '@audio-underview/axiom-logger':
+        specifier: workspace:*
+        version: link:../../packages/axiom-logger
       '@audio-underview/github-oauth-provider':
         specifier: workspace:*
         version: link:../../packages/github-oauth-provider
@@ -348,6 +351,9 @@ importers:
       '@audio-underview/sign-provider':
         specifier: workspace:*
         version: link:../../packages/sign-provider
+      '@audio-underview/supabase-connector':
+        specifier: workspace:*
+        version: link:../../packages/supabase-connector
     devDependencies:
       '@cloudflare/workers-types':
         specifier: 4.20251119.0
@@ -355,6 +361,9 @@ importers:
 
   workers/google-oauth-provider-worker:
     dependencies:
+      '@audio-underview/axiom-logger':
+        specifier: workspace:*
+        version: link:../../packages/axiom-logger
       '@audio-underview/google-oauth-provider':
         specifier: workspace:*
         version: link:../../packages/google-oauth-provider
@@ -364,6 +373,9 @@ importers:
       '@audio-underview/sign-provider':
         specifier: workspace:*
         version: link:../../packages/sign-provider
+      '@audio-underview/supabase-connector':
+        specifier: workspace:*
+        version: link:../../packages/supabase-connector
     devDependencies:
       '@cloudflare/workers-types':
         specifier: 4.20251119.0
@@ -3693,6 +3705,7 @@ packages:
   wrangler@4.56.0:
     resolution: {integrity: sha512-Nqi8duQeRbA+31QrD6QlWHW3IZVnuuRxMy7DEg46deUzywivmaRV/euBN5KKXDPtA24VyhYsK7I0tkb7P5DM2w==}
     engines: {node: '>=20.0.0'}
+    deprecated: Version 4.55.0 and 4.56.0 can incorrectly automatically delegate 'wrangler deploy' to 'opennextjs-cloudflare'. Use an older or newer version.
     hasBin: true
     peerDependencies:
       '@cloudflare/workers-types': ^4.20251217.0

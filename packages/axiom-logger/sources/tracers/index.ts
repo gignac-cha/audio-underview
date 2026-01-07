@@ -3,6 +3,16 @@ export {
   createDatabaseSpan,
 } from './database.ts';
 
+// Span utilities
+export {
+  getActiveSpan,
+  addSpanEvent,
+  setSpanAttribute,
+  setSpanAttributes,
+  setSpanError,
+  withSpan,
+} from './span.ts';
+
 // Re-export types needed for tracing
 export type { TraceDatabaseOperationOptions, DatabaseOperation } from '../types/index.ts';
 
