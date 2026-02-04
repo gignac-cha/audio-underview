@@ -217,12 +217,32 @@ export async function handleSocialLogin(
     };
   }
 
-  // Create new user and account
+  // Create new user and account atomically (with rollback on failure)
   const newUser = await createUser(client);
-  await createAccount(client, {
-    ...input,
-    userUUID: newUser.uuid,
-  });
+
+  try {
+    await createAccount(client, {
+      ...input,
+      userUUID: newUser.uuid,
+    });
+  } catch (accountError) {
+    // Rollback: delete the newly created user to avoid orphaned records
+    try {
+      await deleteUser(client, newUser.uuid);
+    } catch (rollbackError) {
+      // Log rollback failure but throw the original error
+      const originalMessage =
+        accountError instanceof Error ? accountError.message : String(accountError);
+      const rollbackMessage =
+        rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+      throw new Error(
+        `Failed to create account: ${originalMessage}. ` +
+          `Additionally, rollback failed: ${rollbackMessage}. ` +
+          `Orphaned user UUID: ${newUser.uuid}`
+      );
+    }
+    throw accountError;
+  }
 
   return {
     userUUID: newUser.uuid,
