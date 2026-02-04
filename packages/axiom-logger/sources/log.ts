@@ -69,7 +69,7 @@ export function logError(
       ...(error && {
         'error.type': error.name,
         'error.message': error.message,
-        'error.stack': error.stack,
+        ...(error.stack !== undefined && { 'error.stack': error.stack }),
       }),
       'log.level': 'error',
     });
