@@ -339,20 +339,22 @@ export async function unlinkAccount(
       span.setAttribute('db.delete.provider', input.provider);
       span.setAttribute('db.delete.uuid', userUUID);
 
-      const { error } = await client
+      const { data, error } = await client
         .from('accounts')
         .delete()
         .eq('provider', input.provider)
         .eq('identifier', input.identifier)
-        .eq('uuid', userUUID);
+        .eq('uuid', userUUID)
+        .select();
 
       if (error) {
         span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
         throw new Error(`Failed to unlink account: ${error.message}`);
       }
 
-      span.setAttribute('db.rows_affected', 1);
-      return true;
+      const rowsAffected = data?.length ?? 0;
+      span.setAttribute('db.rows_affected', rowsAffected);
+      return rowsAffected > 0;
     }
   );
 }
