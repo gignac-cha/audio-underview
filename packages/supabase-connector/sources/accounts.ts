@@ -376,14 +376,25 @@ export async function deleteUser(
       span.setAttribute('db.delete.uuid', userUUID);
 
       // Accounts will be deleted via CASCADE
-      const { error } = await client.from('users').delete().eq('uuid', userUUID);
+      const { data, error } = await client
+        .from('users')
+        .delete()
+        .eq('uuid', userUUID)
+        .select();
 
       if (error) {
         span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
         throw new Error(`Failed to delete user: ${error.message}`);
       }
 
-      span.setAttribute('db.rows_affected', 1);
+      const rowsAffected = data?.length ?? 0;
+      span.setAttribute('db.rows_affected', rowsAffected);
+
+      if (rowsAffected === 0) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: 'User not found' });
+        throw new Error(`User not found: ${userUUID}`);
+      }
+
       return true;
     }
   );
