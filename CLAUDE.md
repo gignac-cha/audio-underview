@@ -75,7 +75,32 @@ const value = input || 'default';
 
 `||`는 falsy 값(0, '', false 등)을 모두 대체하지만, `??`는 null과 undefined만 대체합니다.
 
-### 5. Commit Message Convention
+### 5. Package Management with pnpm
+
+**`package.json` 파일을 직접 작성하지 않습니다. 항상 `pnpm init`과 `pnpm install`을 사용합니다.**
+
+```bash
+# Correct - 새 패키지 생성 시
+pnpm init
+pnpm install <package-name>@latest
+
+# Incorrect - package.json 직접 작성
+# Write tool로 package.json 전체를 작성하는 것은 금지
+```
+
+**의존성 추가/업데이트:**
+```bash
+# 의존성 추가
+pnpm install <package-name>
+
+# 최신 버전으로 업데이트
+pnpm install <package-name>@latest
+
+# workspace 패키지 참조
+pnpm install <workspace-package-name>@workspace:*
+```
+
+### 6. Commit Message Convention
 
 **커밋 메시지 첫 줄은 Conventional Commits 형식을 따르되, 줄임말을 풀어서 사용합니다.**
 
