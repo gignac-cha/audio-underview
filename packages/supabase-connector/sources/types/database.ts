@@ -58,22 +58,6 @@ export interface SupabaseConnectorConfiguration {
 }
 
 /**
- * User table insert type (uuid is auto-generated)
- */
-export interface UserInsert {
-  uuid?: string;
-}
-
-/**
- * Account table insert type
- */
-export interface AccountInsert {
-  provider: ProviderType;
-  identifier: string;
-  uuid: string;
-}
-
-/**
  * Database schema type for Supabase client
  * Follows Supabase GenericSchema format
  */
@@ -82,13 +66,17 @@ export interface Database {
     Tables: {
       users: {
         Row: UserRow;
-        Insert: UserInsert;
+        Insert: { uuid?: string };
         Update: Partial<UserRow>;
         Relationships: [];
       };
       accounts: {
         Row: AccountRow;
-        Insert: AccountInsert;
+        Insert: {
+          provider: ProviderType;
+          identifier: string;
+          uuid: string;
+        };
         Update: Partial<AccountRow>;
         Relationships: [
           {
@@ -109,3 +97,9 @@ export interface Database {
     CompositeTypes: Record<string, never>;
   };
 }
+
+/**
+ * Type aliases for table insert types (extracted from Database)
+ */
+export type UsersInsert = Database['public']['Tables']['users']['Insert'];
+export type AccountsInsert = Database['public']['Tables']['accounts']['Insert'];

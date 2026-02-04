@@ -7,8 +7,8 @@ import type {
   LinkAccountResult,
   AccountRow,
   UserRow,
-  AccountInsert,
-  UserInsert,
+  AccountsInsert,
+  UsersInsert,
 } from './types/index.ts';
 
 type SupabaseClientType = SupabaseClient<Database>;
@@ -133,7 +133,7 @@ export async function createUser(
   return traceDatabaseOperation(
     { serviceName: 'supabase-connector', operation: 'insert', table: 'users' },
     async (span) => {
-      const insertData: UserInsert = {};
+      const insertData: UsersInsert = {};
 
       const { data, error } = await client
         .from('users')
@@ -170,7 +170,7 @@ export async function createAccount(
       span.setAttribute('db.insert.provider', input.provider);
       span.setAttribute('db.insert.uuid', input.userUUID);
 
-      const insertData: AccountInsert = {
+      const insertData: AccountsInsert = {
         provider: input.provider,
         identifier: input.identifier,
         uuid: input.userUUID,
