@@ -18,8 +18,8 @@ export function log(
   const span = trace.getActiveSpan();
   if (span) {
     span.addEvent(message, {
-      'log.level': level,
       ...attributes,
+      'log.level': level,
     });
   }
 }
@@ -65,13 +65,13 @@ export function logError(
   const span = trace.getActiveSpan();
   if (span) {
     span.addEvent(message, {
-      'log.level': 'error',
+      ...attributes,
       ...(error && {
         'error.type': error.name,
         'error.message': error.message,
         'error.stack': error.stack,
       }),
-      ...attributes,
+      'log.level': 'error',
     });
     if (error) {
       span.recordException(error);
