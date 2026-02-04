@@ -10,6 +10,11 @@ import {
   type OAuthUser,
 } from '@audio-underview/sign-provider';
 import { createWorkerLogger } from '@audio-underview/logger';
+import { instrumentWorker } from '@audio-underview/axiom-logger';
+import {
+  createSupabaseClient,
+  handleSocialLogin,
+} from '@audio-underview/supabase-connector';
 
 const logger = createWorkerLogger({
   defaultContext: {
@@ -18,11 +23,18 @@ const logger = createWorkerLogger({
 });
 
 interface Environment {
+  // OAuth
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   FRONTEND_URL: string;
   ALLOWED_ORIGINS: string;
   AUDIO_UNDERVIEW_OAUTH_STATE: KVNamespace;
+  // Supabase
+  SUPABASE_URL: string;
+  SUPABASE_SECRET_KEY: string;
+  // Axiom
+  AXIOM_API_TOKEN: string;
+  AXIOM_DATASET: string;
 }
 
 interface OAuthErrorResponse {
@@ -265,6 +277,7 @@ async function handleCallback(
     }, { function: 'handleCallback' });
 
     // Get user info
+    let userID: string;
     let user: OAuthUser;
 
     if (tokens.id_token) {
@@ -279,6 +292,7 @@ async function handleCallback(
         emailVerified: decoded.email_verified,
       }, { function: 'handleCallback' });
 
+      userID = decoded.sub;
       user = {
         id: decoded.sub,
         email: decoded.email,
@@ -325,6 +339,7 @@ async function handleCallback(
         emailVerified: userInfo.email_verified,
       }, { function: 'handleCallback' });
 
+      userID = userInfo.sub;
       user = {
         id: userInfo.sub,
         email: userInfo.email,
@@ -333,6 +348,23 @@ async function handleCallback(
         provider: 'google',
       };
     }
+
+    // Handle social login with Supabase
+    const supabase = createSupabaseClient({
+      supabaseURL: environment.SUPABASE_URL,
+      supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    });
+
+    const socialLoginResult = await handleSocialLogin(supabase, {
+      provider: 'google',
+      identifier: userID,
+    });
+
+    logger.info('Social login handled', {
+      userUUID: socialLoginResult.userUUID,
+      isNewUser: socialLoginResult.isNewUser,
+      isNewAccount: socialLoginResult.isNewAccount,
+    }, { function: 'handleCallback' });
 
     const durationMilliseconds = timer();
 
@@ -349,6 +381,9 @@ async function handleCallback(
     if (tokens.id_token) {
       frontendURL.searchParams.set('id_token', tokens.id_token);
     }
+
+    // Include user UUID from Supabase
+    frontendURL.searchParams.set('uuid', socialLoginResult.userUUID);
 
     return Response.redirect(frontendURL.toString(), 302);
   } catch (error) {
@@ -370,8 +405,8 @@ function handleOptions(request: Request, environment: Environment): Response {
   return new Response(null, { status: 204, headers });
 }
 
-export default {
-  async fetch(request: Request, environment: Environment): Promise<Response> {
+const handler: ExportedHandler<Environment> = {
+  async fetch(request, environment): Promise<Response> {
     const url = new URL(request.url);
     const origin = request.headers.get('Origin') ?? environment.FRONTEND_URL;
 
@@ -414,3 +449,9 @@ export default {
     }
   },
 };
+
+export default instrumentWorker(handler, (environment) => ({
+  token: environment.AXIOM_API_TOKEN,
+  dataset: environment.AXIOM_DATASET,
+  serviceName: 'google-oauth-provider-worker',
+}));
