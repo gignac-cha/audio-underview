@@ -49,9 +49,7 @@ export function setSpanAttributes(
 ): void {
   const span = trace.getActiveSpan();
   if (span) {
-    for (const [key, value] of Object.entries(attributes)) {
-      span.setAttribute(key, value);
-    }
+    span.setAttributes(attributes);
   }
 }
 
