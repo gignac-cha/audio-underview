@@ -2,11 +2,29 @@ name: Deploy Web to Cloudflare Pages
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'applications/web/**'
+      - 'packages/**'
+  pull_request:
+    branches: [main]
+    types: [labeled, synchronize]
+    paths:
+      - 'applications/web/**'
+      - 'packages/**'
+
+concurrency:
+  group: deploy-web-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     name: Deploy to Cloudflare Pages
+    if: >-
+      github.event_name != 'pull_request'
+      || contains(github.event.pull_request.labels.*.name, 'preview')
     permissions:
       contents: read
       deployments: write
