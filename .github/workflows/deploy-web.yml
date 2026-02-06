@@ -93,7 +93,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy ./applications/web/outputs --project-name=audio-underview
+          command: pages deploy ./applications/web/outputs --project-name=audio-underview --branch=${{ github.head_ref || github.ref_name }}
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set deployment status on commit
