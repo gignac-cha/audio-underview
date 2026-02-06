@@ -28,6 +28,9 @@ jobs:
     permissions:
       contents: read
       deployments: write
+    environment:
+      name: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
+      url: ${{ steps.deploy.outputs.deployment-url }}
 
     steps:
       - name: Checkout code
