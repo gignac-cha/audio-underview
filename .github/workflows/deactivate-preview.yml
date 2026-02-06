@@ -1,0 +1,20 @@
+name: Deactivate Preview Environment
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+jobs:
+  deactivate:
+    runs-on: ubuntu-latest
+    name: Deactivate preview environment
+    permissions:
+      deployments: write
+    steps:
+      - name: Deactivate preview deployments
+        uses: strumwolf/delete-deployment-environment@v3
+        with:
+          environment: preview
+          token: ${{ secrets.GITHUB_TOKEN }}
+          onlyDeactivateDeployments: true
