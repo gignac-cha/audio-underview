@@ -24,7 +24,7 @@ jobs:
     name: Deploy to Cloudflare Pages
     if: >-
       github.event_name != 'pull_request'
-      || contains(github.event.pull_request.labels.*.name, 'preview')
+      || contains(github.event.pull_request.labels.*.name, '/deploy:preview')
     permissions:
       contents: read
       deployments: write
