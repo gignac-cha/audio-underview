@@ -19,8 +19,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+    name: Quality check
+    if: >-
+      github.event_name != 'pull_request'
+      || contains(github.event.pull_request.labels.*.name, '/deploy:preview')
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '25'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm --filter @audio-underview/web typecheck
+
+      - name: Lint
+        run: pnpm --filter @audio-underview/web lint
+
   deploy:
     runs-on: ubuntu-latest
+    needs: quality
     name: Deploy to Cloudflare Pages
     if: >-
       github.event_name != 'pull_request'
@@ -80,3 +112,12 @@ jobs:
               context: 'Cloudflare Pages',
               description: success ? deploymentURL : 'Deployment failed',
             });
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "### Deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Key | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Environment | ${{ github.event_name == 'pull_request' && 'preview' || 'production' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| URL | ${{ steps.deploy.outputs.deployment-url }} |" >> "$GITHUB_STEP_SUMMARY"
