@@ -16,7 +16,7 @@ export interface SignInButtonsProps {
 }
 
 export function SignInButtons({
-  onError,
+  onError: _onError,
   onProviderClick,
   className,
   buttonClassName,
