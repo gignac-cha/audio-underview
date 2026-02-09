@@ -152,10 +152,12 @@ export function SignInPage() {
         <SocialIcon>
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            viewBox={`0 0 ${config.svgViewBox} ${config.svgViewBox}`}
+            viewBox={config.svgViewBox}
             fill="currentColor"
             width="1.25em"
             height="1.25em"
+            role="img"
+            aria-label={`${config.displayName} logo`}
           >
             <path d={config.svgPath} />
           </svg>
