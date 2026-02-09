@@ -315,6 +315,9 @@ importers:
       '@audio-underview/sign-provider':
         specifier: workspace:*
         version: link:../../packages/sign-provider
+      '@audio-underview/worker-tools':
+        specifier: workspace:*
+        version: link:../tools
     devDependencies:
       '@cloudflare/workers-types':
         specifier: 4.20251119.0
@@ -331,6 +334,9 @@ importers:
       '@audio-underview/sign-provider':
         specifier: workspace:*
         version: link:../../packages/sign-provider
+      '@audio-underview/worker-tools':
+        specifier: workspace:*
+        version: link:../tools
     devDependencies:
       '@cloudflare/workers-types':
         specifier: 4.20251119.0
@@ -347,6 +353,9 @@ importers:
       '@audio-underview/sign-provider':
         specifier: workspace:*
         version: link:../../packages/sign-provider
+      '@audio-underview/worker-tools':
+        specifier: workspace:*
+        version: link:../tools
     devDependencies:
       '@cloudflare/workers-types':
         specifier: 4.20251119.0
@@ -369,6 +378,9 @@ importers:
       '@audio-underview/supabase-connector':
         specifier: workspace:*
         version: link:../../packages/supabase-connector
+      '@audio-underview/worker-tools':
+        specifier: workspace:*
+        version: link:../tools
     devDependencies:
       '@cloudflare/workers-types':
         specifier: 4.20251119.0
@@ -391,6 +403,9 @@ importers:
       '@audio-underview/supabase-connector':
         specifier: workspace:*
         version: link:../../packages/supabase-connector
+      '@audio-underview/worker-tools':
+        specifier: workspace:*
+        version: link:../tools
     devDependencies:
       '@cloudflare/workers-types':
         specifier: 4.20251119.0
@@ -407,6 +422,9 @@ importers:
       '@audio-underview/sign-provider':
         specifier: workspace:*
         version: link:../../packages/sign-provider
+      '@audio-underview/worker-tools':
+        specifier: workspace:*
+        version: link:../tools
     devDependencies:
       '@cloudflare/workers-types':
         specifier: 4.20251119.0
@@ -423,6 +441,9 @@ importers:
       '@audio-underview/sign-provider':
         specifier: workspace:*
         version: link:../../packages/sign-provider
+      '@audio-underview/worker-tools':
+        specifier: workspace:*
+        version: link:../tools
     devDependencies:
       '@cloudflare/workers-types':
         specifier: 4.20251119.0
@@ -436,6 +457,22 @@ importers:
       '@audio-underview/naver-oauth-provider':
         specifier: workspace:*
         version: link:../../packages/naver-oauth-provider
+      '@audio-underview/sign-provider':
+        specifier: workspace:*
+        version: link:../../packages/sign-provider
+      '@audio-underview/worker-tools':
+        specifier: workspace:*
+        version: link:../tools
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: 4.20251119.0
+        version: 4.20251119.0
+
+  workers/tools:
+    dependencies:
+      '@audio-underview/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@audio-underview/sign-provider':
         specifier: workspace:*
         version: link:../../packages/sign-provider
