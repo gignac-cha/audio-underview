@@ -128,7 +128,7 @@ export function SignInPage() {
 
   const handleError = (error: string, providerID: OAuthProviderID) => {
     console.error(`${providerID} login failed:`, error);
-    showError('로그인에 실패했습니다.', error ?? '다시 시도해주세요.');
+    showError('로그인에 실패했습니다.', error || '다시 시도해주세요.');
   };
 
   const handleProviderClick = (providerID: OAuthProviderID) => {
@@ -136,7 +136,7 @@ export function SignInPage() {
     console.log(`Login with ${providerID} requested`);
   };
 
-  const renderIcon = (providerID: OAuthProviderID, config: ProviderDisplayConfiguration) => {
+  const renderIcon = (providerID: OAuthProviderID, configuration: ProviderDisplayConfiguration) => {
     const icon = PROVIDER_ICONS[providerID];
 
     if (icon) {
@@ -147,29 +147,29 @@ export function SignInPage() {
       );
     }
 
-    if (config.iconType === 'svg') {
+    if (configuration.iconType === 'svg') {
       return (
         <SocialIcon>
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            viewBox={config.svgViewBox}
+            viewBox={configuration.svgViewBox}
             fill="currentColor"
             width="1.25em"
             height="1.25em"
             role="img"
-            aria-label={`${config.displayName} logo`}
+            aria-label={`${configuration.displayName} logo`}
           >
-            <path d={config.svgPath} />
+            <path d={configuration.svgPath} />
           </svg>
         </SocialIcon>
       );
     }
 
-    if (config.iconType === 'text') {
-      return <SocialIconText>{config.iconText}</SocialIconText>;
+    if (configuration.iconType === 'text') {
+      return <SocialIconText>{configuration.iconText}</SocialIconText>;
     }
 
-    return <SocialIconText>{config.displayName[0]}</SocialIconText>;
+    return <SocialIconText>{configuration.displayName[0]}</SocialIconText>;
   };
 
   return (

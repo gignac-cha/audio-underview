@@ -12,7 +12,7 @@ export interface SignInButtonsProps {
   className?: string;
   buttonClassName?: string;
   style?: CSSProperties;
-  renderIcon?: (providerID: OAuthProviderID, config: ProviderDisplayConfiguration) => ReactNode;
+  renderIcon?: (providerID: OAuthProviderID, configuration: ProviderDisplayConfiguration) => ReactNode;
 }
 
 export function SignInButtons({
@@ -44,7 +44,7 @@ export function SignInButtons({
   };
 
   const renderProviderButton = (providerID: OAuthProviderID) => {
-    const config = PROVIDER_DISPLAY_CONFIGURATIONS[providerID];
+    const configuration = PROVIDER_DISPLAY_CONFIGURATIONS[providerID];
 
     const buttonStyle: CSSProperties = {
       display: 'flex',
@@ -58,8 +58,8 @@ export function SignInButtons({
       fontSize: '0.875rem',
       fontWeight: 500,
       cursor: 'pointer',
-      backgroundColor: config.backgroundColor,
-      color: config.textColor,
+      backgroundColor: configuration.backgroundColor,
+      color: configuration.textColor,
       transition: 'opacity 0.2s, transform 0.1s',
     };
 
@@ -82,13 +82,13 @@ export function SignInButtons({
         onMouseUp={(event) => (event.currentTarget.style.transform = 'scale(1)')}
       >
         {renderIcon ? (
-          renderIcon(providerID, config)
-        ) : config.iconType === 'text' ? (
-          <span style={iconStyle}>{config.iconText}</span>
+          renderIcon(providerID, configuration)
+        ) : configuration.iconType === 'text' ? (
+          <span style={iconStyle}>{configuration.iconText}</span>
         ) : (
-          <span style={iconStyle}>{config.displayName[0]}</span>
+          <span style={iconStyle}>{configuration.displayName[0]}</span>
         )}
-        <span style={{ flex: 1, textAlign: 'left' }}>Sign in with {config.displayName}</span>
+        <span style={{ flex: 1, textAlign: 'left' }}>Sign in with {configuration.displayName}</span>
       </button>
     );
   };
