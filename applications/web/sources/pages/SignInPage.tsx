@@ -46,6 +46,7 @@ const PageContainer = styled.div`
   justify-content: center;
   align-items: center;
   min-height: 100vh;
+  padding: 1rem;
   position: relative;
   background: radial-gradient(
     circle at 50% 100%,
@@ -58,16 +59,16 @@ const Container = styled.div`
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: 16px;
-  padding: 2.5rem 2rem;
+  padding: 2.5rem 1.5rem;
   width: 100%;
-  max-width: 380px;
+  max-width: 420px;
   text-align: center;
   box-shadow: var(--shadow-md);
   animation: ${fadeUp} 0.4s ease-out;
 `;
 
 const Header = styled.div`
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
 
   h1 {
     font-size: 1.5rem;
@@ -94,7 +95,7 @@ const ButtonContainer = styled.div`
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  align-items: center;
+  align-items: stretch;
 `;
 
 const SocialIcon = styled.span`
