@@ -150,7 +150,7 @@ async function handleCallback(
         new Error('Token exchange failed'),
         { function: 'handleCallback' }
       );
-      return redirectToFrontendWithError(environment.FRONTEND_URL, 'token_exchange_failed', 'Failed to exchange authorization code for tokens');
+      return redirectToFrontendWithError(environment.FRONTEND_URL, 'token_exchange_failed', 'Failed to exchange authorization code for tokens', logger);
     }
 
     const tokens: TokenResponse = await tokenResponse.json();
@@ -164,7 +164,8 @@ async function handleCallback(
       return redirectToFrontendWithError(
         environment.FRONTEND_URL,
         (tokens as { error: string }).error,
-        (tokens as { error_description?: string }).error_description ?? 'Token exchange failed'
+        (tokens as { error_description?: string }).error_description ?? 'Token exchange failed',
+        logger
       );
     }
 
@@ -197,7 +198,8 @@ async function handleCallback(
       return redirectToFrontendWithError(
         environment.FRONTEND_URL,
         'user_info_failed',
-        `GitHub API error: ${userInfoResponse.status} - ${errorData.substring(0, 100)}`
+        'Failed to fetch user information from GitHub',
+        logger
       );
     }
 
@@ -279,7 +281,7 @@ async function handleCallback(
     return Response.redirect(frontendURL.toString(), 302);
   } catch (error) {
     logger.error('Unexpected callback error', error, { function: 'handleCallback' });
-    return redirectToFrontendWithError(environment.FRONTEND_URL, 'server_error', 'An unexpected error occurred');
+    return redirectToFrontendWithError(environment.FRONTEND_URL, 'server_error', 'An unexpected error occurred', logger);
   }
 }
 

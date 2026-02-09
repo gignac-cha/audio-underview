@@ -3,6 +3,12 @@ import type { BaseEnvironment } from './types.ts';
 
 export function createCORSHeaders(origin: string, allowedOrigins: string, logger: Logger): Headers {
   const headers = new Headers();
+
+  if (!origin) {
+    logger.debug('Empty origin, skipping CORS headers', undefined, { function: 'createCORSHeaders' });
+    return headers;
+  }
+
   const origins = allowedOrigins.split(',').map((o) => o.trim());
   const isAllowed = origins.includes(origin) || origins.includes('*');
 
@@ -11,10 +17,15 @@ export function createCORSHeaders(origin: string, allowedOrigins: string, logger
     return headers;
   }
 
-  headers.set('Access-Control-Allow-Origin', origin);
+  if (origins.includes('*')) {
+    headers.set('Access-Control-Allow-Origin', '*');
+  } else {
+    headers.set('Access-Control-Allow-Origin', origin);
+    headers.set('Access-Control-Allow-Credentials', 'true');
+  }
+
   headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   headers.set('Access-Control-Allow-Headers', 'Content-Type');
-  headers.set('Access-Control-Allow-Credentials', 'true');
 
   return headers;
 }

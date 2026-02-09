@@ -152,7 +152,7 @@ async function handleCallback(
         new Error('Token exchange failed'),
         { function: 'handleCallback' }
       );
-      return redirectToFrontendWithError(environment.FRONTEND_URL, 'token_exchange_failed', 'Failed to exchange authorization code for tokens');
+      return redirectToFrontendWithError(environment.FRONTEND_URL, 'token_exchange_failed', 'Failed to exchange authorization code for tokens', logger);
     }
 
     const tokens: TokenResponse = await tokenResponse.json();
@@ -211,7 +211,7 @@ async function handleCallback(
           new Error('User info fetch failed'),
           { function: 'handleCallback' }
         );
-        return redirectToFrontendWithError(environment.FRONTEND_URL, 'user_info_failed', 'Failed to fetch user information');
+        return redirectToFrontendWithError(environment.FRONTEND_URL, 'user_info_failed', 'Failed to fetch user information', logger);
       }
 
       const userInfo: GoogleUserInfo = await userInfoResponse.json();
@@ -270,7 +270,7 @@ async function handleCallback(
     return Response.redirect(frontendURL.toString(), 302);
   } catch (error) {
     logger.error('Unexpected callback error', error, { function: 'handleCallback' });
-    return redirectToFrontendWithError(environment.FRONTEND_URL, 'server_error', 'An unexpected error occurred');
+    return redirectToFrontendWithError(environment.FRONTEND_URL, 'server_error', 'An unexpected error occurred', logger);
   }
 }
 

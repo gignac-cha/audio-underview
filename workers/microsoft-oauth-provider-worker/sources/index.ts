@@ -137,10 +137,20 @@ async function handleCallback(
       function: 'handleCallback',
       metadata: { statePrefix: state.substring(0, 8) },
     });
-    return redirectToFrontendWithError(environment.FRONTEND_URL, 'invalid_state', 'Invalid or expired state parameter');
+    return redirectToFrontendWithError(environment.FRONTEND_URL, 'invalid_state', 'Invalid or expired state parameter', logger);
   }
 
-  const stateData: StateData = JSON.parse(storedStateDataJSON);
+  let stateData: StateData;
+  try {
+    stateData = JSON.parse(storedStateDataJSON);
+  } catch (parseError) {
+    logger.error('Failed to parse state data from KV', parseError, {
+      function: 'handleCallback',
+      metadata: { statePrefix: state.substring(0, 8) },
+    });
+    await environment.AUDIO_UNDERVIEW_OAUTH_STATE.delete(state);
+    return redirectToFrontendWithError(environment.FRONTEND_URL, 'invalid_state', 'Corrupted state data', logger);
+  }
 
   logger.debug('State verified successfully', undefined, { function: 'handleCallback' });
 
@@ -180,7 +190,7 @@ async function handleCallback(
         new Error('Token exchange failed'),
         { function: 'handleCallback' }
       );
-      return redirectToFrontendWithError(environment.FRONTEND_URL, 'token_exchange_failed', 'Failed to exchange authorization code for tokens');
+      return redirectToFrontendWithError(environment.FRONTEND_URL, 'token_exchange_failed', 'Failed to exchange authorization code for tokens', logger);
     }
 
     const tokens: TokenResponse = await tokenResponse.json();
@@ -239,7 +249,7 @@ async function handleCallback(
           new Error('User info fetch failed'),
           { function: 'handleCallback' }
         );
-        return redirectToFrontendWithError(environment.FRONTEND_URL, 'user_info_failed', 'Failed to fetch user information');
+        return redirectToFrontendWithError(environment.FRONTEND_URL, 'user_info_failed', 'Failed to fetch user information', logger);
       }
 
       const userInfo: MicrosoftUserInfo = await userInfoResponse.json();
@@ -278,7 +288,7 @@ async function handleCallback(
     return Response.redirect(frontendURL.toString(), 302);
   } catch (error) {
     logger.error('Unexpected callback error', error, { function: 'handleCallback' });
-    return redirectToFrontendWithError(environment.FRONTEND_URL, 'server_error', 'An unexpected error occurred');
+    return redirectToFrontendWithError(environment.FRONTEND_URL, 'server_error', 'An unexpected error occurred', logger);
   }
 }
 

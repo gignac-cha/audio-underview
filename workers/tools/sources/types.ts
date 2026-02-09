@@ -1,5 +1,11 @@
 import type { Logger } from '@audio-underview/logger';
 
+export interface ResponseContext {
+  origin: string;
+  allowedOrigins: string;
+  logger: Logger;
+}
+
 export interface OAuthErrorResponse {
   error: string;
   errorDescription?: string;

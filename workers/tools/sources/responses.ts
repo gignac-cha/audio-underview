@@ -1,15 +1,13 @@
 import type { Logger } from '@audio-underview/logger';
-import type { OAuthErrorResponse } from './types.ts';
+import type { OAuthErrorResponse, ResponseContext } from './types.ts';
 import { createCORSHeaders } from './cors.ts';
 
 export function jsonResponse(
   data: unknown,
   status: number,
-  origin: string,
-  allowedOrigins: string,
-  logger: Logger
+  context: ResponseContext
 ): Response {
-  const headers = createCORSHeaders(origin, allowedOrigins, logger);
+  const headers = createCORSHeaders(context.origin, context.allowedOrigins, context.logger);
   headers.set('Content-Type', 'application/json');
 
   return new Response(JSON.stringify(data), { status, headers });
@@ -19,30 +17,41 @@ export function errorResponse(
   error: string,
   errorDescription: string,
   status: number,
-  origin: string,
-  allowedOrigins: string,
-  logger: Logger
+  context: ResponseContext
 ): Response {
-  logger.error('Error response', new Error(errorDescription), {
+  context.logger.error('Error response', new Error(errorDescription), {
     function: 'errorResponse',
     metadata: { error, status },
   });
   return jsonResponse(
     { error, errorDescription } satisfies OAuthErrorResponse,
     status,
-    origin,
-    allowedOrigins,
-    logger
+    context
   );
 }
 
 export function redirectToFrontendWithError(
   frontendURL: string,
   error: string,
-  errorDescription: string
+  errorDescription: string,
+  logger: Logger
 ): Response {
-  const redirectURL = new URL(frontendURL);
-  redirectURL.searchParams.set('error', error);
-  redirectURL.searchParams.set('error_description', errorDescription);
-  return Response.redirect(redirectURL.toString(), 302);
+  try {
+    const redirectURL = new URL(frontendURL);
+    redirectURL.searchParams.set('error', error);
+    redirectURL.searchParams.set('error_description', errorDescription);
+    return Response.redirect(redirectURL.toString(), 302);
+  } catch (urlError) {
+    logger.error('Invalid frontend URL for redirect', urlError, {
+      function: 'redirectToFrontendWithError',
+      metadata: { frontendURL, error, errorDescription },
+    });
+    return new Response(
+      JSON.stringify({ error, error_description: errorDescription }),
+      {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }
 }

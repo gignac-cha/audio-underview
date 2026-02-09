@@ -1,4 +1,4 @@
-import type { BaseEnvironment, OAuthWorkerOptions } from './types.ts';
+import type { BaseEnvironment, OAuthWorkerOptions, ResponseContext } from './types.ts';
 import { handleOptions } from './cors.ts';
 import { jsonResponse, errorResponse } from './responses.ts';
 
@@ -22,32 +22,31 @@ export function createOAuthWorkerHandler<Environment extends BaseEnvironment>(
         return handleOptions(request, environment, logger);
       }
 
+      const context: ResponseContext = {
+        origin,
+        allowedOrigins: environment.ALLOWED_ORIGINS,
+        logger,
+      };
+
       try {
         switch (url.pathname) {
           case '/authorize':
-            return handlers.handleAuthorize(request, environment);
+            return await handlers.handleAuthorize(request, environment);
 
           case '/callback':
-            return handlers.handleCallback(request, environment);
+            return await handlers.handleCallback(request, environment);
 
           case '/health':
             logger.debug('Health check requested', undefined, { function: 'fetch' });
-            return jsonResponse({ status: 'healthy', provider }, 200, origin, environment.ALLOWED_ORIGINS, logger);
+            return jsonResponse({ status: 'healthy', provider }, 200, context);
 
           default:
             logger.warn('Unknown endpoint requested', { pathname: url.pathname }, { function: 'fetch' });
-            return errorResponse('not_found', 'Endpoint not found', 404, origin, environment.ALLOWED_ORIGINS, logger);
+            return errorResponse('not_found', 'Endpoint not found', 404, context);
         }
       } catch (error) {
         logger.error('Unhandled worker error', error, { function: 'fetch' });
-        return errorResponse(
-          'server_error',
-          'An unexpected error occurred',
-          500,
-          origin,
-          environment.ALLOWED_ORIGINS,
-          logger
-        );
+        return errorResponse('server_error', 'An unexpected error occurred', 500, context);
       }
     },
   };

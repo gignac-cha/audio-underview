@@ -208,7 +208,7 @@ async function handleCallback(
       function: 'handleCallback',
       metadata: { error, errorDescription },
     });
-    return redirectToFrontendWithError(environment.FRONTEND_URL, error, errorDescription ?? 'Unknown error');
+    return redirectToFrontendWithError(environment.FRONTEND_URL, error, errorDescription ?? 'Unknown error', logger);
   }
 
   if (!code || !state) {
@@ -216,7 +216,7 @@ async function handleCallback(
       function: 'handleCallback',
       metadata: { hasCode: !!code, hasState: !!state },
     });
-    return redirectToFrontendWithError(environment.FRONTEND_URL, 'invalid_request', 'Missing code or state parameter');
+    return redirectToFrontendWithError(environment.FRONTEND_URL, 'invalid_request', 'Missing code or state parameter', logger);
   }
 
   // Verify state (CSRF protection)
@@ -226,7 +226,7 @@ async function handleCallback(
       function: 'handleCallback',
       metadata: { statePrefix: state.substring(0, 8) },
     });
-    return redirectToFrontendWithError(environment.FRONTEND_URL, 'invalid_state', 'Invalid or expired state parameter');
+    return redirectToFrontendWithError(environment.FRONTEND_URL, 'invalid_state', 'Invalid or expired state parameter', logger);
   }
 
   // Parse and validate stored state data
@@ -246,7 +246,7 @@ async function handleCallback(
       function: 'handleCallback',
       metadata: { rawData: storedStateDataJSON },
     });
-    return redirectToFrontendWithError(environment.FRONTEND_URL, 'invalid_state', 'Corrupted state data');
+    return redirectToFrontendWithError(environment.FRONTEND_URL, 'invalid_state', 'Corrupted state data', logger);
   }
 
   // Delete used state
@@ -287,7 +287,7 @@ async function handleCallback(
         new Error('Token exchange failed'),
         { function: 'handleCallback' }
       );
-      return redirectToFrontendWithError(environment.FRONTEND_URL, 'token_exchange_failed', 'Failed to exchange authorization code for tokens');
+      return redirectToFrontendWithError(environment.FRONTEND_URL, 'token_exchange_failed', 'Failed to exchange authorization code for tokens', logger);
     }
 
     const tokens: TokenResponse = await tokenResponse.json();
@@ -296,7 +296,7 @@ async function handleCallback(
 
     if (!tokens.id_token) {
       logger.error('Missing ID token in response', undefined, { function: 'handleCallback' });
-      return redirectToFrontendWithError(environment.FRONTEND_URL, 'missing_id_token', 'Apple did not return an ID token');
+      return redirectToFrontendWithError(environment.FRONTEND_URL, 'missing_id_token', 'Apple did not return an ID token', logger);
     }
 
     // Decode ID token
@@ -350,7 +350,7 @@ async function handleCallback(
     return Response.redirect(frontendURL.toString(), 302);
   } catch (error) {
     logger.error('Unexpected callback error', error, { function: 'handleCallback' });
-    return redirectToFrontendWithError(environment.FRONTEND_URL, 'server_error', 'An unexpected error occurred');
+    return redirectToFrontendWithError(environment.FRONTEND_URL, 'server_error', 'An unexpected error occurred', logger);
   }
 }
 
