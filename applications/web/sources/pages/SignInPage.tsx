@@ -46,6 +46,7 @@ const PageContainer = styled.div`
   justify-content: center;
   align-items: center;
   min-height: 100vh;
+  padding: 1rem;
   position: relative;
   background: radial-gradient(
     circle at 50% 100%,
@@ -58,16 +59,16 @@ const Container = styled.div`
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: 16px;
-  padding: 2.5rem 2rem;
+  padding: 2.5rem 1.5rem;
   width: 100%;
-  max-width: 380px;
+  max-width: 420px;
   text-align: center;
   box-shadow: var(--shadow-md);
   animation: ${fadeUp} 0.4s ease-out;
 `;
 
 const Header = styled.div`
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
 
   h1 {
     font-size: 1.5rem;
@@ -94,7 +95,7 @@ const ButtonContainer = styled.div`
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  align-items: center;
+  align-items: stretch;
 `;
 
 const SocialIcon = styled.span`
@@ -127,7 +128,7 @@ export function SignInPage() {
 
   const handleError = (error: string, providerID: OAuthProviderID) => {
     console.error(`${providerID} login failed:`, error);
-    showError('로그인에 실패했습니다.', error ?? '다시 시도해주세요.');
+    showError('로그인에 실패했습니다.', error || '다시 시도해주세요.');
   };
 
   const handleProviderClick = (providerID: OAuthProviderID) => {
@@ -135,7 +136,7 @@ export function SignInPage() {
     console.log(`Login with ${providerID} requested`);
   };
 
-  const renderIcon = (providerID: OAuthProviderID, config: ProviderDisplayConfiguration) => {
+  const renderIcon = (providerID: OAuthProviderID, configuration: ProviderDisplayConfiguration) => {
     const icon = PROVIDER_ICONS[providerID];
 
     if (icon) {
@@ -146,11 +147,29 @@ export function SignInPage() {
       );
     }
 
-    if (config.iconType === 'text' && config.iconText) {
-      return <SocialIconText>{config.iconText}</SocialIconText>;
+    if (configuration.iconType === 'svg') {
+      return (
+        <SocialIcon>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox={configuration.svgViewBox}
+            fill="currentColor"
+            width="1.25em"
+            height="1.25em"
+            role="img"
+            aria-label={`${configuration.displayName} logo`}
+          >
+            <path d={configuration.svgPath} />
+          </svg>
+        </SocialIcon>
+      );
     }
 
-    return <SocialIconText>{config.displayName[0]}</SocialIconText>;
+    if (configuration.iconType === 'text') {
+      return <SocialIconText>{configuration.iconText}</SocialIconText>;
+    }
+
+    return <SocialIconText>{configuration.displayName[0]}</SocialIconText>;
   };
 
   return (
