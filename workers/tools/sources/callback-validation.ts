@@ -26,7 +26,7 @@ export function validateCallbackParameters(
     });
     return {
       success: false,
-      response: redirectToFrontendWithError(frontendURL, error, errorDescription),
+      response: redirectToFrontendWithError(frontendURL, error, errorDescription, logger),
     };
   }
 
@@ -43,7 +43,8 @@ export function validateCallbackParameters(
       response: redirectToFrontendWithError(
         frontendURL,
         'invalid_request',
-        'Missing code or state parameter'
+        'Missing code or state parameter',
+        logger
       ),
     };
   }
@@ -68,7 +69,8 @@ export async function verifyState(
       response: redirectToFrontendWithError(
         frontendURL,
         'invalid_state',
-        'Invalid or expired state parameter'
+        'Invalid or expired state parameter',
+        logger
       ),
     };
   }

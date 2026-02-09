@@ -1,4 +1,5 @@
 export type {
+  ResponseContext,
   OAuthErrorResponse,
   BaseEnvironment,
   OAuthWorkerHandlers,

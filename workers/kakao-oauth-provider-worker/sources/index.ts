@@ -162,7 +162,7 @@ async function handleCallback(
         new Error('Token exchange failed'),
         { function: 'handleCallback' }
       );
-      return redirectToFrontendWithError(environment.FRONTEND_URL, 'token_exchange_failed', 'Failed to exchange authorization code for tokens');
+      return redirectToFrontendWithError(environment.FRONTEND_URL, 'token_exchange_failed', 'Failed to exchange authorization code for tokens', logger);
     }
 
     const tokens: TokenResponse = await tokenResponse.json();
@@ -199,7 +199,8 @@ async function handleCallback(
       return redirectToFrontendWithError(
         environment.FRONTEND_URL,
         'user_info_failed',
-        `Kakao API error: ${userInfoResponse.status} - ${errorData.substring(0, 100)}`
+        'Failed to fetch user information from Kakao',
+        logger
       );
     }
 
@@ -242,7 +243,7 @@ async function handleCallback(
     return Response.redirect(frontendURL.toString(), 302);
   } catch (error) {
     logger.error('Unexpected callback error', error, { function: 'handleCallback' });
-    return redirectToFrontendWithError(environment.FRONTEND_URL, 'server_error', 'An unexpected error occurred');
+    return redirectToFrontendWithError(environment.FRONTEND_URL, 'server_error', 'An unexpected error occurred', logger);
   }
 }
 

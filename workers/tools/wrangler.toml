@@ -1,0 +1,11 @@
+name = "worker-tools-test"
+main = "sources/index.ts"
+compatibility_date = "2025-11-25"
+
+[[kv_namespaces]]
+binding = "AUDIO_UNDERVIEW_OAUTH_STATE"
+id = "test-kv-id"
+
+[vars]
+FRONTEND_URL = "https://example.com"
+ALLOWED_ORIGINS = "https://example.com,https://app.example.com"
