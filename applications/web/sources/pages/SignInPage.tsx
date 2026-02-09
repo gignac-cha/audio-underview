@@ -147,7 +147,23 @@ export function SignInPage() {
       );
     }
 
-    if (config.iconType === 'text' && config.iconText) {
+    if (config.iconType === 'svg') {
+      return (
+        <SocialIcon>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox={`0 0 ${config.svgViewBox} ${config.svgViewBox}`}
+            fill="currentColor"
+            width="1.25em"
+            height="1.25em"
+          >
+            <path d={config.svgPath} />
+          </svg>
+        </SocialIcon>
+      );
+    }
+
+    if (config.iconType === 'text') {
       return <SocialIconText>{config.iconText}</SocialIconText>;
     }
 
