@@ -5,7 +5,8 @@
   "type": "module",
   "main": "./sources/index.ts",
   "exports": {
-    ".": "./sources/index.ts"
+    ".": "./sources/index.ts",
+    "./tests/mock-jwt.ts": "./tests/mock-jwt.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
