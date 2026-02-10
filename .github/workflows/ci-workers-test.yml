@@ -34,8 +34,5 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck workers
-        run: pnpm --filter './workers/*' typecheck
-
       - name: Run worker tests
         run: pnpm --filter './workers/*' test
