@@ -223,12 +223,36 @@ async function handleCallback(
       durationMilliseconds,
     }, { function: 'handleCallback' });
 
+    const escapeHTML = (value: string): string =>
+      value
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    // Validate storedRedirectURI is a valid URL with allowed scheme
+    let validatedRedirectURI: string;
+    try {
+      const parsedURI = new URL(storedRedirectURI);
+      if (parsedURI.protocol !== 'https:' && parsedURI.protocol !== 'http:') {
+        throw new Error('Invalid redirect URI scheme');
+      }
+      validatedRedirectURI = parsedURI.toString();
+    } catch {
+      logger.error('Invalid stored redirect URI', new Error('Invalid redirect URI'), {
+        function: 'handleCallback',
+        metadata: { storedRedirectURI },
+      });
+      return redirectToFrontendWithError(environment.FRONTEND_URL, 'server_error', 'Invalid redirect URI', logger);
+    }
+
     const encodedUser = encodeURIComponent(JSON.stringify(user));
     const formHTML = `<!DOCTYPE html>
 <html><body>
-<form id="callback" method="POST" action="${storedRedirectURI}">
-<input type="hidden" name="user" value="${encodedUser}" />
-<input type="hidden" name="access_token" value="${tokens.access_token}" />
+<form id="callback" method="POST" action="${escapeHTML(validatedRedirectURI)}">
+<input type="hidden" name="user" value="${escapeHTML(encodedUser)}" />
+<input type="hidden" name="access_token" value="${escapeHTML(tokens.access_token)}" />
 </form>
 <script>document.getElementById('callback').submit();</script>
 </body></html>`;
