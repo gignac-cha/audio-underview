@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createOAuthWorkerHandler } from '../worker-handler.ts';
-import type { BaseEnvironment } from '../types.ts';
+import { createOAuthWorkerHandler } from '../sources/worker-handler.ts';
+import type { BaseEnvironment } from '../sources/types.ts';
 import { createMockLogger } from './mock-logger.ts';
 
 const logger = createMockLogger();

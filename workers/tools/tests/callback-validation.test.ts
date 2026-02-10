@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { validateCallbackParameters, verifyState } from '../callback-validation.ts';
+import { validateCallbackParameters, verifyState } from '../sources/callback-validation.ts';
 import { createMockLogger } from './mock-logger.ts';
 
 const logger = createMockLogger();
