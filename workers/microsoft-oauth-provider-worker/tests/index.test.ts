@@ -1,4 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('@audio-underview/axiom-logger', () => ({
+  instrumentWorker: vi.fn((handler: unknown) => handler),
+}));
+
 import { env, fetchMock } from 'cloudflare:test';
 import worker from '../sources/index.ts';
 

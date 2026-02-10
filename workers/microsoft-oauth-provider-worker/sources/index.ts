@@ -11,6 +11,7 @@ import {
   type OAuthUser,
 } from '@audio-underview/sign-provider';
 import { createWorkerLogger } from '@audio-underview/logger';
+import { instrumentWorker } from '@audio-underview/axiom-logger';
 import {
   type BaseEnvironment,
   createOAuthWorkerHandler,
@@ -28,6 +29,8 @@ interface Environment extends BaseEnvironment {
   MICROSOFT_CLIENT_ID: string;
   MICROSOFT_CLIENT_SECRET: string;
   MICROSOFT_TENANT: string;
+  AXIOM_API_TOKEN: string;
+  AXIOM_DATASET: string;
 }
 
 interface TokenResponse {
@@ -154,7 +157,14 @@ async function handleCallback(
 
   logger.debug('State verified successfully', undefined, { function: 'handleCallback' });
 
-  await environment.AUDIO_UNDERVIEW_OAUTH_STATE.delete(state);
+  try {
+    await environment.AUDIO_UNDERVIEW_OAUTH_STATE.delete(state);
+  } catch (deleteError) {
+    logger.error('Failed to delete state from KV', deleteError, {
+      function: 'handleCallback',
+      metadata: { statePrefix: state.substring(0, 8) },
+    });
+  }
 
   try {
     logger.info('Exchanging code for tokens', undefined, { function: 'handleCallback' });
@@ -292,8 +302,14 @@ async function handleCallback(
   }
 }
 
-export default createOAuthWorkerHandler<Environment>({
+const handler = createOAuthWorkerHandler<Environment>({
   provider: 'microsoft',
   logger,
   handlers: { handleAuthorize, handleCallback },
 });
+
+export default instrumentWorker(handler, (environment) => ({
+  token: environment.AXIOM_API_TOKEN,
+  dataset: environment.AXIOM_DATASET,
+  serviceName: 'microsoft-oauth-provider-worker',
+}));

@@ -15,6 +15,7 @@ export default defineWorkersConfig({
             SUPABASE_SECRET_KEY: 'test-supabase-secret',
             AXIOM_API_TOKEN: 'test-axiom-token',
             AXIOM_DATASET: 'test-dataset',
+            ALLOWED_ORIGINS: 'https://example.com',
           },
         },
       },

@@ -68,6 +68,15 @@ describe('facebook-oauth-provider-worker', () => {
       expect(location).toContain('error=invalid_request');
     });
 
+    it('redirects with error when state is missing', async () => {
+      const request = new Request(`${WORKER_URL}/callback?code=test-code`);
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(302);
+      const location = response.headers.get('Location')!;
+      expect(location).toContain('error=invalid_request');
+    });
+
     it('redirects with error when state is invalid', async () => {
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=invalid-state`);
       const response = await worker.fetch(request, env);

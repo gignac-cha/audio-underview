@@ -8,8 +8,20 @@ export interface ResponseContext {
 
 export interface OAuthErrorResponse {
   error: string;
-  errorDescription?: string;
+  error_description?: string;
 }
+
+export type OAuthProvider =
+  | 'apple'
+  | 'discord'
+  | 'facebook'
+  | 'github'
+  | 'google'
+  | 'kakao'
+  | 'microsoft'
+  | 'naver'
+  | 'twitch'
+  | 'twitter';
 
 export interface BaseEnvironment {
   FRONTEND_URL: string;
@@ -23,7 +35,7 @@ export interface OAuthWorkerHandlers<Environment extends BaseEnvironment> {
 }
 
 export interface OAuthWorkerOptions<Environment extends BaseEnvironment> {
-  provider: string;
+  provider: OAuthProvider;
   logger: Logger;
   handlers: OAuthWorkerHandlers<Environment>;
 }

@@ -56,7 +56,7 @@ describe('errorResponse', () => {
     const body = await response.json();
     expect(body).toEqual({
       error: 'invalid_request',
-      errorDescription: 'Missing parameter',
+      error_description: 'Missing parameter',
     });
   });
 

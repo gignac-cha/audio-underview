@@ -45,7 +45,7 @@ describe('apple-oauth-provider-worker', () => {
       expect(redirectURL.searchParams.get('scope')).toBe('name email');
       expect(redirectURL.searchParams.get('state')).toBeTruthy();
       expect(redirectURL.searchParams.get('nonce')).toBeTruthy();
-      expect(redirectURL.searchParams.get('response_mode')).toBe('query');
+      expect(redirectURL.searchParams.get('response_mode')).toBe('form_post');
     });
 
     it('stores JSON state { redirectURI, nonce } in KV', async () => {
@@ -84,7 +84,14 @@ describe('apple-oauth-provider-worker', () => {
     });
 
     it('redirects with error when code or state is missing', async () => {
-      const request = new Request(`${WORKER_URL}/callback?state=test-state`);
+      const formData = new URLSearchParams();
+      formData.append('state', 'test-state');
+
+      const request = new Request(`${WORKER_URL}/callback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData,
+      });
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(302);
@@ -93,7 +100,15 @@ describe('apple-oauth-provider-worker', () => {
     });
 
     it('redirects with error when state is invalid', async () => {
-      const request = new Request(`${WORKER_URL}/callback?code=test-code&state=invalid-state`);
+      const formData = new URLSearchParams();
+      formData.append('code', 'test-code');
+      formData.append('state', 'invalid-state');
+
+      const request = new Request(`${WORKER_URL}/callback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData,
+      });
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(302);

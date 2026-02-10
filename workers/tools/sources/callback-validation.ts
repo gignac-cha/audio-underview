@@ -77,7 +77,14 @@ export async function verifyState(
 
   logger.debug('State verified successfully', undefined, { function: 'handleCallback' });
 
-  await kvNamespace.delete(state);
+  try {
+    await kvNamespace.delete(state);
+  } catch (deleteError) {
+    logger.error('Failed to delete state from KV', deleteError, {
+      function: 'handleCallback',
+      metadata: { statePrefix: state.substring(0, 8) },
+    });
+  }
 
   return { success: true, storedValue };
 }

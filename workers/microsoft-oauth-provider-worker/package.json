@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@audio-underview/axiom-logger": "workspace:*",
     "@audio-underview/logger": "workspace:*",
     "@audio-underview/microsoft-oauth-provider": "workspace:*",
     "@audio-underview/sign-provider": "workspace:*",

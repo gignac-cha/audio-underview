@@ -59,7 +59,7 @@ describe('validateCallbackParameters', () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       const location = result.response.headers.get('Location');
-      expect(location).toContain('error_description=Unknown');
+      expect(location).toContain('error_description=Unknown+error');
     }
   });
 });

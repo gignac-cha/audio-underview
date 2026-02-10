@@ -188,9 +188,9 @@ describe('discord-oauth-provider-worker', () => {
       const redirectURL = new URL(location);
       expect(redirectURL.origin).toBe('https://app.example.com');
 
-      const userParam = redirectURL.searchParams.get('user');
-      expect(userParam).toBeTruthy();
-      const user = JSON.parse(decodeURIComponent(userParam!));
+      const userParameter = redirectURL.searchParams.get('user');
+      expect(userParameter).toBeTruthy();
+      const user = JSON.parse(decodeURIComponent(userParameter!));
       expect(user.id).toBe('123456789');
       expect(user.email).toBe('test@example.com');
       expect(user.name).toBe('Test User');

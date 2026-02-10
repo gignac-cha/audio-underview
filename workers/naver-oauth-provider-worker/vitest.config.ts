@@ -11,6 +11,7 @@ export default defineWorkersConfig({
             NAVER_CLIENT_ID: 'test-naver-client-id',
             NAVER_CLIENT_SECRET: 'test-naver-client-secret',
             FRONTEND_URL: 'https://example.com',
+            ALLOWED_ORIGINS: 'https://example.com',
           },
         },
       },
