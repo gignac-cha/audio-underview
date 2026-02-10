@@ -16,10 +16,10 @@
     "@audio-underview/sign-provider": "workspace:*"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.12.10",
-    "@cloudflare/workers-types": "4.20260207.0",
-    "@vitest/runner": "~3.2.4",
-    "@vitest/snapshot": "~3.2.4",
-    "vitest": "~3.2.4"
+    "@cloudflare/vitest-pool-workers": "catalog:worker",
+    "@cloudflare/workers-types": "catalog:worker",
+    "@vitest/runner": "catalog:worker",
+    "@vitest/snapshot": "catalog:worker",
+    "vitest": "catalog:worker"
   }
 }
