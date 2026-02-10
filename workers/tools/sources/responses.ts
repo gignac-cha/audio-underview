@@ -24,7 +24,7 @@ export function errorResponse(
     metadata: { error, status },
   });
   return jsonResponse(
-    { error, errorDescription } satisfies OAuthErrorResponse,
+    { error, error_description: errorDescription } satisfies OAuthErrorResponse,
     status,
     context
   );

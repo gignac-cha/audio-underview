@@ -108,7 +108,7 @@ describe('naver-oauth-provider-worker', () => {
 
       expect(response.status).toBe(302);
       const location = response.headers.get('Location')!;
-      expect(location).toContain('error=invalid_request');
+      expect(location).toContain('error=token_exchange_failed');
     });
 
     it('redirects with error when user info fetch fails', async () => {
@@ -163,7 +163,7 @@ describe('naver-oauth-provider-worker', () => {
       expect(location).toContain('error=user_info_failed');
     });
 
-    it('completes full OAuth flow and redirects with user data', async () => {
+    it('completes full OAuth flow and returns auto-submitting form with user data', async () => {
       await env.AUDIO_UNDERVIEW_OAUTH_STATE.put('valid-state', 'https://app.example.com/callback');
 
       fetchMock
@@ -194,21 +194,25 @@ describe('naver-oauth-provider-worker', () => {
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=valid-state`);
       const response = await worker.fetch(request, env);
 
-      expect(response.status).toBe(302);
-      const location = response.headers.get('Location')!;
-      const redirectURL = new URL(location);
-      expect(redirectURL.origin).toBe('https://app.example.com');
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
 
-      const userParameter = redirectURL.searchParams.get('user');
-      expect(userParameter).toBeTruthy();
-      const user = JSON.parse(decodeURIComponent(userParameter!));
+      const html = await response.text();
+      expect(html).toContain('action="https://app.example.com/callback"');
+      expect(html).toContain('method="POST"');
+      expect(html).toContain('name="access_token"');
+      expect(html).toContain('value="mock-access-token"');
+      expect(html).toContain('name="user"');
+
+      // Verify user data is in the form
+      const userMatch = html.match(/name="user"\s+value="([^"]+)"/);
+      expect(userMatch).toBeTruthy();
+      const user = JSON.parse(decodeURIComponent(userMatch![1]));
       expect(user.id).toBe('12345');
       expect(user.email).toBe('test@example.com');
       expect(user.name).toBe('Test User');
       expect(user.provider).toBe('naver');
       expect(user.picture).toBe('https://phinf.pstatic.net/contact/profile.png');
-
-      expect(redirectURL.searchParams.get('access_token')).toBe('mock-access-token');
 
       // Verify state was consumed
       const remainingState = await env.AUDIO_UNDERVIEW_OAUTH_STATE.get('valid-state');

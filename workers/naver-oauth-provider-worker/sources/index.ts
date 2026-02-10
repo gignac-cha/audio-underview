@@ -150,12 +150,12 @@ async function handleCallback(
     if (tokens.error) {
       logger.error('Token response contains error', new Error(tokens.error), {
         function: 'handleCallback',
-        metadata: { errorDescription: tokens.error_description },
+        metadata: { error: tokens.error, errorDescription: tokens.error_description },
       });
       return redirectToFrontendWithError(
         environment.FRONTEND_URL,
-        tokens.error,
-        tokens.error_description ?? 'Token exchange failed',
+        'token_exchange_failed',
+        'Token exchange failed',
         logger
       );
     }
@@ -223,11 +223,20 @@ async function handleCallback(
       durationMilliseconds,
     }, { function: 'handleCallback' });
 
-    const frontendURL = new URL(storedRedirectURI);
-    frontendURL.searchParams.set('user', encodeURIComponent(JSON.stringify(user)));
-    frontendURL.searchParams.set('access_token', tokens.access_token);
+    const encodedUser = encodeURIComponent(JSON.stringify(user));
+    const formHTML = `<!DOCTYPE html>
+<html><body>
+<form id="callback" method="POST" action="${storedRedirectURI}">
+<input type="hidden" name="user" value="${encodedUser}" />
+<input type="hidden" name="access_token" value="${tokens.access_token}" />
+</form>
+<script>document.getElementById('callback').submit();</script>
+</body></html>`;
 
-    return Response.redirect(frontendURL.toString(), 302);
+    return new Response(formHTML, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    });
   } catch (error) {
     logger.error('Unexpected callback error', error, { function: 'handleCallback' });
     return redirectToFrontendWithError(environment.FRONTEND_URL, 'server_error', 'An unexpected error occurred', logger);

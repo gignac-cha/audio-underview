@@ -151,7 +151,9 @@ async function handleAuthorize(
   authorizationURL.searchParams.set('scope', APPLE_DEFAULT_SCOPES.join(' '));
   authorizationURL.searchParams.set('state', state);
   authorizationURL.searchParams.set('nonce', nonce);
-  authorizationURL.searchParams.set('response_mode', 'query');
+  const scopes = APPLE_DEFAULT_SCOPES;
+  const requiresFormPost = scopes.some((scope) => scope === 'name' || scope === 'email');
+  authorizationURL.searchParams.set('response_mode', requiresFormPost ? 'form_post' : 'query');
 
   logger.info('Redirecting to Apple authorization', {
     authorizationURL: authorizationURL.origin + authorizationURL.pathname,

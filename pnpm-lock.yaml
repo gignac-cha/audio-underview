@@ -522,6 +522,9 @@ importers:
 
   workers/microsoft-oauth-provider-worker:
     dependencies:
+      '@audio-underview/axiom-logger':
+        specifier: workspace:*
+        version: link:../../packages/axiom-logger
       '@audio-underview/logger':
         specifier: workspace:*
         version: link:../../packages/logger
