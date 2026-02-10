@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { jsonResponse, errorResponse, redirectToFrontendWithError } from '../responses.ts';
-import type { ResponseContext } from '../types.ts';
+import { jsonResponse, errorResponse, redirectToFrontendWithError } from '../sources/responses.ts';
+import type { ResponseContext } from '../sources/types.ts';
 import { createMockLogger } from './mock-logger.ts';
 
 const logger = createMockLogger();

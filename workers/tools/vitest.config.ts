@@ -2,7 +2,7 @@ import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';
 
 export default defineWorkersConfig({
   test: {
-    include: ['sources/tests/**/*.test.ts'],
+    include: ['tests/**/*.test.ts'],
     poolOptions: {
       workers: {
         wrangler: {

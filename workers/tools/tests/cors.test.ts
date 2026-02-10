@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createCORSHeaders, handleOptions } from '../cors.ts';
+import { createCORSHeaders, handleOptions } from '../sources/cors.ts';
 import { createMockLogger } from './mock-logger.ts';
 
 const logger = createMockLogger();
