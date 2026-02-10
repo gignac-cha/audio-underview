@@ -1,0 +1,41 @@
+name: Worker Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'workers/**'
+      - 'packages/**'
+
+concurrency:
+  group: ci-workers-test-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Run all worker unit tests
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '25'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck workers
+        run: pnpm --filter './workers/*' typecheck
+
+      - name: Run worker tests
+        run: pnpm --filter './workers/*' test
