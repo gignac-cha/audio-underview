@@ -10,7 +10,6 @@ export default defineWorkersConfig({
           bindings: {
             ALLOWED_ORIGINS: 'https://example.com',
           },
-          unsafeEvalBinding: 'UNSAFE_EVAL',
         },
       },
     },
