@@ -1,0 +1,70 @@
+name: "Deploy: Crawler Functions"
+
+on:
+  workflow_dispatch:
+    inputs:
+      crawler_code_runner:
+        description: 'Deploy Crawler Code Runner Function'
+        type: boolean
+        default: false
+      deploy_all:
+        description: 'Deploy ALL crawler functions (overrides individual selections)'
+        type: boolean
+        default: false
+
+jobs:
+  deploy-crawler-code-runner:
+    if: ${{ inputs.crawler_code_runner || inputs.deploy_all }}
+    runs-on: ubuntu-latest
+    name: Deploy Crawler Code Runner Function
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '25'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build function
+        working-directory: functions/crawler-code-runner-function
+        run: node build.ts
+
+      - name: Package function
+        working-directory: functions/crawler-code-runner-function/outputs
+        run: zip function.zip index.mjs
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Update function code
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ vars.CRAWLER_CODE_RUNNER_FUNCTION_NAME }} \
+            --zip-file fileb://functions/crawler-code-runner-function/outputs/function.zip
+
+      - name: Wait for function update
+        run: |
+          aws lambda wait function-updated-v2 \
+            --function-name ${{ vars.CRAWLER_CODE_RUNNER_FUNCTION_NAME }}
+
+      - name: Update function configuration
+        run: |
+          aws lambda update-function-configuration \
+            --function-name ${{ vars.CRAWLER_CODE_RUNNER_FUNCTION_NAME }} \
+            --runtime nodejs22.x \
+            --handler index.handler \
+            --timeout 30 \
+            --memory-size 256 \
+            --environment "Variables={ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}}"
