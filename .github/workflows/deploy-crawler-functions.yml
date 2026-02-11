@@ -51,18 +51,18 @@ jobs:
       - name: Update function code
         run: |
           aws lambda update-function-code \
-            --function-name ${{ vars.CRAWLER_CODE_RUNNER_FUNCTION_NAME }} \
+            --function-name audio-underview-crawler-code-runner-function \
             --zip-file fileb://functions/crawler-code-runner-function/outputs/function.zip
 
       - name: Wait for function update
         run: |
           aws lambda wait function-updated-v2 \
-            --function-name ${{ vars.CRAWLER_CODE_RUNNER_FUNCTION_NAME }}
+            --function-name audio-underview-crawler-code-runner-function
 
       - name: Update function configuration
         run: |
           aws lambda update-function-configuration \
-            --function-name ${{ vars.CRAWLER_CODE_RUNNER_FUNCTION_NAME }} \
+            --function-name audio-underview-crawler-code-runner-function \
             --runtime nodejs24.x \
             --handler index.handler \
             --timeout 30 \
