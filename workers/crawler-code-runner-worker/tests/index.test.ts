@@ -4,14 +4,6 @@ import worker from '../sources/index.ts';
 
 const WORKER_URL = 'https://worker.example.com';
 
-const envWithUnsafeEval = {
-  ...env,
-  UNSAFE_EVAL: {
-    eval: (code: string) => new Function(`return ${code}`)(),
-    newFunction: (...arguments_: string[]) => new Function(...arguments_),
-  },
-};
-
 beforeEach(() => {
   fetchMock.activate();
   fetchMock.disableNetConnect();
@@ -187,7 +179,7 @@ describe('crawler-code-runner-worker', () => {
           code: '(text) => text',
         }),
       });
-      const response = await worker.fetch(request, envWithUnsafeEval);
+      const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(502);
       const body = await response.json();
@@ -211,7 +203,7 @@ describe('crawler-code-runner-worker', () => {
           code: '(text) => { throw new Error("intentional error"); }',
         }),
       });
-      const response = await worker.fetch(request, envWithUnsafeEval);
+      const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(422);
       const body = await response.json();
@@ -234,7 +226,7 @@ describe('crawler-code-runner-worker', () => {
           code: '((( invalid syntax',
         }),
       });
-      const response = await worker.fetch(request, envWithUnsafeEval);
+      const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(422);
       const body = await response.json();
@@ -258,7 +250,7 @@ describe('crawler-code-runner-worker', () => {
           code: '(text) => text.toUpperCase()',
         }),
       });
-      const response = await worker.fetch(request, envWithUnsafeEval);
+      const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -281,7 +273,7 @@ describe('crawler-code-runner-worker', () => {
           code: '(text) => text.length',
         }),
       });
-      const response = await worker.fetch(request, envWithUnsafeEval);
+      const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -304,7 +296,7 @@ describe('crawler-code-runner-worker', () => {
           code: '(text) => ({ length: text.length, hasTitle: text.includes("<title>") })',
         }),
       });
-      const response = await worker.fetch(request, envWithUnsafeEval);
+      const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -328,7 +320,7 @@ describe('crawler-code-runner-worker', () => {
           code: 'async (text) => text.split(" ")',
         }),
       });
-      const response = await worker.fetch(request, envWithUnsafeEval);
+      const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(200);
       const body = await response.json();

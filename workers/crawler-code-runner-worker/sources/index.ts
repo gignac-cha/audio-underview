@@ -5,15 +5,11 @@ import {
   jsonResponse,
   errorResponse,
 } from '@audio-underview/worker-tools';
-
-interface UnsafeEval {
-  eval(code: string): unknown;
-  newFunction(...arguments_: string[]): Function;
-}
+import { createCodeRunner } from './create-code-runner.ts';
 
 interface Environment {
   ALLOWED_ORIGINS: string;
-  UNSAFE_EVAL: UnsafeEval;
+  LOADER: WorkerLoader;
 }
 
 interface RunRequestBody {
@@ -93,9 +89,8 @@ async function handleRun(
 
   let result: unknown;
   try {
-    const wrapper = environment.UNSAFE_EVAL.newFunction(`return ${body.code}`);
-    const userFunction = wrapper();
-    result = await userFunction(responseText);
+    const runner = createCodeRunner(environment.LOADER, body.code);
+    result = await runner.execute(responseText);
   } catch (executionError) {
     logger.error('Code execution failed', executionError, { function: 'handleRun' });
     const message = executionError instanceof Error

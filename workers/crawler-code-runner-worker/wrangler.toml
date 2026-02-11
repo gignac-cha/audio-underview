@@ -5,9 +5,8 @@ compatibility_date = "2025-11-25"
 [vars]
 ALLOWED_ORIGINS = "http://localhost:5173,https://audio-underview.pages.dev"
 
-[[unsafe.bindings]]
-name = "UNSAFE_EVAL"
-type = "unsafe_eval"
+[[worker_loaders]]
+binding = "LOADER"
 
 [observability.logs]
 enabled = true
