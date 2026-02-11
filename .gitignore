@@ -548,5 +548,8 @@ playwright-report/
 blob-report/
 playwright/.cache/
 
+# Vitest JUnit reports
+test-results.xml
+
 # Storybook
 storybook-static/

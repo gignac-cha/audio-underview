@@ -10,6 +10,11 @@ import {
   type OAuthUser,
 } from '@audio-underview/sign-provider';
 import { createWorkerLogger } from '@audio-underview/logger';
+import {
+  type BaseEnvironment,
+  createOAuthWorkerHandler,
+  redirectToFrontendWithError,
+} from '@audio-underview/worker-tools';
 
 const logger = createWorkerLogger({
   defaultContext: {
@@ -17,19 +22,11 @@ const logger = createWorkerLogger({
   },
 });
 
-interface Environment {
+interface Environment extends BaseEnvironment {
   APPLE_CLIENT_ID: string;
   APPLE_TEAM_ID: string;
   APPLE_KEY_ID: string;
   APPLE_PRIVATE_KEY: string;
-  FRONTEND_URL: string;
-  ALLOWED_ORIGINS: string;
-  AUDIO_UNDERVIEW_OAUTH_STATE: KVNamespace;
-}
-
-interface OAuthErrorResponse {
-  error: string;
-  errorDescription?: string;
 }
 
 interface TokenResponse {
@@ -57,65 +54,6 @@ interface AppleUserName {
 interface StateData {
   redirectURI: string;
   nonce: string;
-}
-
-/**
- * Create CORS headers for the response
- * Only sets full CORS headers when origin is in the allowed list
- */
-function createCORSHeaders(origin: string, allowedOrigins: string): Headers {
-  const headers = new Headers();
-  const origins = allowedOrigins.split(',').map((o) => o.trim());
-  const isAllowed = origins.includes(origin) || origins.includes('*');
-
-  if (!isAllowed) {
-    logger.debug('Origin not in allowed list', { origin, allowedOrigins }, { function: 'createCORSHeaders' });
-    return headers;
-  }
-
-  headers.set('Access-Control-Allow-Origin', origin);
-  headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  headers.set('Access-Control-Allow-Headers', 'Content-Type');
-  headers.set('Access-Control-Allow-Credentials', 'true');
-
-  return headers;
-}
-
-/**
- * Create JSON response with CORS headers
- */
-function jsonResponse(
-  data: unknown,
-  status: number,
-  origin: string,
-  allowedOrigins: string
-): Response {
-  const headers = createCORSHeaders(origin, allowedOrigins);
-  headers.set('Content-Type', 'application/json');
-
-  return new Response(JSON.stringify(data), { status, headers });
-}
-
-/**
- * Create error response
- */
-function errorResponse(
-  error: string,
-  errorDescription: string,
-  status: number,
-  origin: string,
-  allowedOrigins: string
-): Response {
-  logger.error('Error response', new Error(errorDescription), {
-    function: 'errorResponse',
-    metadata: { error, status },
-  });
-  return jsonResponse(
-    { error, errorDescription } satisfies OAuthErrorResponse,
-    status,
-    origin,
-    allowedOrigins
-  );
 }
 
 /**
@@ -180,9 +118,6 @@ async function generateAppleClientSecret(environment: Environment): Promise<stri
   return `${dataToSign}.${signatureBase64URL}`;
 }
 
-/**
- * Handle OAuth authorization start
- */
 async function handleAuthorize(
   request: Request,
   environment: Environment
@@ -209,7 +144,6 @@ async function handleAuthorize(
 
   logger.debug('State and nonce stored in KV', undefined, { function: 'handleAuthorize' });
 
-  // Build authorization URL
   const authorizationURL = new URL(APPLE_AUTHORIZATION_ENDPOINT);
   authorizationURL.searchParams.set('client_id', environment.APPLE_CLIENT_ID);
   authorizationURL.searchParams.set('redirect_uri', `${url.origin}/callback`);
@@ -217,7 +151,9 @@ async function handleAuthorize(
   authorizationURL.searchParams.set('scope', APPLE_DEFAULT_SCOPES.join(' '));
   authorizationURL.searchParams.set('state', state);
   authorizationURL.searchParams.set('nonce', nonce);
-  authorizationURL.searchParams.set('response_mode', 'query');
+  const scopes = APPLE_DEFAULT_SCOPES;
+  const requiresFormPost = scopes.some((scope) => scope === 'name' || scope === 'email');
+  authorizationURL.searchParams.set('response_mode', requiresFormPost ? 'form_post' : 'query');
 
   logger.info('Redirecting to Apple authorization', {
     authorizationURL: authorizationURL.origin + authorizationURL.pathname,
@@ -274,10 +210,7 @@ async function handleCallback(
       function: 'handleCallback',
       metadata: { error, errorDescription },
     });
-    const frontendURL = new URL(environment.FRONTEND_URL);
-    frontendURL.searchParams.set('error', error);
-    frontendURL.searchParams.set('error_description', errorDescription ?? 'Unknown error');
-    return Response.redirect(frontendURL.toString(), 302);
+    return redirectToFrontendWithError(environment.FRONTEND_URL, error, errorDescription ?? 'Unknown error', logger);
   }
 
   if (!code || !state) {
@@ -285,10 +218,7 @@ async function handleCallback(
       function: 'handleCallback',
       metadata: { hasCode: !!code, hasState: !!state },
     });
-    const frontendURL = new URL(environment.FRONTEND_URL);
-    frontendURL.searchParams.set('error', 'invalid_request');
-    frontendURL.searchParams.set('error_description', 'Missing code or state parameter');
-    return Response.redirect(frontendURL.toString(), 302);
+    return redirectToFrontendWithError(environment.FRONTEND_URL, 'invalid_request', 'Missing code or state parameter', logger);
   }
 
   // Verify state (CSRF protection)
@@ -298,10 +228,7 @@ async function handleCallback(
       function: 'handleCallback',
       metadata: { statePrefix: state.substring(0, 8) },
     });
-    const frontendURL = new URL(environment.FRONTEND_URL);
-    frontendURL.searchParams.set('error', 'invalid_state');
-    frontendURL.searchParams.set('error_description', 'Invalid or expired state parameter');
-    return Response.redirect(frontendURL.toString(), 302);
+    return redirectToFrontendWithError(environment.FRONTEND_URL, 'invalid_state', 'Invalid or expired state parameter', logger);
   }
 
   // Parse and validate stored state data
@@ -321,10 +248,7 @@ async function handleCallback(
       function: 'handleCallback',
       metadata: { rawData: storedStateDataJSON },
     });
-    const frontendURL = new URL(environment.FRONTEND_URL);
-    frontendURL.searchParams.set('error', 'invalid_state');
-    frontendURL.searchParams.set('error_description', 'Corrupted state data');
-    return Response.redirect(frontendURL.toString(), 302);
+    return redirectToFrontendWithError(environment.FRONTEND_URL, 'invalid_state', 'Corrupted state data', logger);
   }
 
   // Delete used state
@@ -334,7 +258,6 @@ async function handleCallback(
     // Generate client secret JWT
     const clientSecret = await generateAppleClientSecret(environment);
 
-    // Exchange code for tokens
     logger.info('Exchanging code for tokens', undefined, { function: 'handleCallback' });
 
     logger.logRequest('Token exchange request', {
@@ -366,10 +289,7 @@ async function handleCallback(
         new Error('Token exchange failed'),
         { function: 'handleCallback' }
       );
-      const frontendURL = new URL(environment.FRONTEND_URL);
-      frontendURL.searchParams.set('error', 'token_exchange_failed');
-      frontendURL.searchParams.set('error_description', 'Failed to exchange authorization code for tokens');
-      return Response.redirect(frontendURL.toString(), 302);
+      return redirectToFrontendWithError(environment.FRONTEND_URL, 'token_exchange_failed', 'Failed to exchange authorization code for tokens', logger);
     }
 
     const tokens: TokenResponse = await tokenResponse.json();
@@ -378,10 +298,7 @@ async function handleCallback(
 
     if (!tokens.id_token) {
       logger.error('Missing ID token in response', undefined, { function: 'handleCallback' });
-      const frontendURL = new URL(environment.FRONTEND_URL);
-      frontendURL.searchParams.set('error', 'missing_id_token');
-      frontendURL.searchParams.set('error_description', 'Apple did not return an ID token');
-      return Response.redirect(frontendURL.toString(), 302);
+      return redirectToFrontendWithError(environment.FRONTEND_URL, 'missing_id_token', 'Apple did not return an ID token', logger);
     }
 
     // Decode ID token
@@ -427,7 +344,6 @@ async function handleCallback(
       durationMilliseconds,
     }, { function: 'handleCallback' });
 
-    // Redirect to frontend with user data
     const frontendURL = new URL(stateData.redirectURI);
     frontendURL.searchParams.set('user', encodeURIComponent(JSON.stringify(user)));
     frontendURL.searchParams.set('access_token', tokens.access_token);
@@ -436,64 +352,12 @@ async function handleCallback(
     return Response.redirect(frontendURL.toString(), 302);
   } catch (error) {
     logger.error('Unexpected callback error', error, { function: 'handleCallback' });
-    const frontendURL = new URL(environment.FRONTEND_URL);
-    frontendURL.searchParams.set('error', 'server_error');
-    frontendURL.searchParams.set('error_description', 'An unexpected error occurred');
-    return Response.redirect(frontendURL.toString(), 302);
+    return redirectToFrontendWithError(environment.FRONTEND_URL, 'server_error', 'An unexpected error occurred', logger);
   }
 }
 
-/**
- * Handle CORS preflight requests
- */
-function handleOptions(request: Request, environment: Environment): Response {
-  const origin = request.headers.get('Origin') ?? '';
-  logger.debug('CORS preflight request', { origin }, { function: 'handleOptions' });
-  const headers = createCORSHeaders(origin, environment.ALLOWED_ORIGINS);
-  return new Response(null, { status: 204, headers });
-}
-
-export default {
-  async fetch(request: Request, environment: Environment): Promise<Response> {
-    const url = new URL(request.url);
-    const origin = request.headers.get('Origin') ?? environment.FRONTEND_URL;
-
-    logger.info('Request received', {
-      method: request.method,
-      pathname: url.pathname,
-      origin,
-    }, { function: 'fetch' });
-
-    // Handle CORS preflight
-    if (request.method === 'OPTIONS') {
-      return handleOptions(request, environment);
-    }
-
-    try {
-      switch (url.pathname) {
-        case '/authorize':
-          return handleAuthorize(request, environment);
-
-        case '/callback':
-          return handleCallback(request, environment);
-
-        case '/health':
-          logger.debug('Health check requested', undefined, { function: 'fetch' });
-          return jsonResponse({ status: 'healthy', provider: 'apple' }, 200, origin, environment.ALLOWED_ORIGINS);
-
-        default:
-          logger.warn('Unknown endpoint requested', { pathname: url.pathname }, { function: 'fetch' });
-          return errorResponse('not_found', 'Endpoint not found', 404, origin, environment.ALLOWED_ORIGINS);
-      }
-    } catch (error) {
-      logger.error('Unhandled worker error', error, { function: 'fetch' });
-      return errorResponse(
-        'server_error',
-        'An unexpected error occurred',
-        500,
-        origin,
-        environment.ALLOWED_ORIGINS
-      );
-    }
-  },
-};
+export default createOAuthWorkerHandler<Environment>({
+  provider: 'apple',
+  logger,
+  handlers: { handleAuthorize, handleCallback },
+});

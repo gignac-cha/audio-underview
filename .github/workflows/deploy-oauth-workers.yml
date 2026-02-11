@@ -1,4 +1,4 @@
-name: Deploy OAuth Provider Workers
+name: "Deploy: Workers"
 
 on:
   workflow_dispatch:

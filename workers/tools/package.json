@@ -1,20 +1,20 @@
 {
-  "name": "@audio-underview/facebook-oauth-provider-worker",
+  "name": "@audio-underview/worker-tools",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "./sources/index.ts",
+  "exports": {
+    ".": "./sources/index.ts",
+    "./tests/mock-jwt.ts": "./tests/mock-jwt.ts"
+  },
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@audio-underview/facebook-oauth-provider": "workspace:*",
     "@audio-underview/logger": "workspace:*",
-    "@audio-underview/sign-provider": "workspace:*",
-    "@audio-underview/worker-tools": "workspace:*"
+    "@audio-underview/sign-provider": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "catalog:worker",

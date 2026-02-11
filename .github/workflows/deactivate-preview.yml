@@ -1,4 +1,4 @@
-name: Deactivate Preview Environment
+name: "Deactivate: Web Preview"
 
 on:
   pull_request:
