@@ -1,4 +1,4 @@
-name: Worker Tests
+name: "Test: Workers"
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ on:
       - 'packages/**'
 
 concurrency:
-  group: ci-workers-test-${{ github.event.pull_request.number }}
+  group: test-workers-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -17,6 +17,7 @@ jobs:
     name: Run all worker unit tests
     permissions:
       contents: read
+      checks: write
 
     steps:
       - name: Checkout code
@@ -35,4 +36,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run worker tests
-        run: pnpm --filter './workers/*' test
+        run: pnpm --filter './workers/*' test -- --reporter=default --reporter=junit --outputFile.junit=test-results.xml
+
+      - name: Test report
+        uses: mikepenz/action-junit-report@v5
+        if: success() || failure()
+        with:
+          check_name: Worker Test Results
+          report_paths: 'workers/*/test-results.xml'
