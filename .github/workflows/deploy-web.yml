@@ -1,4 +1,4 @@
-name: Deploy Web to Cloudflare Pages
+name: "Deploy: Web"
 
 on:
   workflow_dispatch:
