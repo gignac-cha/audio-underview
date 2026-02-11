@@ -1,4 +1,4 @@
-name: "Deploy: Workers"
+name: "Deploy: OAuth Workers"
 
 on:
   workflow_dispatch:
