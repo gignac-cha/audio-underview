@@ -63,7 +63,7 @@ jobs:
         run: |
           aws lambda update-function-configuration \
             --function-name ${{ vars.CRAWLER_CODE_RUNNER_FUNCTION_NAME }} \
-            --runtime nodejs22.x \
+            --runtime nodejs24.x \
             --handler index.handler \
             --timeout 30 \
             --memory-size 256 \

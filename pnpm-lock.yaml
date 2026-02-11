@@ -201,6 +201,9 @@ importers:
 
   functions/crawler-code-runner-function:
     dependencies:
+      '@audio-underview/function-tools':
+        specifier: workspace:*
+        version: link:../tools
       '@audio-underview/logger':
         specifier: workspace:*
         version: link:../../packages/logger
@@ -211,6 +214,12 @@ importers:
       vitest:
         specifier: ^4.0.18
         version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(jsdom@28.0.0)(sass@1.97.3)
+
+  functions/tools:
+    dependencies:
+      '@audio-underview/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
 
   packages/apple-oauth-provider:
     dependencies:
