@@ -1,0 +1,41 @@
+import type { Logger } from '@audio-underview/logger';
+
+export interface ResponseContext {
+  origin: string;
+  allowedOrigins: string;
+  logger: Logger;
+}
+
+export interface OAuthErrorResponse {
+  error: string;
+  error_description?: string;
+}
+
+export type OAuthProvider =
+  | 'apple'
+  | 'discord'
+  | 'facebook'
+  | 'github'
+  | 'google'
+  | 'kakao'
+  | 'microsoft'
+  | 'naver'
+  | 'twitch'
+  | 'twitter';
+
+export interface BaseEnvironment {
+  FRONTEND_URL: string;
+  ALLOWED_ORIGINS: string;
+  AUDIO_UNDERVIEW_OAUTH_STATE: KVNamespace;
+}
+
+export interface OAuthWorkerHandlers<Environment extends BaseEnvironment> {
+  handleAuthorize: (request: Request, environment: Environment) => Promise<Response>;
+  handleCallback: (request: Request, environment: Environment) => Promise<Response>;
+}
+
+export interface OAuthWorkerOptions<Environment extends BaseEnvironment> {
+  provider: OAuthProvider;
+  logger: Logger;
+  handlers: OAuthWorkerHandlers<Environment>;
+}
