@@ -2,6 +2,7 @@ packages:
   - packages/*
   - applications/*
   - workers/*
+  - functions/*
 
 catalogs:
   worker:
