@@ -135,8 +135,13 @@ export default {
         return jsonResponse(HELP, 200, context);
       }
 
-      if (request.method === 'POST' && url.pathname === '/run') {
-        return await handleRun(request, environment, context);
+      if (url.pathname === '/run') {
+        if (request.method === 'POST') {
+          return await handleRun(request, environment, context);
+        }
+        const response = errorResponse('method_not_allowed', 'Method not allowed. Use POST for /run', 405, context);
+        response.headers.set('Allow', 'POST');
+        return response;
       }
 
       return errorResponse('not_found', 'Endpoint not found', 404, context);
