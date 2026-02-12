@@ -14,7 +14,11 @@ on:
 
 jobs:
   deploy-crawler-code-runner:
-    if: ${{ inputs.crawler_code_runner || inputs.deploy_all }}
+    # NOTE: Deployment is currently disabled due to Cloudflare WorkerLoader API limitation.
+    # The WorkerLoader API required for sandboxed code execution is not available for deployment.
+    # See workers/crawler-code-runner-worker/README.md for details.
+    # Use the AWS Lambda equivalent (functions/crawler-code-runner-function) instead.
+    if: false # ${{ inputs.crawler_code_runner || inputs.deploy_all }}
     runs-on: ubuntu-latest
     name: Deploy Crawler Code Runner Worker
     steps:

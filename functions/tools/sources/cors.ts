@@ -21,6 +21,7 @@ export function createCORSHeaders(origin: string, allowedOrigins: string, logger
   } else {
     headers['Access-Control-Allow-Origin'] = origin;
     headers['Access-Control-Allow-Credentials'] = 'true';
+    headers['Vary'] = 'Origin';
   }
 
   headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS';

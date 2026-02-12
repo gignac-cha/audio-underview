@@ -341,16 +341,17 @@ describe('crawler-code-runner-worker', () => {
       expect(body.error).toBe('not_found');
     });
 
-    it('returns 404 for unsupported method on known path', async () => {
+    it('returns 405 for unsupported method on known path', async () => {
       const request = new Request(`${WORKER_URL}/run`, {
         method: 'PUT',
         headers: { Origin: 'https://example.com' },
       });
       const response = await worker.fetch(request, env);
 
-      expect(response.status).toBe(404);
+      expect(response.status).toBe(405);
+      expect(response.headers.get('Allow')).toBe('POST');
       const body = await response.json();
-      expect(body.error).toBe('not_found');
+      expect(body.error).toBe('method_not_allowed');
     });
   });
 });
