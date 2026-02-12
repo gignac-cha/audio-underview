@@ -227,7 +227,7 @@ describe('crawler-code-runner-worker', () => {
       expect(response.status).toBe(422);
       const body = await response.json();
       expect(body.error).toBe('execution_failed');
-      expect(body.error_description).toContain('intentional error');
+      expect(body.error_description).toBe('Code execution failed');
     });
 
     it('returns 422 when code is syntactically invalid', async () => {
