@@ -18,6 +18,8 @@ interface RunRequestBody {
   code: string;
 }
 
+const FETCH_TIMEOUT_MILLISECONDS = 10_000;
+
 const logger = createWorkerLogger({
   defaultContext: {
     module: 'crawler-code-runner-worker',
@@ -79,16 +81,21 @@ async function handleRun(
 
   let responseText: string;
   try {
+    const signal = AbortSignal.timeout(FETCH_TIMEOUT_MILLISECONDS);
     logger.info('Fetching target URL', { url: targetURL.toString() }, { function: 'handleRun' });
-    const fetchResponse = await fetch(targetURL.toString());
+    const fetchResponse = await fetch(targetURL.toString(), { signal });
     responseText = await fetchResponse.text();
     logger.info('Target URL fetched', {
       status: fetchResponse.status,
       contentLength: responseText.length,
     }, { function: 'handleRun' });
   } catch (fetchError) {
-    logger.error('Failed to fetch target URL', fetchError, { function: 'handleRun' });
-    return errorResponse('fetch_failed', `Failed to fetch URL: ${targetURL.toString()}`, 502, context);
+    if (fetchError instanceof DOMException && fetchError.name === 'TimeoutError') {
+      logger.error('Fetch timed out', { url: targetURL.toString(), timeoutMilliseconds: FETCH_TIMEOUT_MILLISECONDS }, { function: 'handleRun' });
+      return errorResponse('fetch_timeout', `Fetch timed out after ${FETCH_TIMEOUT_MILLISECONDS}ms`, 504, context);
+    }
+    logger.error('Failed to fetch target URL', { error: fetchError, url: targetURL.toString() }, { function: 'handleRun' });
+    return errorResponse('fetch_failed', 'Failed to fetch the target URL', 502, context);
   }
 
   let result: unknown;

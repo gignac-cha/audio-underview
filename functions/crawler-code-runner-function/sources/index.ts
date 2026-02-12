@@ -188,14 +188,14 @@ async function handleRun(body: string | undefined, context: ResponseContext): Pr
       Infinity,
     });
     const script = new Script(`(${parsed.code})`);
-    const fn = script.runInContext(sandbox, { timeout: CODE_EXECUTION_TIMEOUT_MILLISECONDS });
+    const userFunction = script.runInContext(sandbox, { timeout: CODE_EXECUTION_TIMEOUT_MILLISECONDS });
     let timer: ReturnType<typeof setTimeout> | undefined;
     const asyncTimeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error('Async execution timed out')), CODE_EXECUTION_TIMEOUT_MILLISECONDS);
       timer.unref();
     });
     try {
-      result = await Promise.race([fn(responseText), asyncTimeout]);
+      result = await Promise.race([userFunction(responseText), asyncTimeout]);
     } finally {
       clearTimeout(timer);
     }
