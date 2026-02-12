@@ -148,7 +148,7 @@ async function handleRun(body: string | undefined, context: ResponseContext): Pr
 
   let result: unknown;
   try {
-    const sandboxContext = createContext({
+    const sandbox = createContext({
       Array,
       Boolean,
       Date,
@@ -177,14 +177,26 @@ async function handleRun(body: string | undefined, context: ResponseContext): Pr
       Infinity,
     });
     const script = new Script(`(${parsed.code})`);
-    const fn = script.runInNewContext(sandboxContext, { timeout: CODE_EXECUTION_TIMEOUT_MS });
-    result = await fn(responseText);
+    const fn = script.runInContext(sandbox, { timeout: CODE_EXECUTION_TIMEOUT_MS });
+    const asyncTimeout = new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => reject(new Error('Async execution timed out')), CODE_EXECUTION_TIMEOUT_MS);
+      timer.unref();
+    });
+    result = await Promise.race([fn(responseText), asyncTimeout]);
   } catch (executionError) {
     logger.error('Code execution failed', executionError, { function: 'handleRun' });
+    if (
+      executionError != null
+      && typeof executionError === 'object'
+      && 'code' in executionError
+      && executionError.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT'
+    ) {
+      return errorResponse('execution_timeout', `Code execution timed out after ${CODE_EXECUTION_TIMEOUT_MS}ms`, 422, context);
+    }
     const message = executionError instanceof Error
       ? executionError.message
       : 'Unknown execution error';
-    if (message === 'Script execution timed out.') {
+    if (message === 'Async execution timed out') {
       return errorResponse('execution_timeout', `Code execution timed out after ${CODE_EXECUTION_TIMEOUT_MS}ms`, 422, context);
     }
     return errorResponse('execution_failed', message, 422, context);

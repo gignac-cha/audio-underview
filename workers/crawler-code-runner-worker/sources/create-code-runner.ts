@@ -2,16 +2,12 @@ export interface CodeRunner {
   execute(data: string): Promise<unknown>;
 }
 
-const MAX_CODE_LENGTH = 10_000;
+export const MAX_CODE_LENGTH = 10_000;
 
 export function createCodeRunner(
   loader: WorkerLoader,
   code: string,
 ): CodeRunner {
-  if (code.length > MAX_CODE_LENGTH) {
-    throw new Error(`Code exceeds maximum length of ${MAX_CODE_LENGTH} characters`);
-  }
-
   const worker = loader.get(`run-${crypto.randomUUID()}`, () => ({
     compatibilityDate: '2025-11-25',
     mainModule: 'runner.js',

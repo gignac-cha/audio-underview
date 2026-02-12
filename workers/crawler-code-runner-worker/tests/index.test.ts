@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { env, fetchMock } from 'cloudflare:test';
 import worker from '../sources/index.ts';
+import { MAX_CODE_LENGTH } from '../sources/create-code-runner.ts';
 
 const WORKER_URL = 'https://worker.example.com';
 
@@ -146,6 +147,24 @@ describe('crawler-code-runner-worker', () => {
       const body = await response.json();
       expect(body.error).toBe('invalid_request');
       expect(body.error_description).toContain('code');
+    });
+
+    it('returns 400 when code exceeds MAX_CODE_LENGTH', async () => {
+      const request = new Request(`${WORKER_URL}/run`, {
+        method: 'POST',
+        headers: { Origin: 'https://example.com', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'run',
+          url: 'https://target.example.com/data',
+          code: 'x'.repeat(MAX_CODE_LENGTH + 1),
+        }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toContain('maximum length');
     });
 
     it('returns 400 for invalid URL format', async () => {
