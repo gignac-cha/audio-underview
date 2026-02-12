@@ -1,12 +1,13 @@
 packages:
-  - "packages/*"
-  - "applications/*"
-  - "workers/*"
+  - packages/*
+  - applications/*
+  - workers/*
+  - functions/*
 
 catalogs:
   worker:
-    "@cloudflare/vitest-pool-workers": "^0.12.10"
-    "@cloudflare/workers-types": "4.20260207.0"
-    "@vitest/runner": "~3.2.4"
-    "@vitest/snapshot": "~3.2.4"
-    vitest: "~3.2.4"
+    '@cloudflare/vitest-pool-workers': 0.12.10
+    '@cloudflare/workers-types': 4.20260207.0
+    '@vitest/runner': 3.2.4
+    '@vitest/snapshot': 3.2.4
+    vitest: 3.2.4

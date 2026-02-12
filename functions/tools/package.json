@@ -1,0 +1,21 @@
+{
+  "name": "@audio-underview/function-tools",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./sources/index.ts",
+  "types": "./sources/index.ts",
+  "exports": {
+    ".": {
+      "types": "./sources/index.ts",
+      "import": "./sources/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "packageManager": "pnpm@10.26.1",
+  "dependencies": {
+    "@audio-underview/logger": "workspace:*"
+  }
+}
