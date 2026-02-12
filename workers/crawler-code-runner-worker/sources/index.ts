@@ -5,7 +5,7 @@ import {
   jsonResponse,
   errorResponse,
 } from '@audio-underview/worker-tools';
-import { createCodeRunner } from './create-code-runner.ts';
+import { createCodeRunner, MAX_CODE_LENGTH } from './create-code-runner.ts';
 
 interface Environment {
   ALLOWED_ORIGINS: string;
@@ -64,6 +64,10 @@ async function handleRun(
 
   if (!body.code || typeof body.code !== 'string') {
     return errorResponse('invalid_request', "Field 'code' is required and must be a string", 400, context);
+  }
+
+  if (body.code.length > MAX_CODE_LENGTH) {
+    return errorResponse('invalid_request', `Field 'code' exceeds maximum length of ${MAX_CODE_LENGTH} characters`, 400, context);
   }
 
   let targetURL: URL;
