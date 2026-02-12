@@ -16,8 +16,8 @@ interface RunRequestBody {
   code: string;
 }
 
-const FETCH_TIMEOUT_MS = 10_000;
-const CODE_EXECUTION_TIMEOUT_MS = 5_000;
+const FETCH_TIMEOUT_MILLISECONDS = 10_000;
+const CODE_EXECUTION_TIMEOUT_MILLISECONDS = 5_000;
 const MAX_CODE_LENGTH = 10_000;
 
 const BLOCKED_IP_RANGES = [
@@ -91,25 +91,36 @@ const HELP = {
   ],
 };
 
+function isRunRequestBody(value: unknown): value is RunRequestBody {
+  if (value == null || typeof value !== 'object') return false;
+  const object = value as Record<string, unknown>;
+  return (
+    (object.type === 'test' || object.type === 'run')
+    && typeof object.url === 'string'
+    && typeof object.code === 'string'
+  );
+}
+
 async function handleRun(body: string | undefined, context: ResponseContext): Promise<LambdaResponse> {
-  let parsed: RunRequestBody;
+  let raw: unknown;
   try {
-    parsed = JSON.parse(body ?? '') as RunRequestBody;
+    raw = JSON.parse(body ?? '');
   } catch {
     return errorResponse('invalid_request', 'Request body must be valid JSON', 400, context);
   }
 
-  if (!parsed.type || (parsed.type !== 'test' && parsed.type !== 'run')) {
-    return errorResponse('invalid_request', "Field 'type' must be 'test' or 'run'", 400, context);
-  }
-
-  if (!parsed.url || typeof parsed.url !== 'string') {
-    return errorResponse('invalid_request', "Field 'url' is required and must be a string", 400, context);
-  }
-
-  if (!parsed.code || typeof parsed.code !== 'string') {
+  if (!isRunRequestBody(raw)) {
+    const object = raw != null && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    if (!object.type || (object.type !== 'test' && object.type !== 'run')) {
+      return errorResponse('invalid_request', "Field 'type' must be 'test' or 'run'", 400, context);
+    }
+    if (!object.url || typeof object.url !== 'string') {
+      return errorResponse('invalid_request', "Field 'url' is required and must be a string", 400, context);
+    }
     return errorResponse('invalid_request', "Field 'code' is required and must be a string", 400, context);
   }
+
+  const parsed = raw;
 
   if (parsed.code.length > MAX_CODE_LENGTH) {
     return errorResponse('invalid_request', `Field 'code' exceeds maximum length of ${MAX_CODE_LENGTH} characters`, 400, context);
@@ -129,7 +140,7 @@ async function handleRun(body: string | undefined, context: ResponseContext): Pr
 
   let responseText: string;
   try {
-    const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+    const signal = AbortSignal.timeout(FETCH_TIMEOUT_MILLISECONDS);
     logger.info('Fetching target URL', { url: targetURL.toString() }, { function: 'handleRun' });
     const fetchResponse = await fetch(targetURL.toString(), { signal });
     responseText = await fetchResponse.text();
@@ -139,11 +150,11 @@ async function handleRun(body: string | undefined, context: ResponseContext): Pr
     }, { function: 'handleRun' });
   } catch (fetchError) {
     if (fetchError instanceof DOMException && fetchError.name === 'TimeoutError') {
-      logger.error('Fetch timed out', { url: targetURL.toString(), timeoutMS: FETCH_TIMEOUT_MS }, { function: 'handleRun' });
-      return errorResponse('fetch_timeout', `Fetch timed out after ${FETCH_TIMEOUT_MS}ms for URL: ${targetURL.toString()}`, 504, context);
+      logger.error('Fetch timed out', { url: targetURL.toString(), timeoutMilliseconds: FETCH_TIMEOUT_MILLISECONDS }, { function: 'handleRun' });
+      return errorResponse('fetch_timeout', `Fetch timed out after ${FETCH_TIMEOUT_MILLISECONDS}ms`, 504, context);
     }
-    logger.error('Failed to fetch target URL', fetchError, { function: 'handleRun' });
-    return errorResponse('fetch_failed', `Failed to fetch URL: ${targetURL.toString()}`, 502, context);
+    logger.error('Failed to fetch target URL', { error: fetchError, url: targetURL.toString() }, { function: 'handleRun' });
+    return errorResponse('fetch_failed', 'Failed to fetch the target URL', 502, context);
   }
 
   let result: unknown;
@@ -177,12 +188,17 @@ async function handleRun(body: string | undefined, context: ResponseContext): Pr
       Infinity,
     });
     const script = new Script(`(${parsed.code})`);
-    const fn = script.runInContext(sandbox, { timeout: CODE_EXECUTION_TIMEOUT_MS });
+    const fn = script.runInContext(sandbox, { timeout: CODE_EXECUTION_TIMEOUT_MILLISECONDS });
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const asyncTimeout = new Promise<never>((_, reject) => {
-      const timer = setTimeout(() => reject(new Error('Async execution timed out')), CODE_EXECUTION_TIMEOUT_MS);
+      timer = setTimeout(() => reject(new Error('Async execution timed out')), CODE_EXECUTION_TIMEOUT_MILLISECONDS);
       timer.unref();
     });
-    result = await Promise.race([fn(responseText), asyncTimeout]);
+    try {
+      result = await Promise.race([fn(responseText), asyncTimeout]);
+    } finally {
+      clearTimeout(timer);
+    }
   } catch (executionError) {
     logger.error('Code execution failed', executionError, { function: 'handleRun' });
     if (
@@ -191,13 +207,13 @@ async function handleRun(body: string | undefined, context: ResponseContext): Pr
       && 'code' in executionError
       && executionError.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT'
     ) {
-      return errorResponse('execution_timeout', `Code execution timed out after ${CODE_EXECUTION_TIMEOUT_MS}ms`, 422, context);
+      return errorResponse('execution_timeout', `Code execution timed out after ${CODE_EXECUTION_TIMEOUT_MILLISECONDS}ms`, 422, context);
     }
     const message = executionError instanceof Error
       ? executionError.message
       : 'Unknown execution error';
     if (message === 'Async execution timed out') {
-      return errorResponse('execution_timeout', `Code execution timed out after ${CODE_EXECUTION_TIMEOUT_MS}ms`, 422, context);
+      return errorResponse('execution_timeout', `Code execution timed out after ${CODE_EXECUTION_TIMEOUT_MILLISECONDS}ms`, 422, context);
     }
     return errorResponse('execution_failed', message, 422, context);
   }

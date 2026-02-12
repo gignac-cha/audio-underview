@@ -97,10 +97,7 @@ async function handleRun(
     result = await runner.execute(responseText);
   } catch (executionError) {
     logger.error('Code execution failed', executionError, { function: 'handleRun' });
-    const message = executionError instanceof Error
-      ? executionError.message
-      : 'Unknown execution error';
-    return errorResponse('execution_failed', message, 422, context);
+    return errorResponse('execution_failed', 'Code execution failed', 422, context);
   }
 
   return jsonResponse({ type: body.type, result }, 200, context);
