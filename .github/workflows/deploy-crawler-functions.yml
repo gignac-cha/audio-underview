@@ -68,7 +68,7 @@ jobs:
             --memory-size 256 \
             --role ${{ secrets.AWS_LAMBDA_EXECUTION_ROLE_ARN }} \
             --zip-file fileb://functions/crawler-code-runner-function/outputs/function.zip \
-            --environment "Variables={ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}}"
+            --environment '{"Variables":{"ALLOWED_ORIGINS":"${{ vars.ALLOWED_ORIGINS }}"}}'
 
       - name: Update function code
         if: steps.check-function.outputs.exists == 'true'
@@ -92,4 +92,4 @@ jobs:
             --handler index.handler \
             --timeout 30 \
             --memory-size 256 \
-            --environment "Variables={ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}}"
+            --environment '{"Variables":{"ALLOWED_ORIGINS":"${{ vars.ALLOWED_ORIGINS }}"}}'
