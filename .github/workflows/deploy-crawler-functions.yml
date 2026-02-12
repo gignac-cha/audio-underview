@@ -48,18 +48,43 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
 
+      - name: Check if function exists
+        id: check-function
+        run: |
+          if aws lambda get-function --function-name audio-underview-crawler-code-runner-function 2>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create function
+        if: steps.check-function.outputs.exists == 'false'
+        run: |
+          aws lambda create-function \
+            --function-name audio-underview-crawler-code-runner-function \
+            --runtime nodejs24.x \
+            --handler index.handler \
+            --timeout 30 \
+            --memory-size 256 \
+            --role ${{ secrets.LAMBDA_EXECUTION_ROLE_ARN }} \
+            --zip-file fileb://functions/crawler-code-runner-function/outputs/function.zip \
+            --environment "Variables={ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}}"
+
       - name: Update function code
+        if: steps.check-function.outputs.exists == 'true'
         run: |
           aws lambda update-function-code \
             --function-name audio-underview-crawler-code-runner-function \
             --zip-file fileb://functions/crawler-code-runner-function/outputs/function.zip
 
       - name: Wait for function update
+        if: steps.check-function.outputs.exists == 'true'
         run: |
           aws lambda wait function-updated-v2 \
             --function-name audio-underview-crawler-code-runner-function
 
       - name: Update function configuration
+        if: steps.check-function.outputs.exists == 'true'
         run: |
           aws lambda update-function-configuration \
             --function-name audio-underview-crawler-code-runner-function \
