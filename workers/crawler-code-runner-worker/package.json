@@ -1,0 +1,26 @@
+{
+  "name": "@audio-underview/crawler-code-runner-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./sources/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "packageManager": "pnpm@10.26.1",
+  "dependencies": {
+    "@audio-underview/logger": "workspace:*",
+    "@audio-underview/worker-tools": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "catalog:worker",
+    "@cloudflare/workers-types": "catalog:worker",
+    "@types/node": "^25.0.3",
+    "@vitest/runner": "catalog:worker",
+    "@vitest/snapshot": "catalog:worker",
+    "vitest": "catalog:worker"
+  }
+}

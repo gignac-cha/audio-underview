@@ -1,0 +1,14 @@
+name = "audio-underview-crawler-code-runner-worker"
+main = "sources/index.ts"
+compatibility_date = "2025-11-25"
+
+[vars]
+ALLOWED_ORIGINS = "http://localhost:5173,https://audio-underview.pages.dev"
+
+[[worker_loaders]]
+binding = "LOADER"
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
