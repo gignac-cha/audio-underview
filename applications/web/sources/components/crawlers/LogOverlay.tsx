@@ -108,6 +108,9 @@ export function LogOverlay({ open, onOpenChange, entries, onClear }: LogOverlayP
         <Content>
           <Header>
             <Title>Status Log</Title>
+            <Dialog.Description style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0,0,0,0)' }}>
+              Execution log entries with timestamps
+            </Dialog.Description>
             <HeaderActions>
               {entries.length > 0 && (
                 <ClearButton onClick={onClear}>Clear</ClearButton>

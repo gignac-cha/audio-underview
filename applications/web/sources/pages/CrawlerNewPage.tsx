@@ -292,7 +292,7 @@ export function CrawlerNewPage() {
   const { runTest, status, result, error } = useCrawlerCodeRunner({ onLog: handleLog });
 
   const isRunning = status === 'running';
-  const effectiveCode = code || DEFAULT_CODE;
+  const effectiveCode = code.length > 0 ? code : DEFAULT_CODE;
 
   const canTest = url.length > 0 && effectiveCode.length > 0 && !isRunning;
   const canSubmit = status === 'success';
@@ -315,7 +315,6 @@ export function CrawlerNewPage() {
     setExecutionLogs([]);
   };
 
-  const resultStatus = status === 'running' ? 'running' : status === 'success' ? 'success' : status === 'error' ? 'error' : 'idle';
 
   return (
     <PageContainer>
@@ -353,7 +352,7 @@ export function CrawlerNewPage() {
             </Column>
           )}
           {activeTab === 'result' && (
-            <JSONResultPanel result={result} status={resultStatus} error={error} />
+            <JSONResultPanel result={result} status={status} error={error} />
           )}
         </MobilePanel>
 
@@ -364,7 +363,7 @@ export function CrawlerNewPage() {
             <CodeEditorPanel value={code} onChange={setCode} disabled={isRunning} />
           </Column>
           <Column>
-            <JSONResultPanel result={result} status={resultStatus} error={error} />
+            <JSONResultPanel result={result} status={status} error={error} />
           </Column>
         </GridLayout>
 

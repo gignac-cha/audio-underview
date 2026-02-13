@@ -24,7 +24,9 @@ const Label = styled.div`
   letter-spacing: 0.05em;
 `;
 
-const CopyButton = styled.button<{ copied: boolean }>`
+const CopyButton = styled('button', {
+  shouldForwardProp: (prop) => prop !== 'copied',
+})<{ copied: boolean }>`
   background: none;
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
@@ -113,7 +115,12 @@ const Collapsible = styled.div`
   padding-left: 1.25rem;
 `;
 
+const MAX_DEPTH = 20;
+
 function renderJSON(value: unknown, indent: number = 0): React.ReactNode {
+  if (indent >= MAX_DEPTH) {
+    return <JSONString>&quot;[max depth reached]&quot;</JSONString>;
+  }
   if (value === null) {
     return <JSONNull>null</JSONNull>;
   }
@@ -198,6 +205,8 @@ export function JSONResultPanel({ result, status, error }: JSONResultPanelProper
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {
+      // Clipboard API may fail in insecure contexts or due to permission denial
     });
   }, [result]);
 
