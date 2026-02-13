@@ -1,3 +1,4 @@
+import { useState, useCallback } from 'react';
 import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
 
@@ -9,12 +10,34 @@ const Container = styled.div`
   flex: 1;
 `;
 
+const Header = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+`;
+
 const Label = styled.div`
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+`;
+
+const CopyButton = styled.button<{ copied: boolean }>`
+  background: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  color: ${({ copied }) => (copied ? 'var(--color-success)' : 'var(--text-secondary)')};
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+
+  &:hover {
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+  }
 `;
 
 const ResultBox = styled.div`
@@ -167,9 +190,27 @@ interface JSONResultPanelProperties {
 }
 
 export function JSONResultPanel({ result, status, error }: JSONResultPanelProperties) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    if (!result) return;
+    const text = JSON.stringify(result.result, null, 2);
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [result]);
+
   return (
     <Container>
-      <Label>Result</Label>
+      <Header>
+        <Label>Result</Label>
+        {status === 'success' && result && (
+          <CopyButton copied={copied} onClick={handleCopy}>
+            {copied ? 'Copied!' : 'Copy'}
+          </CopyButton>
+        )}
+      </Header>
       <ResultBox>
         {status === 'idle' && (
           <IdleMessage>Run a test to see results here.</IdleMessage>
