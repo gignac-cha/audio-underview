@@ -10,34 +10,6 @@ const Container = styled.div`
   flex: 1;
 `;
 
-const HeaderRow = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-`;
-
-const Label = styled.div`
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-`;
-
-const ClearButton = styled.button`
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-  transition: var(--transition-fast);
-
-  &:hover {
-    color: var(--text-secondary);
-    background: var(--bg-surface);
-  }
-`;
-
 const LogBox = styled.div`
   flex: 1;
   min-height: 200px;
@@ -85,10 +57,9 @@ function formatTimestamp(date: Date): string {
 
 interface StatusLogPanelProperties {
   entries: LogEntry[];
-  onClear: () => void;
 }
 
-export function StatusLogPanel({ entries, onClear }: StatusLogPanelProperties) {
+export function StatusLogPanel({ entries }: StatusLogPanelProperties) {
   const bottomReference = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -97,12 +68,6 @@ export function StatusLogPanel({ entries, onClear }: StatusLogPanelProperties) {
 
   return (
     <Container>
-      <HeaderRow>
-        <Label>Log</Label>
-        {entries.length > 0 && (
-          <ClearButton onClick={onClear}>Clear</ClearButton>
-        )}
-      </HeaderRow>
       <LogBox>
         {entries.length === 0 && (
           <EmptyMessage>No logs yet.</EmptyMessage>
