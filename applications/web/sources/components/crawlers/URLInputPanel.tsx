@@ -14,7 +14,9 @@ const Label = styled.label`
   letter-spacing: 0.05em;
 `;
 
-const Input = styled.input<{ isInvalid: boolean }>`
+const Input = styled('input', {
+  shouldForwardProp: (prop) => prop !== 'isInvalid',
+})<{ isInvalid: boolean }>`
   width: 100%;
   padding: 0.625rem 0.875rem;
   background: var(--bg-deep);

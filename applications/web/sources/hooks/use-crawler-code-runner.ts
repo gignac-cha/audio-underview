@@ -34,11 +34,17 @@ async function runCrawlerCode(url: string, code: string): Promise<CrawlerRunSucc
     throw new Error('VITE_CRAWLER_CODE_RUNNER_URL is not configured');
   }
 
+  const controller = new AbortController();
+  const timeoutID = setTimeout(() => controller.abort(), 30_000);
+
   const response = await fetch(`${baseURL}/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ type: 'test', url, code }),
+    signal: controller.signal,
   });
+
+  clearTimeout(timeoutID);
 
   const body = await response.json();
 

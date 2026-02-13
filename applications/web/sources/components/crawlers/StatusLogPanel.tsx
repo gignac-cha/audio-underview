@@ -29,7 +29,9 @@ const LOG_LEVEL_COLORS: Record<LogEntry['level'], string> = {
   error: 'var(--color-error)',
 };
 
-const LogLine = styled.div<{ level: LogEntry['level'] }>`
+const LogLine = styled('div', {
+  shouldForwardProp: (prop) => prop !== 'level',
+})<{ level: LogEntry['level'] }>`
   color: ${({ level }) => LOG_LEVEL_COLORS[level]};
   white-space: pre-wrap;
   word-break: break-all;
@@ -64,7 +66,7 @@ export function StatusLogPanel({ entries }: StatusLogPanelProperties) {
 
   useEffect(() => {
     bottomReference.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [entries.length]);
+  }, [entries.length, entries[entries.length - 1]?.id]);
 
   return (
     <Container>

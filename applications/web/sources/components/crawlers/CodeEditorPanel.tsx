@@ -51,15 +51,15 @@ interface CodeEditorPanelProperties {
 }
 
 export function CodeEditorPanel({ value, onChange, disabled }: CodeEditorPanelProperties) {
-  const isOverLimit = value.length > MAX_CODE_LENGTH;
-  const displayValue = value || DEFAULT_CODE;
+  const displayValue = value.length > 0 ? value : DEFAULT_CODE;
+  const isOverLimit = displayValue.length > MAX_CODE_LENGTH;
 
   return (
     <Container>
       <HeaderRow>
         <Label>Crawler Code</Label>
         <CharacterCounter isOver={isOverLimit}>
-          {value.length.toLocaleString()} / {MAX_CODE_LENGTH.toLocaleString()}
+          {displayValue.length.toLocaleString()} / {MAX_CODE_LENGTH.toLocaleString()}
         </CharacterCounter>
       </HeaderRow>
       <EditorWrapper>

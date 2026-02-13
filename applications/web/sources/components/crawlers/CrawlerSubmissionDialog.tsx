@@ -69,7 +69,9 @@ const RegexInput = styled.input`
   }
 `;
 
-const MatchPreview = styled.div<{ isMatch: boolean }>`
+const MatchPreview = styled('div', {
+  shouldForwardProp: (prop) => prop !== 'isMatch',
+})<{ isMatch: boolean }>`
   margin-top: 0.5rem;
   padding: 0.5rem 0.75rem;
   background: var(--bg-deep);
@@ -120,7 +122,7 @@ interface CrawlerSubmissionDialogProperties {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   url: string;
-  code: string;
+  code: string; // Will be used for server submission in upcoming implementation
 }
 
 export function CrawlerSubmissionDialog({
