@@ -6,6 +6,8 @@ import {
 } from './contexts/AuthenticationContext.tsx';
 import { SignInPage } from './pages/SignInPage.tsx';
 import { HomePage } from './pages/HomePage.tsx';
+import { CrawlersPage } from './pages/CrawlersPage.tsx';
+import { CrawlerNewPage } from './pages/CrawlerNewPage.tsx';
 import { AuthCallbackPage } from './pages/AuthCallbackPage.tsx';
 import { ProtectedRoute } from './components/ProtectedRoute.tsx';
 
@@ -49,6 +51,22 @@ function ApplicationRoutes() {
         element={
           <ProtectedRoute>
             <HomePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/crawlers"
+        element={
+          <ProtectedRoute>
+            <CrawlersPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/crawlers/new"
+        element={
+          <ProtectedRoute>
+            <CrawlerNewPage />
           </ProtectedRoute>
         }
       />
