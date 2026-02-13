@@ -6,6 +6,7 @@ import { faArrowLeft, faPlay, faPaperPlane, faSignOutAlt } from '@fortawesome/fr
 import { useNavigate } from 'react-router';
 import { useAuthentication } from '../contexts/AuthenticationContext.tsx';
 import { useCrawlerCodeRunner, type LogEntry } from '../hooks/use-crawler-code-runner.ts';
+import { useMediaQuery } from '../hooks/use-media-query.ts';
 import { URLInputPanel } from '../components/crawlers/URLInputPanel.tsx';
 import { CodeEditorPanel, DEFAULT_CODE } from '../components/crawlers/CodeEditorPanel.tsx';
 import { JSONResultPanel } from '../components/crawlers/JSONResultPanel.tsx';
@@ -105,17 +106,12 @@ const Main = styled.main`
   overflow: hidden;
 `;
 
-/* Desktop: 2 columns */
 const GridLayout = styled.div`
   flex: 1;
-  display: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 1.25rem;
   min-height: 0;
-
-  @media (min-width: 768px) {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
 `;
 
 const Column = styled.div`
@@ -125,20 +121,17 @@ const Column = styled.div`
   min-height: 0;
 `;
 
-/* Mobile: 2 tabs */
 const MobileTabBar = styled.div`
   display: flex;
   gap: 0;
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   overflow: hidden;
-
-  @media (min-width: 768px) {
-    display: none;
-  }
 `;
 
-const MobileTab = styled.button<{ isActive: boolean }>`
+const MobileTab = styled('button', {
+  shouldForwardProp: (prop) => prop !== 'isActive',
+})<{ isActive: boolean }>`
   flex: 1;
   padding: 0.5rem;
   font-size: 0.8125rem;
@@ -159,10 +152,6 @@ const MobilePanel = styled.div`
   display: flex;
   flex-direction: column;
   min-height: 0;
-
-  @media (min-width: 768px) {
-    display: none;
-  }
 `;
 
 const ActionBar = styled.div`
@@ -291,6 +280,7 @@ export function CrawlerNewPage() {
 
   const { runTest, status, result, error } = useCrawlerCodeRunner({ onLog: handleLog });
 
+  const isDesktop = useMediaQuery('(min-width: 768px)');
   const isRunning = status === 'running';
   const effectiveCode = code.length > 0 ? code : DEFAULT_CODE;
 
@@ -334,38 +324,39 @@ export function CrawlerNewPage() {
       </Header>
 
       <Main>
-        {/* Mobile: 2 tabs (Editor | Result) */}
-        <MobileTabBar>
-          <MobileTab isActive={activeTab === 'editor'} onClick={() => setActiveTab('editor')}>
-            Editor
-          </MobileTab>
-          <MobileTab isActive={activeTab === 'result'} onClick={() => setActiveTab('result')}>
-            Result
-          </MobileTab>
-        </MobileTabBar>
-
-        <MobilePanel>
-          {activeTab === 'editor' && (
+        {isDesktop ? (
+          <GridLayout>
             <Column>
               <URLInputPanel value={url} onChange={setURL} disabled={isRunning} />
               <CodeEditorPanel value={code} onChange={setCode} disabled={isRunning} />
             </Column>
-          )}
-          {activeTab === 'result' && (
-            <JSONResultPanel result={result} status={status} error={error} />
-          )}
-        </MobilePanel>
-
-        {/* Desktop: 2 columns */}
-        <GridLayout>
-          <Column>
-            <URLInputPanel value={url} onChange={setURL} disabled={isRunning} />
-            <CodeEditorPanel value={code} onChange={setCode} disabled={isRunning} />
-          </Column>
-          <Column>
-            <JSONResultPanel result={result} status={status} error={error} />
-          </Column>
-        </GridLayout>
+            <Column>
+              <JSONResultPanel result={result} status={status} error={error} />
+            </Column>
+          </GridLayout>
+        ) : (
+          <>
+            <MobileTabBar>
+              <MobileTab isActive={activeTab === 'editor'} onClick={() => setActiveTab('editor')}>
+                Editor
+              </MobileTab>
+              <MobileTab isActive={activeTab === 'result'} onClick={() => setActiveTab('result')}>
+                Result
+              </MobileTab>
+            </MobileTabBar>
+            <MobilePanel>
+              {activeTab === 'editor' && (
+                <Column>
+                  <URLInputPanel value={url} onChange={setURL} disabled={isRunning} />
+                  <CodeEditorPanel value={code} onChange={setCode} disabled={isRunning} />
+                </Column>
+              )}
+              {activeTab === 'result' && (
+                <JSONResultPanel result={result} status={status} error={error} />
+              )}
+            </MobilePanel>
+          </>
+        )}
 
         <ActionBar>
           <ActionLeft>
