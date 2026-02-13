@@ -38,6 +38,7 @@ const CharacterCounter = styled.span<{ isOver: boolean }>`
 
 const EditorWrapper = styled.div`
   flex: 1;
+  height: 300px;
   min-height: 200px;
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
@@ -77,6 +78,7 @@ export function CodeEditorPanel({ value, onChange, disabled }: CodeEditorPanelPr
             readOnly: disabled,
             padding: { top: 12 },
             wordWrap: 'on',
+            automaticLayout: true,
           }}
         />
       </EditorWrapper>
