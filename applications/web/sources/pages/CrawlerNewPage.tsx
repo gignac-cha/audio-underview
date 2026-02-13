@@ -9,7 +9,7 @@ import { useCrawlerCodeRunner, type LogEntry } from '../hooks/use-crawler-code-r
 import { URLInputPanel } from '../components/crawlers/URLInputPanel.tsx';
 import { CodeEditorPanel, DEFAULT_CODE } from '../components/crawlers/CodeEditorPanel.tsx';
 import { JSONResultPanel } from '../components/crawlers/JSONResultPanel.tsx';
-import { StatusLogPanel } from '../components/crawlers/StatusLogPanel.tsx';
+import { LogOverlay } from '../components/crawlers/LogOverlay.tsx';
 import { CrawlerSubmissionDialog } from '../components/crawlers/CrawlerSubmissionDialog.tsx';
 
 const fadeIn = keyframes`
@@ -105,70 +105,36 @@ const Main = styled.main`
   overflow: hidden;
 `;
 
+/* Desktop: 2 columns */
 const GridLayout = styled.div`
   flex: 1;
   display: none;
   gap: 1.25rem;
   min-height: 0;
 
-  @media (min-width: 768px) and (max-width: 1023px) {
+  @media (min-width: 768px) {
     display: grid;
     grid-template-columns: 1fr 1fr;
   }
-
-  @media (min-width: 1024px) {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-  }
 `;
 
-const LeftColumn = styled.div`
+const Column = styled.div`
   display: flex;
   flex-direction: column;
   gap: 1rem;
   min-height: 0;
 `;
 
-const MiddleColumn = styled.div`
-  display: none;
-  flex-direction: column;
-  min-height: 0;
-
-  @media (min-width: 1024px) {
-    display: flex;
-  }
-`;
-
-const TabletRightColumn = styled.div`
-  display: none;
-  flex-direction: column;
-  gap: 1rem;
-  min-height: 0;
-
-  @media (min-width: 768px) and (max-width: 1023px) {
-    display: flex;
-  }
-`;
-
-const DesktopRightColumn = styled.div`
-  display: none;
-  flex-direction: column;
-  min-height: 0;
-
-  @media (min-width: 1024px) {
-    display: flex;
-  }
-`;
-
+/* Mobile: 2 tabs */
 const MobileTabBar = styled.div`
-  display: none;
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  overflow: hidden;
 
-  @media (max-width: 767px) {
-    display: flex;
-    gap: 0;
-    border: 1px solid var(--border-subtle);
-    border-radius: 8px;
-    overflow: hidden;
+  @media (min-width: 768px) {
+    display: none;
   }
 `;
 
@@ -189,13 +155,13 @@ const MobileTab = styled.button<{ isActive: boolean }>`
 `;
 
 const MobilePanel = styled.div`
-  display: none;
   flex: 1;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
 
-  @media (max-width: 767px) {
-    display: flex;
-    flex-direction: column;
+  @media (min-width: 768px) {
+    display: none;
   }
 `;
 
@@ -204,6 +170,44 @@ const ActionBar = styled.div`
   justify-content: space-between;
   align-items: center;
   padding-top: 0.5rem;
+`;
+
+const ActionLeft = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+`;
+
+const LogButton = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: var(--transition-fast);
+
+  &:hover {
+    border-color: var(--text-muted);
+    color: var(--text-primary);
+  }
+`;
+
+const LogBadge = styled.span`
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--accent-primary);
+  padding: 0.0625rem 0.4375rem;
+  border-radius: 9999px;
+  min-width: 1.25rem;
+  text-align: center;
+  line-height: 1.4;
 `;
 
 const spin = keyframes`
@@ -268,7 +272,7 @@ const SubmitButton = styled.button`
   }
 `;
 
-type MobileTabID = 'editor' | 'result' | 'log';
+type MobileTabID = 'editor' | 'result';
 
 export function CrawlerNewPage() {
   const navigate = useNavigate();
@@ -278,6 +282,7 @@ export function CrawlerNewPage() {
   const [code, setCode] = useState('');
   const [executionLogs, setExecutionLogs] = useState<LogEntry[]>([]);
   const [activeTab, setActiveTab] = useState<MobileTabID>('editor');
+  const [isLogOverlayOpen, setIsLogOverlayOpen] = useState(false);
   const [isSubmitDialogOpen, setIsSubmitDialogOpen] = useState(false);
 
   const handleLog = useCallback((entry: LogEntry) => {
@@ -330,7 +335,7 @@ export function CrawlerNewPage() {
       </Header>
 
       <Main>
-        {/* Mobile tab bar */}
+        {/* Mobile: 2 tabs (Editor | Result) */}
         <MobileTabBar>
           <MobileTab isActive={activeTab === 'editor'} onClick={() => setActiveTab('editor')}>
             Editor
@@ -338,54 +343,42 @@ export function CrawlerNewPage() {
           <MobileTab isActive={activeTab === 'result'} onClick={() => setActiveTab('result')}>
             Result
           </MobileTab>
-          <MobileTab isActive={activeTab === 'log'} onClick={() => setActiveTab('log')}>
-            Log
-          </MobileTab>
         </MobileTabBar>
 
-        {/* Mobile: only active panel */}
         <MobilePanel>
           {activeTab === 'editor' && (
-            <LeftColumn>
+            <Column>
               <URLInputPanel value={url} onChange={setURL} disabled={isRunning} />
               <CodeEditorPanel value={code} onChange={setCode} disabled={isRunning} />
-            </LeftColumn>
+            </Column>
           )}
           {activeTab === 'result' && (
             <JSONResultPanel result={result} status={resultStatus} error={error} />
           )}
-          {activeTab === 'log' && (
-            <StatusLogPanel entries={executionLogs} onClear={handleClearLogs} />
-          )}
         </MobilePanel>
 
-        {/* Tablet + Desktop layout */}
+        {/* Desktop: 2 columns */}
         <GridLayout>
-          <LeftColumn>
+          <Column>
             <URLInputPanel value={url} onChange={setURL} disabled={isRunning} />
             <CodeEditorPanel value={code} onChange={setCode} disabled={isRunning} />
-          </LeftColumn>
-
-          {/* Desktop: 3 columns */}
-          <MiddleColumn>
+          </Column>
+          <Column>
             <JSONResultPanel result={result} status={resultStatus} error={error} />
-          </MiddleColumn>
-
-          <TabletRightColumn>
-            <JSONResultPanel result={result} status={resultStatus} error={error} />
-            <StatusLogPanel entries={executionLogs} onClear={handleClearLogs} />
-          </TabletRightColumn>
-
-          <DesktopRightColumn>
-            <StatusLogPanel entries={executionLogs} onClear={handleClearLogs} />
-          </DesktopRightColumn>
+          </Column>
         </GridLayout>
 
         <ActionBar>
-          <TestButton disabled={!canTest || !isValidURL} onClick={handleTest} isRunning={isRunning}>
-            {isRunning ? <ButtonSpinner /> : <FontAwesomeIcon icon={faPlay} />}
-            {isRunning ? 'Running...' : 'Test'}
-          </TestButton>
+          <ActionLeft>
+            <TestButton disabled={!canTest || !isValidURL} onClick={handleTest} isRunning={isRunning}>
+              {isRunning ? <ButtonSpinner /> : <FontAwesomeIcon icon={faPlay} />}
+              {isRunning ? 'Running...' : 'Test'}
+            </TestButton>
+            <LogButton onClick={() => setIsLogOverlayOpen(true)}>
+              Log
+              {executionLogs.length > 0 && <LogBadge>{executionLogs.length}</LogBadge>}
+            </LogButton>
+          </ActionLeft>
 
           <SubmitButton disabled={!canSubmit} onClick={() => setIsSubmitDialogOpen(true)}>
             <FontAwesomeIcon icon={faPaperPlane} />
@@ -393,6 +386,13 @@ export function CrawlerNewPage() {
           </SubmitButton>
         </ActionBar>
       </Main>
+
+      <LogOverlay
+        open={isLogOverlayOpen}
+        onOpenChange={setIsLogOverlayOpen}
+        entries={executionLogs}
+        onClear={handleClearLogs}
+      />
 
       <CrawlerSubmissionDialog
         open={isSubmitDialogOpen}
