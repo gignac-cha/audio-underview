@@ -1,0 +1,190 @@
+import styled from '@emotion/styled';
+import { keyframes } from '@emotion/react';
+
+const Container = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 0;
+  flex: 1;
+`;
+
+const Label = styled.div`
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+`;
+
+const ResultBox = styled.div`
+  flex: 1;
+  min-height: 200px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 1rem;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+`;
+
+const IdleMessage = styled.p`
+  color: var(--text-muted);
+  margin: 0;
+  font-style: italic;
+`;
+
+const spin = keyframes`
+  to { transform: rotate(360deg); }
+`;
+
+const Spinner = styled.div`
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid var(--border-subtle);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: ${spin} 0.6s linear infinite;
+`;
+
+const LoadingRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-secondary);
+`;
+
+const ErrorMessage = styled.div`
+  color: var(--color-error);
+  white-space: pre-wrap;
+`;
+
+const JSONKey = styled.span`
+  color: var(--accent-primary);
+`;
+
+const JSONString = styled.span`
+  color: var(--color-success);
+`;
+
+const JSONNumber = styled.span`
+  color: var(--accent-secondary);
+`;
+
+const JSONBoolean = styled.span`
+  color: var(--accent-secondary);
+`;
+
+const JSONNull = styled.span`
+  color: var(--text-muted);
+`;
+
+const JSONPunctuation = styled.span`
+  color: var(--text-secondary);
+`;
+
+const Collapsible = styled.div`
+  padding-left: 1.25rem;
+`;
+
+function renderJSON(value: unknown, indent: number = 0): React.ReactNode {
+  if (value === null) {
+    return <JSONNull>null</JSONNull>;
+  }
+
+  if (value === undefined) {
+    return <JSONNull>undefined</JSONNull>;
+  }
+
+  if (typeof value === 'string') {
+    const truncated = value.length > 500 ? value.slice(0, 500) + '...' : value;
+    return <JSONString>&quot;{truncated}&quot;</JSONString>;
+  }
+
+  if (typeof value === 'number') {
+    return <JSONNumber>{value}</JSONNumber>;
+  }
+
+  if (typeof value === 'boolean') {
+    return <JSONBoolean>{String(value)}</JSONBoolean>;
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return <JSONPunctuation>[]</JSONPunctuation>;
+    }
+    return (
+      <span>
+        <JSONPunctuation>[</JSONPunctuation>
+        <Collapsible>
+          {value.map((item, index) => (
+            <div key={index}>
+              {renderJSON(item, indent + 1)}
+              {index < value.length - 1 && <JSONPunctuation>,</JSONPunctuation>}
+            </div>
+          ))}
+        </Collapsible>
+        <JSONPunctuation>]</JSONPunctuation>
+      </span>
+    );
+  }
+
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) {
+      return <JSONPunctuation>{'{}'}</JSONPunctuation>;
+    }
+    return (
+      <span>
+        <JSONPunctuation>{'{'}</JSONPunctuation>
+        <Collapsible>
+          {entries.map(([key, val], index) => (
+            <div key={key}>
+              <JSONKey>&quot;{key}&quot;</JSONKey>
+              <JSONPunctuation>: </JSONPunctuation>
+              {renderJSON(val, indent + 1)}
+              {index < entries.length - 1 && <JSONPunctuation>,</JSONPunctuation>}
+            </div>
+          ))}
+        </Collapsible>
+        <JSONPunctuation>{'}'}</JSONPunctuation>
+      </span>
+    );
+  }
+
+  return <JSONString>{String(value)}</JSONString>;
+}
+
+type Status = 'idle' | 'running' | 'success' | 'error';
+
+interface JSONResultPanelProperties {
+  result: { type: string; result: unknown } | null;
+  status: Status;
+  error?: Error | null;
+}
+
+export function JSONResultPanel({ result, status, error }: JSONResultPanelProperties) {
+  return (
+    <Container>
+      <Label>Result</Label>
+      <ResultBox>
+        {status === 'idle' && (
+          <IdleMessage>Run a test to see results here.</IdleMessage>
+        )}
+        {status === 'running' && (
+          <LoadingRow>
+            <Spinner />
+            <span>Executing...</span>
+          </LoadingRow>
+        )}
+        {status === 'error' && (
+          <ErrorMessage>{error?.message ?? 'An unknown error occurred.'}</ErrorMessage>
+        )}
+        {status === 'success' && result && renderJSON(result.result)}
+      </ResultBox>
+    </Container>
+  );
+}
