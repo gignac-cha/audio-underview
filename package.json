@@ -10,7 +10,9 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "environment:setup": "pnpm --filter @audio-underview/environment-generator run setup",
+    "environment:generate": "pnpm --filter @audio-underview/environment-generator run generate"
   },
   "engines": {
     "node": ">=25.2.1"
