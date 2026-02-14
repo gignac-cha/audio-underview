@@ -30,7 +30,9 @@ const Label = styled.label`
   letter-spacing: 0.05em;
 `;
 
-const CharacterCounter = styled.span<{ isOver: boolean }>`
+const CharacterCounter = styled('span', {
+  shouldForwardProp: (prop) => prop !== 'isOver',
+})<{ isOver: boolean }>`
   font-size: 0.75rem;
   font-family: var(--font-mono);
   color: ${({ isOver }) => (isOver ? 'var(--color-error)' : 'var(--text-muted)')};

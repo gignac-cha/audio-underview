@@ -5,6 +5,7 @@ export function useMediaQuery(query: string): boolean {
 
   useEffect(() => {
     const mediaQueryList = window.matchMedia(query);
+    setMatches(mediaQueryList.matches);
     const handler = (event: MediaQueryListEvent) => setMatches(event.matches);
     mediaQueryList.addEventListener('change', handler);
     return () => mediaQueryList.removeEventListener('change', handler);
