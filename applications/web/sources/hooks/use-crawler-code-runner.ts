@@ -45,7 +45,12 @@ async function runCrawlerCode(url: string, code: string): Promise<CrawlerRunSucc
       signal: controller.signal,
     });
 
-    const body = await response.json();
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      throw new Error(`Server returned non-JSON response (status ${response.status})`);
+    }
 
     if (!response.ok) {
       const errorResult = crawlerRunErrorResponseSchema.safeParse(body);
