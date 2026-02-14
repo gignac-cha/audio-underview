@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, type ReactNode } from 'react';
 import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
 
@@ -117,7 +117,7 @@ const Collapsible = styled.div`
 
 const MAX_DEPTH = 20;
 
-function renderJSON(value: unknown, indent: number = 0): React.ReactNode {
+function renderJSON(value: unknown, indent: number = 0): ReactNode {
   if (indent >= MAX_DEPTH) {
     return <JSONString>&quot;[max depth reached]&quot;</JSONString>;
   }

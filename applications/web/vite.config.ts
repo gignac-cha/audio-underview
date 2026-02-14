@@ -4,7 +4,14 @@ import basicSSL from '@vitejs/plugin-basic-ssl';
 import path from 'path';
 
 export default defineConfig({
-  plugins: [react(), basicSSL()],
+  plugins: [
+    react({
+      babel: {
+        plugins: [['babel-plugin-react-compiler', {}]],
+      },
+    }),
+    basicSSL(),
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './sources'),

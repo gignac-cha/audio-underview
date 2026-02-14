@@ -37,27 +37,29 @@ async function runCrawlerCode(url: string, code: string): Promise<CrawlerRunSucc
   const controller = new AbortController();
   const timeoutID = setTimeout(() => controller.abort(), 30_000);
 
-  const response = await fetch(`${baseURL}/run`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type: 'test', url, code }),
-    signal: controller.signal,
-  });
+  try {
+    const response = await fetch(`${baseURL}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'test', url, code }),
+      signal: controller.signal,
+    });
 
-  clearTimeout(timeoutID);
+    const body = await response.json();
 
-  const body = await response.json();
-
-  if (!response.ok) {
-    const errorResult = crawlerRunErrorResponseSchema.safeParse(body);
-    if (errorResult.success) {
-      throw new Error(`${errorResult.data.error}: ${errorResult.data.error_description}`);
+    if (!response.ok) {
+      const errorResult = crawlerRunErrorResponseSchema.safeParse(body);
+      if (errorResult.success) {
+        throw new Error(`${errorResult.data.error}: ${errorResult.data.error_description}`);
+      }
+      throw new Error(`Request failed with status ${response.status}`);
     }
-    throw new Error(`Request failed with status ${response.status}`);
-  }
 
-  const successResult = crawlerRunSuccessResponseSchema.parse(body);
-  return successResult;
+    const successResult = crawlerRunSuccessResponseSchema.parse(body);
+    return successResult;
+  } finally {
+    clearTimeout(timeoutID);
+  }
 }
 
 export function useCrawlerCodeRunner({ onLog }: UseCrawlerCodeRunnerOptions) {

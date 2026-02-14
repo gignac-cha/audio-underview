@@ -213,7 +213,9 @@ const ButtonSpinner = styled.span`
   animation: ${spin} 0.6s linear infinite;
 `;
 
-const TestButton = styled.button<{ isRunning?: boolean }>`
+const TestButton = styled('button', {
+  shouldForwardProp: (prop) => prop !== 'isRunning',
+})<{ isRunning?: boolean }>`
   display: flex;
   align-items: center;
   gap: 0.5rem;
