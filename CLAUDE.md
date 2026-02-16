@@ -30,7 +30,7 @@
 - model → models
 - schema → schemas
 
-**축약어는 대문자로, prefix는 소문자:**
+**축약어는 대문자로, prefix는 소문자. 단독으로 변수명에 사용할 때는 소문자:**
 - ID, URL, JSON, UUID, HTML, CSS, HTTP, HTTPS, API, REST, SQL, DOM, XML, URI, ASCII, UTF, TCP, UDP, IP, DNS, SSH, SSL, TLS, JWT, OAuth, CORS, CRUD, GUID, MIME, YAML, TOML, WASM, CLI, SDK, CDN, CMS, CRM, ERP, SPA, SSR, SSG, PWA, AWS, GCP, NPM, NVM, PNG, JPG, GIF, SVG, PDF, CSV, TSV, Markdown
 
 ### 2. TypeScript Import Extensions
