@@ -6,6 +6,7 @@ on:
     paths:
       - 'applications/web/**'
       - 'packages/**'
+      - '.github/workflows/test-web.yml'
 
 concurrency:
   group: test-web-${{ github.event.pull_request.number }}
@@ -36,7 +37,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright Chromium
-        run: pnpm --filter @audio-underview/web exec playwright install chromium
+        run: pnpm --filter @audio-underview/web exec playwright install --with-deps chromium
 
       - name: Run web tests
         run: pnpm --filter @audio-underview/web exec vitest run --reporter=default --reporter=junit --outputFile.junit=test-results.xml

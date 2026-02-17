@@ -1,5 +1,7 @@
-import { describe, test, expect } from 'vitest';
+import { describe, expect } from 'vitest';
+import { test } from '../tests/extensions.ts';
 import { render } from 'vitest-browser-react';
+import { http, HttpResponse } from 'msw';
 import { UserAvatar } from './UserAvatar.tsx';
 import type { OAuthUser } from '@audio-underview/sign-provider';
 
@@ -18,14 +20,20 @@ describe('UserAvatar', () => {
     await expect.element(screen.getByText('T')).toBeInTheDocument();
   });
 
-  test('shows fallback when image fails to load', async () => {
+  test('shows fallback when image fails to load', async ({ worker }) => {
+    worker.use(
+      http.get('https://example.com/avatar.jpg', () => {
+        return new HttpResponse(null, { status: 404 });
+      }),
+    );
     const screen = await render(<UserAvatar user={mockUser} />);
     await expect.element(screen.getByText('T')).toBeInTheDocument();
   });
 
   test('renders with null user without crashing', async () => {
     const screen = await render(<UserAvatar user={null} />);
-    expect(screen.container).toBeDefined();
+    expect(screen.container.children.length).toBeGreaterThan(0);
+    expect(screen.container.textContent).toBe('');
   });
 
   test('renders with large size', async () => {
