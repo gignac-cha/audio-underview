@@ -6,6 +6,7 @@ export type {
   UsersInsert,
   AccountsInsert,
   CrawlersInsert,
+  CrawlersUpdate,
   SocialLoginInput,
   SocialLoginResult,
   LinkAccountResult,

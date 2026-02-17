@@ -7,6 +7,7 @@ export type {
   UsersInsert,
   AccountsInsert,
   CrawlersInsert,
+  CrawlersUpdate,
   SocialLoginInput,
   SocialLoginResult,
   LinkAccountResult,
@@ -36,5 +37,6 @@ export {
   createCrawler,
   listCrawlersByUser,
   getCrawler,
+  updateCrawler,
   deleteCrawler,
 } from './crawlers.ts';
