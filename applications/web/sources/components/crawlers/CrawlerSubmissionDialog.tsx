@@ -187,6 +187,15 @@ export function CrawlerSubmissionDialog({
 
   const isSubmitting = status === 'pending';
 
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && isSubmitting) return;
+    if (!nextOpen) {
+      setName('');
+      setURLPattern('');
+    }
+    onOpenChange(nextOpen);
+  };
+
   const testMatch = (() => {
     if (!urlPattern || !url) return null;
     try {
@@ -223,7 +232,7 @@ export function CrawlerSubmissionDialog({
   };
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+    <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Overlay />
         <Content>

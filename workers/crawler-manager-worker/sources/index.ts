@@ -56,16 +56,32 @@ async function handleCreateCrawler(
     return errorResponse('invalid_request', 'Request body must be valid JSON', 400, context);
   }
 
-  if (!body.name || typeof body.name !== 'string') {
-    return errorResponse('invalid_request', "Field 'name' is required and must be a string", 400, context);
+  if (typeof body.name !== 'string' || !body.name.trim()) {
+    return errorResponse('invalid_request', "Field 'name' is required and must be a non-empty string", 400, context);
   }
 
-  if (!body.url_pattern || typeof body.url_pattern !== 'string') {
-    return errorResponse('invalid_request', "Field 'url_pattern' is required and must be a string", 400, context);
+  if (typeof body.url_pattern !== 'string' || !body.url_pattern.trim()) {
+    return errorResponse('invalid_request', "Field 'url_pattern' is required and must be a non-empty string", 400, context);
   }
 
-  if (!body.code || typeof body.code !== 'string') {
-    return errorResponse('invalid_request', "Field 'code' is required and must be a string", 400, context);
+  if (typeof body.code !== 'string' || !body.code.trim()) {
+    return errorResponse('invalid_request', "Field 'code' is required and must be a non-empty string", 400, context);
+  }
+
+  const MAX_NAME_LENGTH = 255;
+  const MAX_URL_PATTERN_LENGTH = 2048;
+  const MAX_CODE_LENGTH = 1_048_576; // 1MB
+
+  if (body.name.length > MAX_NAME_LENGTH) {
+    return errorResponse('invalid_request', `Field 'name' must not exceed ${MAX_NAME_LENGTH} characters`, 400, context);
+  }
+
+  if (body.url_pattern.length > MAX_URL_PATTERN_LENGTH) {
+    return errorResponse('invalid_request', `Field 'url_pattern' must not exceed ${MAX_URL_PATTERN_LENGTH} characters`, 400, context);
+  }
+
+  if (body.code.length > MAX_CODE_LENGTH) {
+    return errorResponse('invalid_request', `Field 'code' must not exceed ${MAX_CODE_LENGTH} characters`, 400, context);
   }
 
   try {
@@ -107,6 +123,7 @@ async function handleGetCrawler(
   environment: Environment,
   context: ResponseContext,
   crawlerID: string,
+  userUUID: string,
 ): Promise<Response> {
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
@@ -114,7 +131,7 @@ async function handleGetCrawler(
   });
 
   const crawler = await getCrawler(supabaseClient, crawlerID);
-  if (!crawler) {
+  if (!crawler || crawler.user_uuid !== userUUID) {
     return errorResponse('not_found', 'Crawler not found', 404, context);
   }
 
@@ -205,7 +222,7 @@ export default {
         // GET /crawlers/:id — get single
         const crawlerID = parseCrawlerID(url.pathname);
         if (crawlerID && request.method === 'GET') {
-          return await handleGetCrawler(environment, context, crawlerID);
+          return await handleGetCrawler(environment, context, crawlerID, userUUID);
         }
 
         // DELETE /crawlers/:id — delete

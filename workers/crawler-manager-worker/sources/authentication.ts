@@ -1,5 +1,12 @@
 import { findAccount } from '@audio-underview/supabase-connector';
 import type { SupabaseClient } from '@audio-underview/supabase-connector';
+import { createWorkerLogger } from '@audio-underview/logger';
+
+const logger = createWorkerLogger({
+  defaultContext: {
+    module: 'crawler-manager-worker',
+  },
+});
 
 interface GoogleUserInfo {
   sub: string;
@@ -49,10 +56,15 @@ export async function authenticateRequest(
     return null;
   }
 
-  const account = await findAccount(supabaseClient, {
-    provider: 'google',
-    identifier: userInfo.sub,
-  });
+  try {
+    const account = await findAccount(supabaseClient, {
+      provider: 'google',
+      identifier: userInfo.sub,
+    });
 
-  return account?.uuid ?? null;
+    return account?.uuid ?? null;
+  } catch (error) {
+    logger.error('Failed to find account', error, { function: 'authenticateRequest' });
+    return null;
+  }
 }
