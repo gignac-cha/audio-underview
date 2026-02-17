@@ -64,9 +64,10 @@ interface StatusLogPanelProperties {
 export function StatusLogPanel({ entries }: StatusLogPanelProperties) {
   const bottomReference = useRef<HTMLDivElement>(null);
 
+  const lastEntryID = entries[entries.length - 1]?.id;
   useEffect(() => {
     bottomReference.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [entries.length, entries[entries.length - 1]?.id]);
+  }, [entries.length, lastEntryID]);
 
   return (
     <Container>

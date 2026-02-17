@@ -1,9 +1,8 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { useState, useCallback, type ReactNode } from 'react';
 import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
 import * as Toast from '@radix-ui/react-toast';
-
-type ToastType = 'success' | 'error' | 'info';
+import { ToastContext, type ToastType } from './toast-context-value.ts';
 
 const TOAST_BORDER_COLORS: Record<ToastType, string> = {
   error: 'var(--color-error)',
@@ -17,14 +16,6 @@ interface ToastMessage {
   description?: string;
   type: ToastType;
 }
-
-interface ToastContextValue {
-  showToast: (title: string, description?: string, type?: ToastType) => void;
-  showError: (title: string, description?: string) => void;
-  showSuccess: (title: string, description?: string) => void;
-}
-
-const ToastContext = createContext<ToastContextValue | null>(null);
 
 function generateToastID(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -192,12 +183,4 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       </Toast.Provider>
     </ToastContext.Provider>
   );
-}
-
-export function useToast(): ToastContextValue {
-  const context = useContext(ToastContext);
-  if (!context) {
-    throw new Error('useToast must be used within ToastProvider');
-  }
-  return context;
 }

@@ -14,12 +14,12 @@ import {
   faGoogle,
 } from '@fortawesome/free-brands-svg-icons';
 import {
-  useAuthentication,
   type OAuthProviderID,
   type ProviderDisplayConfiguration,
-} from '../contexts/AuthenticationContext.tsx';
+} from '@audio-underview/sign-provider';
+import { useAuthentication } from '../hooks/use-authentication.ts';
 import { SignInButtons } from '../components/SignInButtons.tsx';
-import { useToast } from '../contexts/ToastContext.tsx';
+import { useToast } from '../hooks/use-toast.ts';
 
 const PROVIDER_ICONS: Partial<Record<OAuthProviderID, IconDefinition>> = {
   google: faGoogle,

@@ -4,7 +4,7 @@ import { keyframes } from '@emotion/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faArrowLeft, faPlay, faPaperPlane, faSignOutAlt } from '@fortawesome/free-solid-svg-icons';
 import { useNavigate } from 'react-router';
-import { useAuthentication } from '../contexts/AuthenticationContext.tsx';
+import { useAuthentication } from '../hooks/use-authentication.ts';
 import { useCrawlerCodeRunner, type LogEntry } from '../hooks/use-crawler-code-runner.ts';
 import { useMediaQuery } from '../hooks/use-media-query.ts';
 import { URLInputPanel } from '../components/crawlers/URLInputPanel.tsx';
