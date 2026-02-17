@@ -21,3 +21,17 @@ COMMENT ON COLUMN crawlers.user_uuid IS 'Reference to the owning user account';
 COMMENT ON COLUMN crawlers.name IS 'Human-readable name for the crawler';
 COMMENT ON COLUMN crawlers.url_pattern IS 'Regex pattern to match URLs this crawler should process';
 COMMENT ON COLUMN crawlers.code IS 'JavaScript code to execute against fetched page content';
+
+-- Auto-refresh updated_at on row updates
+CREATE OR REPLACE FUNCTION update_crawlers_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER crawlers_updated_at_trigger
+  BEFORE UPDATE ON crawlers
+  FOR EACH ROW
+  EXECUTE FUNCTION update_crawlers_updated_at();

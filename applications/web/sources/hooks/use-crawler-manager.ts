@@ -1,15 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { loadAuthenticationData } from '@audio-underview/sign-provider';
-
-interface CrawlerRow {
-  id: string;
-  user_uuid: string;
-  name: string;
-  url_pattern: string;
-  code: string;
-  created_at: string;
-  updated_at: string;
-}
+import type { CrawlerRow } from '@audio-underview/supabase-connector';
 
 interface CreateCrawlerInput {
   name: string;
@@ -33,6 +24,19 @@ function getBaseURL(): string {
   return baseURL;
 }
 
+async function parseResponseJSON(response: Response): Promise<Record<string, unknown>> {
+  try {
+    return await response.json();
+  } catch {
+    throw new Error(`Request failed with status ${response.status}`);
+  }
+}
+
+function throwResponseError(body: Record<string, unknown>, status: number): never {
+  const errorMessage = body.error_description ?? body.error ?? `Request failed with status ${status}`;
+  throw new Error(String(errorMessage));
+}
+
 async function createCrawlerRequest(input: CreateCrawlerInput): Promise<CrawlerRow> {
   const baseURL = getBaseURL();
   const accessToken = getAccessToken();
@@ -46,14 +50,13 @@ async function createCrawlerRequest(input: CreateCrawlerInput): Promise<CrawlerR
     body: JSON.stringify(input),
   });
 
-  const body = await response.json();
+  const body = await parseResponseJSON(response);
 
   if (!response.ok) {
-    const errorMessage = body.error_description ?? body.error ?? `Request failed with status ${response.status}`;
-    throw new Error(errorMessage);
+    throwResponseError(body, response.status);
   }
 
-  return body as CrawlerRow;
+  return body as unknown as CrawlerRow;
 }
 
 async function listCrawlersRequest(): Promise<CrawlerRow[]> {
@@ -67,14 +70,13 @@ async function listCrawlersRequest(): Promise<CrawlerRow[]> {
     },
   });
 
-  const body = await response.json();
+  const body = await parseResponseJSON(response);
 
   if (!response.ok) {
-    const errorMessage = body.error_description ?? body.error ?? `Request failed with status ${response.status}`;
-    throw new Error(errorMessage);
+    throwResponseError(body, response.status);
   }
 
-  return body as CrawlerRow[];
+  return body as unknown as CrawlerRow[];
 }
 
 async function deleteCrawlerRequest(id: string): Promise<void> {
@@ -89,9 +91,8 @@ async function deleteCrawlerRequest(id: string): Promise<void> {
   });
 
   if (!response.ok) {
-    const body = await response.json();
-    const errorMessage = body.error_description ?? body.error ?? `Request failed with status ${response.status}`;
-    throw new Error(errorMessage);
+    const body = await parseResponseJSON(response);
+    throwResponseError(body, response.status);
   }
 }
 
@@ -116,9 +117,13 @@ export function useCreateCrawler() {
 }
 
 export function useListCrawlers() {
+  const authenticationData = loadAuthenticationData();
+  const accessToken = authenticationData?.credential ?? null;
+
   const query = useQuery<CrawlerRow[], Error>({
     queryKey: CRAWLERS_QUERY_KEY,
     queryFn: listCrawlersRequest,
+    enabled: !!accessToken,
   });
 
   return {
