@@ -1,0 +1,50 @@
+name: "Test: Web"
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'applications/web/**'
+      - 'packages/**'
+      - '.github/workflows/test-web.yml'
+
+concurrency:
+  group: test-web-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Run web component tests
+    permissions:
+      contents: read
+      checks: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '25'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @audio-underview/web exec playwright install --with-deps chromium
+
+      - name: Run web tests
+        run: pnpm --filter @audio-underview/web exec vitest run --reporter=default --reporter=junit --outputFile.junit=test-results.xml
+
+      - name: Test report
+        uses: mikepenz/action-junit-report@v5
+        if: success() || failure()
+        with:
+          check_name: Web Test Results
+          report_paths: 'applications/web/test-results.xml'
