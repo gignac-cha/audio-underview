@@ -23,6 +23,7 @@ createRoot(document.getElementById('root')!).render(
       <ToastProvider>
         <Application
           googleClientID={environment.VITE_GOOGLE_CLIENT_ID}
+          googleWorkerURL={environment.VITE_GOOGLE_OAUTH_WORKER_URL}
           githubWorkerURL={environment.VITE_GITHUB_OAUTH_WORKER_URL}
         />
       </ToastProvider>
