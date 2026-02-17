@@ -16,11 +16,11 @@ const callbackLogger = createBrowserLogger({
  */
 const oAuthUserSchema = z.object({
   id: z.string().min(1),
-  email: z.string().email(),
+  email: z.email(),
   name: z.string().min(1),
-  picture: z.string().url().optional(),
+  picture: z.url().optional(),
   provider: z.enum(['google', 'github', 'apple', 'microsoft', 'facebook', 'discord', 'kakao', 'naver', 'linkedin', 'x']),
-  uuid: z.string().uuid().optional(),
+  uuid: z.uuid().optional(),
 });
 
 export function AuthCallbackPage() {

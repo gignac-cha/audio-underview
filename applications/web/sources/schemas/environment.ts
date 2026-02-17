@@ -2,10 +2,10 @@ import { z } from 'zod';
 
 export const environmentSchema = z.object({
   VITE_GOOGLE_CLIENT_ID: z.string().min(1, 'VITE_GOOGLE_CLIENT_ID is required'), // TODO: Worker redirect flow 전환 완료 후 제거 가능
-  VITE_GOOGLE_OAUTH_WORKER_URL: z.string().url().optional(),
-  VITE_GITHUB_OAUTH_WORKER_URL: z.string().url().optional(),
-  VITE_CRAWLER_CODE_RUNNER_URL: z.string().url().optional(),
-  VITE_CRAWLER_MANAGER_WORKER_URL: z.string().url().optional(),
+  VITE_GOOGLE_OAUTH_WORKER_URL: z.url().optional(),
+  VITE_GITHUB_OAUTH_WORKER_URL: z.url().optional(),
+  VITE_CRAWLER_CODE_RUNNER_URL: z.url().optional(),
+  VITE_CRAWLER_MANAGER_WORKER_URL: z.url().optional(),
 });
 
 export type Environment = z.infer<typeof environmentSchema>;
