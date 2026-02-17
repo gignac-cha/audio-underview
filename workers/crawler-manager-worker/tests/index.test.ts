@@ -269,15 +269,75 @@ describe('crawler-manager-worker', () => {
       fetchMock
         .get('https://supabase.example.com')
         .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
-        .reply(200, JSON.stringify(mockList));
+        .reply(200, JSON.stringify(mockList), { headers: { 'content-range': '0-0/1' } });
 
       const request = authenticatedRequest('/crawlers');
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(200);
       const body = await response.json();
-      expect(Array.isArray(body)).toBe(true);
-      expect(body.length).toBe(1);
+      expect(body.data).toBeDefined();
+      expect(Array.isArray(body.data)).toBe(true);
+      expect(body.data.length).toBe(1);
+      expect(body.total).toBeDefined();
+      expect(body.offset).toBe(0);
+      expect(body.limit).toBe(20);
+    });
+
+    it('accepts valid offset and limit query parameters', async () => {
+      mockAuthentication();
+
+      const mockList = [mockCrawlerResponse()];
+
+      fetchMock
+        .get('https://supabase.example.com')
+        .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
+        .reply(200, JSON.stringify(mockList), { headers: { 'content-range': '0-0/1' } });
+
+      const request = authenticatedRequest('/crawlers?offset=0&limit=10');
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.data).toBeDefined();
+      expect(body.offset).toBe(0);
+      expect(body.limit).toBe(10);
+    });
+
+    it('returns 400 for negative offset', async () => {
+      mockAuthentication();
+
+      const request = authenticatedRequest('/crawlers?offset=-1');
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toContain('offset');
+    });
+
+    it('returns 400 for zero limit', async () => {
+      mockAuthentication();
+
+      const request = authenticatedRequest('/crawlers?limit=0');
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toContain('limit');
+    });
+
+    it('returns 400 for limit exceeding maximum', async () => {
+      mockAuthentication();
+
+      const request = authenticatedRequest('/crawlers?limit=101');
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toContain('limit');
     });
   });
 

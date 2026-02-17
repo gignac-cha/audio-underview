@@ -33,6 +33,7 @@ export {
 } from './accounts.ts';
 
 // Crawler operations
+export type { PaginatedCrawlers } from './crawlers.ts';
 export {
   createCrawler,
   listCrawlersByUser,

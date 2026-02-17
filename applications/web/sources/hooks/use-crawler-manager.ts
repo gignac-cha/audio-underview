@@ -1,6 +1,18 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { loadAuthenticationData } from '@audio-underview/sign-provider';
 import type { CrawlerRow } from '@audio-underview/supabase-connector';
+
+interface ListCrawlersParameters {
+  offset: number;
+  limit: number;
+}
+
+interface ListCrawlersResponse {
+  data: CrawlerRow[];
+  total: number;
+  offset: number;
+  limit: number;
+}
 
 interface CreateCrawlerInput {
   name: string;
@@ -60,11 +72,16 @@ async function createCrawlerRequest(input: CreateCrawlerInput): Promise<CrawlerR
   return body as unknown as CrawlerRow;
 }
 
-async function listCrawlersRequest(): Promise<CrawlerRow[]> {
+async function listCrawlersRequest(parameters: ListCrawlersParameters): Promise<ListCrawlersResponse> {
   const baseURL = getBaseURL();
   const accessToken = getAccessToken();
 
-  const response = await fetch(`${baseURL}/crawlers`, {
+  const searchParameters = new URLSearchParams({
+    offset: String(parameters.offset),
+    limit: String(parameters.limit),
+  });
+
+  const response = await fetch(`${baseURL}/crawlers?${searchParameters.toString()}`, {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -77,7 +94,7 @@ async function listCrawlersRequest(): Promise<CrawlerRow[]> {
     throwResponseError(body, response.status);
   }
 
-  return body as unknown as CrawlerRow[];
+  return body as unknown as ListCrawlersResponse;
 }
 
 async function deleteCrawlerRequest(id: string): Promise<void> {
@@ -117,21 +134,35 @@ export function useCreateCrawler() {
   };
 }
 
+const DEFAULT_PAGE_LIMIT = 20;
+
 export function useListCrawlers() {
   const authenticationData = loadAuthenticationData();
   const accessToken = authenticationData?.credential ?? null;
 
-  const query = useQuery<CrawlerRow[], Error>({
+  const query = useInfiniteQuery<ListCrawlersResponse, Error, { pages: ListCrawlersResponse[] }, readonly string[], ListCrawlersParameters>({
     queryKey: CRAWLERS_QUERY_KEY,
-    queryFn: listCrawlersRequest,
+    queryFn: ({ pageParam }) => listCrawlersRequest(pageParam),
+    initialPageParam: { offset: 0, limit: DEFAULT_PAGE_LIMIT },
+    getNextPageParam: (lastPage) => {
+      if (lastPage.offset + lastPage.limit < lastPage.total) {
+        return { offset: lastPage.offset + lastPage.limit, limit: lastPage.limit };
+      }
+      return undefined;
+    },
     enabled: !!accessToken,
   });
 
+  const crawlers = query.data?.pages.flatMap((page) => page.data) ?? [];
+
   return {
-    crawlers: query.data ?? [],
+    crawlers,
     isLoading: query.isLoading,
     error: query.error ?? null,
     refetch: query.refetch,
+    hasNextPage: query.hasNextPage,
+    fetchNextPage: query.fetchNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
   };
 }
 

@@ -249,6 +249,36 @@ const RetryButton = styled.button`
   }
 `;
 
+const LoadMoreContainer = styled.div`
+  display: flex;
+  justify-content: center;
+  margin-top: 1.25rem;
+`;
+
+const LoadMoreButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: var(--transition-fast);
+
+  &:hover {
+    border-color: var(--border-focus);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+`;
+
 const TopBar = styled.div`
   display: flex;
   justify-content: flex-end;
@@ -259,7 +289,7 @@ export function CrawlersPage() {
   const navigate = useNavigate();
   const { logout } = useAuthentication();
   const { showToast } = useToast();
-  const { crawlers, isLoading, error, refetch } = useListCrawlers();
+  const { crawlers, isLoading, error, refetch, hasNextPage, fetchNextPage, isFetchingNextPage } = useListCrawlers();
   const { deleteCrawler, status: deleteStatus } = useDeleteCrawler();
   const [deletingID, setDeletingID] = useState<string | null>(null);
 
@@ -354,6 +384,16 @@ export function CrawlersPage() {
                 </CrawlerCard>
               ))}
             </CrawlerList>
+            {hasNextPage && (
+              <LoadMoreContainer>
+                <LoadMoreButton
+                  onClick={() => fetchNextPage()}
+                  disabled={isFetchingNextPage}
+                >
+                  {isFetchingNextPage ? 'Loading...' : 'Load More'}
+                </LoadMoreButton>
+              </LoadMoreContainer>
+            )}
           </>
         )}
       </Main>
