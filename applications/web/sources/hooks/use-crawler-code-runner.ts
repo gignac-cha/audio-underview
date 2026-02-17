@@ -3,7 +3,6 @@ import {
   crawlerRunSuccessResponseSchema,
   crawlerRunErrorResponseSchema,
   type CrawlerRunSuccessResponse,
-  type CrawlerRunErrorResponse,
 } from '../schemas/crawler-code-runner.ts';
 
 export interface LogEntry {

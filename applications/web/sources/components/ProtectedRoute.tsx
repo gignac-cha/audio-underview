@@ -1,5 +1,5 @@
 import { Navigate } from 'react-router';
-import { useAuthentication } from '../contexts/AuthenticationContext.tsx';
+import { useAuthentication } from '../hooks/use-authentication.ts';
 import type { ReactNode } from 'react';
 
 interface ProtectedRouteProperties {

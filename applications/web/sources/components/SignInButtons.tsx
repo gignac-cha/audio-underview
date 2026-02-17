@@ -1,10 +1,10 @@
 import type { ReactNode, CSSProperties } from 'react';
 import {
-  useAuthentication,
   PROVIDER_DISPLAY_CONFIGURATIONS,
   type OAuthProviderID,
   type ProviderDisplayConfiguration,
-} from '../contexts/AuthenticationContext.tsx';
+} from '@audio-underview/sign-provider';
+import { useAuthentication } from '../hooks/use-authentication.ts';
 
 export interface SignInButtonsProps {
   onError?: (error: string, providerID: OAuthProviderID) => void;

@@ -14,12 +14,12 @@ import {
   faGoogle,
 } from '@fortawesome/free-brands-svg-icons';
 import {
-  useAuthentication,
   type OAuthProviderID,
   type ProviderDisplayConfiguration,
-} from '../contexts/AuthenticationContext.tsx';
+} from '@audio-underview/sign-provider';
+import { useAuthentication } from '../hooks/use-authentication.ts';
 import { SignInButtons } from '../components/SignInButtons.tsx';
-import { useToast } from '../contexts/ToastContext.tsx';
+import { useToast } from '../hooks/use-toast.ts';
 
 const PROVIDER_ICONS: Partial<Record<OAuthProviderID, IconDefinition>> = {
   google: faGoogle,
@@ -128,7 +128,7 @@ export function SignInPage() {
 
   const handleError = (error: string, providerID: OAuthProviderID) => {
     console.error(`${providerID} login failed:`, error);
-    showError('로그인에 실패했습니다.', error || '다시 시도해주세요.');
+    showError('로그인에 실패했습니다.', error.length === 0 ? '다시 시도해주세요.' : error);
   };
 
   const handleProviderClick = (providerID: OAuthProviderID) => {

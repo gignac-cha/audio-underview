@@ -2,7 +2,7 @@ import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faHeadphones, faSignOutAlt } from '@fortawesome/free-solid-svg-icons';
-import { useAuthentication } from '../contexts/AuthenticationContext.tsx';
+import { useAuthentication } from '../hooks/use-authentication.ts';
 import { UserAvatar } from '../components/UserAvatar.tsx';
 
 const fadeIn = keyframes`
