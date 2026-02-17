@@ -1,9 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
-import {
-  AuthenticationProvider,
-  useAuthentication,
-  type OAuthProviderID,
-} from './contexts/AuthenticationContext.tsx';
+import { AuthenticationProvider } from './contexts/AuthenticationContext.tsx';
+import { useAuthentication } from './hooks/use-authentication.ts';
+import { type OAuthProviderID } from '@audio-underview/sign-provider';
 import { SignInPage } from './pages/SignInPage.tsx';
 import { HomePage } from './pages/HomePage.tsx';
 import { CrawlersPage } from './pages/CrawlersPage.tsx';

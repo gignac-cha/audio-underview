@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { z } from 'zod';
-import { useAuthentication } from '../contexts/AuthenticationContext.tsx';
-import { useToast } from '../contexts/ToastContext.tsx';
+import { useAuthentication } from '../hooks/use-authentication.ts';
+import { useToast } from '../hooks/use-toast.ts';
 import { createBrowserLogger } from '@audio-underview/logger';
 
 const callbackLogger = createBrowserLogger({

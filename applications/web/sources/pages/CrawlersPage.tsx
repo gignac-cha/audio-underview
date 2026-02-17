@@ -3,7 +3,7 @@ import { keyframes } from '@emotion/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlus, faArrowLeft, faSignOutAlt } from '@fortawesome/free-solid-svg-icons';
 import { useNavigate } from 'react-router';
-import { useAuthentication } from '../contexts/AuthenticationContext.tsx';
+import { useAuthentication } from '../hooks/use-authentication.ts';
 
 const fadeIn = keyframes`
   from { opacity: 0; }
