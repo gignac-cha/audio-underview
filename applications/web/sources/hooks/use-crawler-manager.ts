@@ -69,7 +69,7 @@ async function createCrawlerRequest(input: CreateCrawlerInput): Promise<CrawlerR
     throwResponseError(body, response.status);
   }
 
-  return body as unknown as CrawlerRow;
+  return body as CrawlerRow;
 }
 
 async function listCrawlersRequest(parameters: ListCrawlersParameters): Promise<ListCrawlersResponse> {
@@ -94,7 +94,7 @@ async function listCrawlersRequest(parameters: ListCrawlersParameters): Promise<
     throwResponseError(body, response.status);
   }
 
-  return body as unknown as ListCrawlersResponse;
+  return body as ListCrawlersResponse;
 }
 
 async function deleteCrawlerRequest(id: string): Promise<void> {

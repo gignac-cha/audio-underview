@@ -230,9 +230,15 @@ async function handleDeleteCrawler(
   return jsonResponse({ deleted: true }, 200, context);
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 function parseCrawlerID(pathname: string): string | null {
   const match = pathname.match(/^\/crawlers\/([0-9a-f-]+)$/);
-  return match?.[1] ?? null;
+  const id = match?.[1] ?? null;
+  if (id && !UUID_PATTERN.test(id)) {
+    return null;
+  }
+  return id;
 }
 
 export default {
