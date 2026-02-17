@@ -3,6 +3,7 @@ packages:
   - applications/*
   - workers/*
   - functions/*
+  - tools/*
 
 catalogs:
   worker:
