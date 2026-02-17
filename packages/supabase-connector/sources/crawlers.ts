@@ -65,8 +65,8 @@ export async function listCrawlersByUser(
   return traceDatabaseOperation(
     { serviceName: 'supabase-connector', operation: 'select', table: 'crawlers' },
     async (span) => {
-      const offset = options?.offset ?? 0;
-      const limit = options?.limit ?? 20;
+      const offset = Math.max(0, options?.offset ?? 0);
+      const limit = Math.max(1, options?.limit ?? 20);
 
       span.setAttribute('db.query.user_uuid', userUUID);
       span.setAttribute('db.query.offset', offset);

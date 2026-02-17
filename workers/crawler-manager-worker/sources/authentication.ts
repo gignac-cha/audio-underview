@@ -45,11 +45,13 @@ export async function authenticateRequest(
     });
 
     if (!response.ok) {
+      logger.error('Google userinfo responded with non-OK status', undefined, { function: 'authenticateRequest', status: response.status });
       return null;
     }
 
     userInfo = await response.json() as GoogleUserInfo;
-  } catch {
+  } catch (error) {
+    logger.error('Failed to fetch Google userinfo', error, { function: 'authenticateRequest' });
     return null;
   }
 

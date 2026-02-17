@@ -256,36 +256,118 @@ const TopBar = styled.div`
   margin-bottom: 1.25rem;
 `;
 
+const ConfirmOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  animation: ${fadeIn} 0.15s ease-out;
+`;
+
+const ConfirmModal = styled.div`
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 101;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 1.5rem;
+  width: 90vw;
+  max-width: 400px;
+  box-shadow: var(--shadow-md);
+  animation: ${fadeIn} 0.15s ease-out;
+`;
+
+const ConfirmTitle = styled.h2`
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 0.75rem 0;
+`;
+
+const ConfirmMessage = styled.p`
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin: 0 0 1.25rem 0;
+  line-height: 1.5;
+`;
+
+const ConfirmButtonRow = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+`;
+
+const ConfirmCancelButton = styled.button`
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+
+  &:hover {
+    color: var(--text-primary);
+    background: var(--bg-deep);
+  }
+`;
+
+const ConfirmDeleteButton = styled.button`
+  padding: 0.5rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--color-error);
+  cursor: pointer;
+  transition: var(--transition-fast);
+
+  &:hover {
+    opacity: 0.9;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+`;
+
+function formatDate(dateString: string) {
+  return new Date(dateString).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
 export function CrawlersPage() {
   const navigate = useNavigate();
   const { logout } = useAuthentication();
   const { showToast } = useToast();
   const { crawlers, isLoading, error, refetch, hasNextPage, fetchNextPage, isFetchingNextPage } = useListCrawlers();
   const { deleteCrawler, status: deleteStatus } = useDeleteCrawler();
-  const [deletingID, setDeletingID] = useState<string | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<{ id: string; name: string } | null>(null);
 
-  const handleDelete = async (id: string, name: string) => {
-    const confirmed = window.confirm(`Delete crawler "${name}"?`);
-    if (!confirmed) return;
+  const handleDelete = (id: string, name: string) => {
+    setConfirmTarget({ id, name });
+  };
 
-    setDeletingID(id);
+  const handleConfirmDelete = async () => {
+    if (!confirmTarget) return;
+
+    const { id, name } = confirmTarget;
+    setConfirmTarget(null);
     try {
       await deleteCrawler(id);
       showToast('Deleted', `Crawler "${name}" has been deleted.`, 'success');
     } catch (deleteError) {
       const message = deleteError instanceof Error ? deleteError.message : 'Failed to delete crawler';
       showToast('Error', message, 'error');
-    } finally {
-      setDeletingID(null);
     }
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
   };
 
   return (
@@ -362,6 +444,29 @@ export function CrawlersPage() {
           </>
         )}
       </Main>
+
+      {confirmTarget && (
+        <>
+          <ConfirmOverlay onClick={() => setConfirmTarget(null)} />
+          <ConfirmModal>
+            <ConfirmTitle>Delete Crawler</ConfirmTitle>
+            <ConfirmMessage>
+              Are you sure you want to delete &ldquo;{confirmTarget.name}&rdquo;? This action cannot be undone.
+            </ConfirmMessage>
+            <ConfirmButtonRow>
+              <ConfirmCancelButton onClick={() => setConfirmTarget(null)}>
+                Cancel
+              </ConfirmCancelButton>
+              <ConfirmDeleteButton
+                onClick={handleConfirmDelete}
+                disabled={deleteStatus === 'pending'}
+              >
+                Delete
+              </ConfirmDeleteButton>
+            </ConfirmButtonRow>
+          </ConfirmModal>
+        </>
+      )}
     </PageContainer>
   );
 }

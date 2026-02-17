@@ -432,6 +432,29 @@ describe('crawler-manager-worker', () => {
       const body = await response.json();
       expect(body.name).toBe('Updated Crawler');
     });
+
+    it('returns 404 when crawler does not exist or belongs to another user', async () => {
+      mockAuthentication();
+
+      fetchMock
+        .get('https://supabase.example.com')
+        .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'PATCH' })
+        .reply(406, JSON.stringify({
+          code: 'PGRST116',
+          details: 'The result contains 0 rows',
+          hint: null,
+          message: 'JSON object requested, multiple (or no) rows returned',
+        }));
+
+      const request = authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(validCrawlerBody()),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(404);
+    });
   });
 
   describe('DELETE /crawlers/:id', () => {
@@ -469,6 +492,41 @@ describe('crawler-manager-worker', () => {
       expect(response.status).toBe(404);
       const body = await response.json();
       expect(body.error).toBe('not_found');
+    });
+  });
+
+  describe('invalid UUID format', () => {
+    it('returns 404 for invalid crawler ID in GET', async () => {
+      mockAuthentication();
+
+      const request = authenticatedRequest('/crawlers/abc');
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(404);
+    });
+
+    it('returns 404 for invalid crawler ID in PUT', async () => {
+      mockAuthentication();
+
+      const request = authenticatedRequest('/crawlers/abc', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(validCrawlerBody()),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(404);
+    });
+
+    it('returns 404 for invalid crawler ID in DELETE', async () => {
+      mockAuthentication();
+
+      const request = authenticatedRequest('/crawlers/abc', {
+        method: 'DELETE',
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(404);
     });
   });
 
