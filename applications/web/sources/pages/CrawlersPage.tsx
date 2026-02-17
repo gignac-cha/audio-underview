@@ -2,11 +2,12 @@ import { useState } from 'react';
 import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPlus, faArrowLeft, faSignOutAlt, faTrash, faSpider, faArrowsRotate } from '@fortawesome/free-solid-svg-icons';
+import { faPlus, faSignOutAlt, faTrash, faSpider, faArrowsRotate } from '@fortawesome/free-solid-svg-icons';
 import { useNavigate } from 'react-router';
 import { useAuthentication } from '../hooks/use-authentication.ts';
 import { useToast } from '../hooks/use-toast.ts';
 import { useListCrawlers, useDeleteCrawler } from '../hooks/use-crawler-manager.ts';
+import { NavigationLinks } from '../components/NavigationLinks.tsx';
 
 const fadeIn = keyframes`
   from { opacity: 0; }
@@ -34,36 +35,6 @@ const Header = styled.header`
   background: rgba(10, 10, 10, 0.9);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border-subtle);
-`;
-
-const HeaderLeft = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-`;
-
-const BackButton = styled.button`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.375rem 0.75rem;
-  border-radius: 6px;
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: var(--transition-fast);
-
-  &:hover {
-    color: var(--text-primary);
-    background: var(--bg-surface);
-  }
-`;
-
-const PageTitle = styled.h1`
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
 `;
 
 const LogoutButton = styled.button`
@@ -320,13 +291,7 @@ export function CrawlersPage() {
   return (
     <PageContainer>
       <Header>
-        <HeaderLeft>
-          <BackButton onClick={() => navigate('/home')}>
-            <FontAwesomeIcon icon={faArrowLeft} />
-            Home
-          </BackButton>
-          <PageTitle>Crawlers</PageTitle>
-        </HeaderLeft>
+        <NavigationLinks />
 
         <LogoutButton onClick={logout}>
           <FontAwesomeIcon icon={faSignOutAlt} />
