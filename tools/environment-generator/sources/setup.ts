@@ -10,9 +10,10 @@ try {
 
   process.stdout.write(token);
 } catch (error) {
-  const message = (error as Error).message ?? '';
+  const typedError = error as NodeJS.ErrnoException;
+  const message = typedError.message ?? '';
 
-  if (message.includes('not found') || message.includes('ENOENT')) {
+  if (typedError.code === 'ENOENT') {
     console.error('1Password CLI (op) is not installed. Install it from https://1password.com/downloads/command-line/');
   } else if (message.includes('not signed in') || message.includes('sign in')) {
     console.error('Not signed in to 1Password. Run `eval $(op signin)` first.');
