@@ -3,8 +3,10 @@ export type {
   ProviderType,
   UserRow,
   AccountRow,
+  CrawlerRow,
   UsersInsert,
   AccountsInsert,
+  CrawlersInsert,
   SocialLoginInput,
   SocialLoginResult,
   LinkAccountResult,
@@ -28,3 +30,11 @@ export {
   unlinkAccount,
   deleteUser,
 } from './accounts.ts';
+
+// Crawler operations
+export {
+  createCrawler,
+  listCrawlersByUser,
+  getCrawler,
+  deleteCrawler,
+} from './crawlers.ts';

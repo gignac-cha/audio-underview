@@ -424,6 +424,34 @@ importers:
         specifier: catalog:worker
         version: 3.2.4(@types/node@25.0.3)(jsdom@28.0.0)(msw@2.12.10(@types/node@25.0.3)(typescript@5.9.3))(sass@1.97.3)
 
+  workers/crawler-manager-worker:
+    dependencies:
+      '@audio-underview/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
+      '@audio-underview/supabase-connector':
+        specifier: workspace:*
+        version: link:../../packages/supabase-connector
+      '@audio-underview/worker-tools':
+        specifier: workspace:*
+        version: link:../tools
+    devDependencies:
+      '@cloudflare/vitest-pool-workers':
+        specifier: catalog:worker
+        version: 0.12.10(@cloudflare/workers-types@4.20260207.0)(@vitest/runner@3.2.4)(@vitest/snapshot@3.2.4)(vitest@3.2.4(@types/node@25.2.3)(jsdom@28.0.0)(sass@1.97.3))
+      '@cloudflare/workers-types':
+        specifier: catalog:worker
+        version: 4.20260207.0
+      '@vitest/runner':
+        specifier: catalog:worker
+        version: 3.2.4
+      '@vitest/snapshot':
+        specifier: catalog:worker
+        version: 3.2.4
+      vitest:
+        specifier: catalog:worker
+        version: 3.2.4(@types/node@25.2.3)(jsdom@28.0.0)(sass@1.97.3)
+
   workers/discord-oauth-provider-worker:
     dependencies:
       '@audio-underview/discord-oauth-provider':
