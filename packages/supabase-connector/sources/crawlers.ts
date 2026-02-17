@@ -9,6 +9,11 @@ import type {
 
 type SupabaseClientType = SupabaseClient<Database>;
 
+export interface PaginatedCrawlers {
+  data: CrawlerRow[];
+  total: number;
+}
+
 /**
  * Creates a new crawler.
  *
@@ -45,26 +50,34 @@ export async function createCrawler(
 }
 
 /**
- * Lists all crawlers belonging to a user.
+ * Lists crawlers belonging to a user with pagination.
  *
  * @param client - Supabase client
  * @param userUUID - User UUID
- * @returns Array of crawler rows ordered by creation date descending
+ * @param options - Pagination options (offset defaults to 0, limit defaults to 20)
+ * @returns Paginated result with data and total count, ordered by creation date descending
  */
 export async function listCrawlersByUser(
   client: SupabaseClientType,
-  userUUID: string
-): Promise<CrawlerRow[]> {
+  userUUID: string,
+  options?: { offset?: number; limit?: number }
+): Promise<PaginatedCrawlers> {
   return traceDatabaseOperation(
     { serviceName: 'supabase-connector', operation: 'select', table: 'crawlers' },
     async (span) => {
-      span.setAttribute('db.query.user_uuid', userUUID);
+      const offset = options?.offset ?? 0;
+      const limit = options?.limit ?? 20;
 
-      const { data, error } = await client
+      span.setAttribute('db.query.user_uuid', userUUID);
+      span.setAttribute('db.query.offset', offset);
+      span.setAttribute('db.query.limit', limit);
+
+      const { data, error, count } = await client
         .from('crawlers')
-        .select('*')
+        .select('*', { count: 'exact' })
         .eq('user_uuid', userUUID)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
 
       if (error) {
         span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
@@ -73,7 +86,8 @@ export async function listCrawlersByUser(
 
       const crawlers = (data ?? []) as CrawlerRow[];
       span.setAttribute('db.rows_affected', crawlers.length);
-      return crawlers;
+      span.setAttribute('db.total_count', count ?? 0);
+      return { data: crawlers, total: count ?? 0 };
     }
   );
 }

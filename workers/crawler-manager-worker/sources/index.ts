@@ -121,17 +121,44 @@ async function handleCreateCrawler(
 }
 
 async function handleListCrawlers(
+  request: Request,
   environment: Environment,
   context: ResponseContext,
   userUUID: string,
 ): Promise<Response> {
+  const url = new URL(request.url);
+  const offsetParameter = url.searchParams.get('offset');
+  const limitParameter = url.searchParams.get('limit');
+
+  let offset: number | undefined;
+  let limit: number | undefined;
+
+  if (offsetParameter !== null) {
+    offset = Number(offsetParameter);
+    if (!Number.isInteger(offset) || offset < 0) {
+      return errorResponse('invalid_request', "Parameter 'offset' must be a non-negative integer", 400, context);
+    }
+  }
+
+  if (limitParameter !== null) {
+    limit = Number(limitParameter);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      return errorResponse('invalid_request', "Parameter 'limit' must be an integer between 1 and 100", 400, context);
+    }
+  }
+
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
   });
 
-  const crawlers = await listCrawlersByUser(supabaseClient, userUUID);
-  return jsonResponse(crawlers, 200, context);
+  const result = await listCrawlersByUser(supabaseClient, userUUID, { offset, limit });
+  return jsonResponse({
+    data: result.data,
+    total: result.total,
+    offset: offset ?? 0,
+    limit: limit ?? 20,
+  }, 200, context);
 }
 
 async function handleGetCrawler(
@@ -262,7 +289,7 @@ export default {
 
         // GET /crawlers — list
         if (url.pathname === '/crawlers' && request.method === 'GET') {
-          return await handleListCrawlers(environment, context, userUUID);
+          return await handleListCrawlers(request, environment, context, userUUID);
         }
 
         // GET /crawlers/:id — get single
