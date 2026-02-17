@@ -303,12 +303,15 @@ describe('crawler-manager-worker', () => {
     it('returns 404 when crawler belongs to another user', async () => {
       mockAuthentication();
 
-      const mockData = mockCrawlerResponse({ user_uuid: 'other-user-uuid' });
-
       fetchMock
         .get('https://supabase.example.com')
         .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
-        .reply(200, JSON.stringify(mockData));
+        .reply(406, JSON.stringify({
+          code: 'PGRST116',
+          details: 'The result contains 0 rows',
+          hint: null,
+          message: 'JSON object requested, multiple (or no) rows returned',
+        }));
 
       const request = authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`);
       const response = await worker.fetch(request, env);
@@ -388,6 +391,24 @@ describe('crawler-manager-worker', () => {
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body.deleted).toBe(true);
+    });
+
+    it('returns 404 when crawler belongs to another user', async () => {
+      mockAuthentication();
+
+      fetchMock
+        .get('https://supabase.example.com')
+        .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'DELETE' })
+        .reply(200, JSON.stringify([]));
+
+      const request = authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
+        method: 'DELETE',
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(404);
+      const body = await response.json();
+      expect(body.error).toBe('not_found');
     });
   });
 

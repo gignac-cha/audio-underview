@@ -79,25 +79,29 @@ export async function listCrawlersByUser(
 }
 
 /**
- * Gets a single crawler by ID.
+ * Gets a single crawler by ID, verifying ownership.
  *
  * @param client - Supabase client
  * @param id - Crawler ID
- * @returns Crawler row if found, null otherwise
+ * @param userUUID - User UUID (must own the crawler)
+ * @returns Crawler row if found and owned by the user, null otherwise
  */
 export async function getCrawler(
   client: SupabaseClientType,
-  id: string
+  id: string,
+  userUUID: string
 ): Promise<CrawlerRow | null> {
   return traceDatabaseOperation(
     { serviceName: 'supabase-connector', operation: 'select', table: 'crawlers' },
     async (span) => {
       span.setAttribute('db.query.id', id);
+      span.setAttribute('db.query.user_uuid', userUUID);
 
       const { data, error } = await client
         .from('crawlers')
         .select('*')
         .eq('id', id)
+        .eq('user_uuid', userUUID)
         .single();
 
       if (error) {

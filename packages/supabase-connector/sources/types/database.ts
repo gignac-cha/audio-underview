@@ -111,7 +111,7 @@ export interface Database {
           url_pattern: string;
           code: string;
         };
-        Update: Partial<CrawlerRow>;
+        Update: Partial<Omit<CrawlerRow, 'created_at' | 'updated_at'>>;
         Relationships: [
           {
             foreignKeyName: 'crawlers_user_uuid_fkey';

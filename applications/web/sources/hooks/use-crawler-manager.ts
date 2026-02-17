@@ -24,7 +24,7 @@ function getBaseURL(): string {
   return baseURL;
 }
 
-async function parseResponseJSON(response: Response): Promise<Record<string, unknown>> {
+async function parseResponseJSON(response: Response): Promise<unknown> {
   try {
     return await response.json();
   } catch {
@@ -32,8 +32,9 @@ async function parseResponseJSON(response: Response): Promise<Record<string, unk
   }
 }
 
-function throwResponseError(body: Record<string, unknown>, status: number): never {
-  const errorMessage = body.error_description ?? body.error ?? `Request failed with status ${status}`;
+function throwResponseError(body: unknown, status: number): never {
+  const record = body as Record<string, unknown> | null | undefined;
+  const errorMessage = record?.error_description ?? record?.error ?? `Request failed with status ${status}`;
   throw new Error(String(errorMessage));
 }
 
