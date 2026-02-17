@@ -138,3 +138,4 @@ export interface Database {
 export type UsersInsert = Database['public']['Tables']['users']['Insert'];
 export type AccountsInsert = Database['public']['Tables']['accounts']['Insert'];
 export type CrawlersInsert = Database['public']['Tables']['crawlers']['Insert'];
+export type CrawlersUpdate = Database['public']['Tables']['crawlers']['Update'];

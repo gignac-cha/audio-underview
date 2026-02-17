@@ -10,6 +10,7 @@ import {
   createCrawler,
   listCrawlersByUser,
   getCrawler,
+  updateCrawler,
   deleteCrawler,
 } from '@audio-underview/supabase-connector';
 import { authenticateRequest } from './authentication.ts';
@@ -39,6 +40,7 @@ const HELP = {
     { method: 'POST', path: '/crawlers', description: 'Create a crawler' },
     { method: 'GET', path: '/crawlers', description: 'List crawlers for the authenticated user' },
     { method: 'GET', path: '/crawlers/:id', description: 'Get a crawler by ID' },
+    { method: 'PUT', path: '/crawlers/:id', description: 'Update a crawler by ID (full replacement)' },
     { method: 'DELETE', path: '/crawlers/:id', description: 'Delete a crawler by ID' },
   ],
 };
@@ -138,6 +140,72 @@ async function handleGetCrawler(
   return jsonResponse(crawler, 200, context);
 }
 
+async function handleUpdateCrawler(
+  request: Request,
+  environment: Environment,
+  context: ResponseContext,
+  crawlerID: string,
+  userUUID: string,
+): Promise<Response> {
+  let body: CreateCrawlerRequestBody;
+  try {
+    body = await request.json() as CreateCrawlerRequestBody;
+  } catch {
+    return errorResponse('invalid_request', 'Request body must be valid JSON', 400, context);
+  }
+
+  if (typeof body.name !== 'string' || !body.name.trim()) {
+    return errorResponse('invalid_request', "Field 'name' is required and must be a non-empty string", 400, context);
+  }
+
+  if (typeof body.url_pattern !== 'string' || !body.url_pattern.trim()) {
+    return errorResponse('invalid_request', "Field 'url_pattern' is required and must be a non-empty string", 400, context);
+  }
+
+  if (typeof body.code !== 'string' || !body.code.trim()) {
+    return errorResponse('invalid_request', "Field 'code' is required and must be a non-empty string", 400, context);
+  }
+
+  const MAX_NAME_LENGTH = 255;
+  const MAX_URL_PATTERN_LENGTH = 2048;
+  const MAX_CODE_LENGTH = 1_048_576; // 1MB
+
+  if (body.name.length > MAX_NAME_LENGTH) {
+    return errorResponse('invalid_request', `Field 'name' must not exceed ${MAX_NAME_LENGTH} characters`, 400, context);
+  }
+
+  if (body.url_pattern.length > MAX_URL_PATTERN_LENGTH) {
+    return errorResponse('invalid_request', `Field 'url_pattern' must not exceed ${MAX_URL_PATTERN_LENGTH} characters`, 400, context);
+  }
+
+  if (body.code.length > MAX_CODE_LENGTH) {
+    return errorResponse('invalid_request', `Field 'code' must not exceed ${MAX_CODE_LENGTH} characters`, 400, context);
+  }
+
+  try {
+    new RegExp(body.url_pattern);
+  } catch {
+    return errorResponse('invalid_request', "Field 'url_pattern' must be a valid regex", 400, context);
+  }
+
+  const supabaseClient = createSupabaseClient({
+    supabaseURL: environment.SUPABASE_URL,
+    supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+  });
+
+  const crawler = await updateCrawler(supabaseClient, crawlerID, userUUID, {
+    name: body.name,
+    url_pattern: body.url_pattern,
+    code: body.code,
+  });
+
+  if (!crawler) {
+    return errorResponse('not_found', 'Crawler not found or not owned by you', 404, context);
+  }
+
+  return jsonResponse(crawler, 200, context);
+}
+
 async function handleDeleteCrawler(
   environment: Environment,
   context: ResponseContext,
@@ -175,7 +243,7 @@ export default {
 
     if (request.method === 'OPTIONS') {
       const headers = createCORSHeaders(origin, environment.ALLOWED_ORIGINS, logger);
-      headers.set('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+      headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
       headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
       return new Response(null, { status: 204, headers });
     }
@@ -225,13 +293,18 @@ export default {
           return await handleGetCrawler(environment, context, crawlerID, userUUID);
         }
 
+        // PUT /crawlers/:id — update
+        if (crawlerID && request.method === 'PUT') {
+          return await handleUpdateCrawler(request, environment, context, crawlerID, userUUID);
+        }
+
         // DELETE /crawlers/:id — delete
         if (crawlerID && request.method === 'DELETE') {
           return await handleDeleteCrawler(environment, context, crawlerID, userUUID);
         }
 
         const response = errorResponse('method_not_allowed', 'Method not allowed', 405, context);
-        response.headers.set('Allow', 'GET, POST, DELETE, OPTIONS');
+        response.headers.set('Allow', 'GET, POST, PUT, DELETE, OPTIONS');
         return response;
       }
 

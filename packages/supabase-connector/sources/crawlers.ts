@@ -4,6 +4,7 @@ import type {
   Database,
   CrawlerRow,
   CrawlersInsert,
+  CrawlersUpdate,
 } from './types/index.ts';
 
 type SupabaseClientType = SupabaseClient<Database>;
@@ -106,6 +107,50 @@ export async function getCrawler(
         }
         span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
         throw new Error(`Failed to get crawler: ${error.message}`);
+      }
+
+      span.setAttribute('db.rows_affected', 1);
+      return data as CrawlerRow;
+    }
+  );
+}
+
+/**
+ * Updates a crawler by ID, verifying ownership.
+ *
+ * @param client - Supabase client
+ * @param id - Crawler ID
+ * @param userUUID - User UUID (must own the crawler)
+ * @param input - Fields to update
+ * @returns Updated crawler row, or null if not found or not owned
+ */
+export async function updateCrawler(
+  client: SupabaseClientType,
+  id: string,
+  userUUID: string,
+  input: CrawlersUpdate
+): Promise<CrawlerRow | null> {
+  return traceDatabaseOperation(
+    { serviceName: 'supabase-connector', operation: 'update', table: 'crawlers' },
+    async (span) => {
+      span.setAttribute('db.update.id', id);
+      span.setAttribute('db.update.user_uuid', userUUID);
+
+      const { data, error } = await client
+        .from('crawlers')
+        .update(input as never)
+        .eq('id', id)
+        .eq('user_uuid', userUUID)
+        .select()
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          span.setAttribute('db.rows_affected', 0);
+          return null;
+        }
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw new Error(`Failed to update crawler: ${error.message}`);
       }
 
       span.setAttribute('db.rows_affected', 1);
