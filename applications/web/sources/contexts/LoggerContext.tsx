@@ -2,7 +2,7 @@ import { useMemo, type ReactNode } from 'react';
 import { createBrowserLogger, type LoggerOptions } from '@audio-underview/logger';
 import { LoggerContext } from './logger-context-value.ts';
 
-interface LoggerProviderProps {
+interface LoggerProviderProperties {
   children: ReactNode;
   options?: LoggerOptions;
 }
@@ -10,7 +10,7 @@ interface LoggerProviderProps {
 /**
  * Provider for the application logger
  */
-export function LoggerProvider({ children, options }: LoggerProviderProps) {
+export function LoggerProvider({ children, options }: LoggerProviderProperties) {
   const logger = useMemo(() => {
     return createBrowserLogger({
       minimumLevel: 'debug',

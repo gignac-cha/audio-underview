@@ -128,7 +128,7 @@ export function SignInPage() {
 
   const handleError = (error: string, providerID: OAuthProviderID) => {
     console.error(`${providerID} login failed:`, error);
-    showError('로그인에 실패했습니다.', error || '다시 시도해주세요.');
+    showError('로그인에 실패했습니다.', error.length === 0 ? '다시 시도해주세요.' : error);
   };
 
   const handleProviderClick = (providerID: OAuthProviderID) => {
