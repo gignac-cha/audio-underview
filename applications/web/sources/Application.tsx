@@ -74,14 +74,16 @@ function ApplicationRoutes() {
 
 interface ApplicationProps {
   googleClientID: string;
+  googleWorkerURL?: string;
   githubWorkerURL?: string;
 }
 
-export function Application({ googleClientID, githubWorkerURL }: ApplicationProps) {
+export function Application({ googleClientID, googleWorkerURL, githubWorkerURL }: ApplicationProps) {
   return (
     <BrowserRouter>
       <AuthenticationProvider
         googleClientID={googleClientID}
+        googleWorkerURL={googleWorkerURL}
         githubWorkerURL={githubWorkerURL}
         enabledProviders={ENABLED_PROVIDERS}
       >

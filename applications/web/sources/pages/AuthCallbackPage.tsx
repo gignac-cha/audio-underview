@@ -20,6 +20,7 @@ const oAuthUserSchema = z.object({
   name: z.string().min(1),
   picture: z.string().url().optional(),
   provider: z.enum(['google', 'github', 'apple', 'microsoft', 'facebook', 'discord', 'kakao', 'naver', 'linkedin', 'x']),
+  uuid: z.string().uuid().optional(),
 });
 
 export function AuthCallbackPage() {

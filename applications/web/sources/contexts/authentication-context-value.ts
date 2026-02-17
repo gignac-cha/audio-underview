@@ -10,6 +10,7 @@ export interface AuthenticationContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
   enabledProviders: OAuthProviderID[];
+  isGoogleConfigured: boolean;
   isGitHubConfigured: boolean;
   loginWithGoogle: () => void;
   loginWithGitHub: () => void;

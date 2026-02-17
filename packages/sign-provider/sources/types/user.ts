@@ -28,6 +28,7 @@ export const oauthUserSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   picture: z.string().url('Invalid picture URL').optional(),
   provider: oauthProviderID,
+  uuid: z.string().uuid().optional(),
 });
 
 export type OAuthUser = z.infer<typeof oauthUserSchema>;
