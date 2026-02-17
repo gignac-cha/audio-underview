@@ -41,6 +41,7 @@ export async function authenticateRequest(
   try {
     const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(5000),
     });
 
     if (!response.ok) {

@@ -223,7 +223,7 @@ export function CrawlerSubmissionDialog({
         code,
       });
       showToast('Success', 'Crawler saved successfully.', 'success');
-      onOpenChange(false);
+      handleOpenChange(false);
       navigate('/crawlers');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to save crawler';

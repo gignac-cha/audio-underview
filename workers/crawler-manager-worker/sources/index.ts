@@ -45,12 +45,10 @@ const HELP = {
   ],
 };
 
-async function handleCreateCrawler(
+async function validateCrawlerBody(
   request: Request,
-  environment: Environment,
   context: ResponseContext,
-  userUUID: string,
-): Promise<Response> {
+): Promise<CreateCrawlerRequestBody | Response> {
   let body: CreateCrawlerRequestBody;
   try {
     body = await request.json() as CreateCrawlerRequestBody;
@@ -91,6 +89,21 @@ async function handleCreateCrawler(
   } catch {
     return errorResponse('invalid_request', "Field 'url_pattern' must be a valid regex", 400, context);
   }
+
+  return body;
+}
+
+async function handleCreateCrawler(
+  request: Request,
+  environment: Environment,
+  context: ResponseContext,
+  userUUID: string,
+): Promise<Response> {
+  const validationResult = await validateCrawlerBody(request, context);
+  if (validationResult instanceof Response) {
+    return validationResult;
+  }
+  const body = validationResult;
 
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
@@ -132,8 +145,8 @@ async function handleGetCrawler(
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
   });
 
-  const crawler = await getCrawler(supabaseClient, crawlerID);
-  if (!crawler || crawler.user_uuid !== userUUID) {
+  const crawler = await getCrawler(supabaseClient, crawlerID, userUUID);
+  if (!crawler) {
     return errorResponse('not_found', 'Crawler not found', 404, context);
   }
 
@@ -147,46 +160,11 @@ async function handleUpdateCrawler(
   crawlerID: string,
   userUUID: string,
 ): Promise<Response> {
-  let body: CreateCrawlerRequestBody;
-  try {
-    body = await request.json() as CreateCrawlerRequestBody;
-  } catch {
-    return errorResponse('invalid_request', 'Request body must be valid JSON', 400, context);
+  const validationResult = await validateCrawlerBody(request, context);
+  if (validationResult instanceof Response) {
+    return validationResult;
   }
-
-  if (typeof body.name !== 'string' || !body.name.trim()) {
-    return errorResponse('invalid_request', "Field 'name' is required and must be a non-empty string", 400, context);
-  }
-
-  if (typeof body.url_pattern !== 'string' || !body.url_pattern.trim()) {
-    return errorResponse('invalid_request', "Field 'url_pattern' is required and must be a non-empty string", 400, context);
-  }
-
-  if (typeof body.code !== 'string' || !body.code.trim()) {
-    return errorResponse('invalid_request', "Field 'code' is required and must be a non-empty string", 400, context);
-  }
-
-  const MAX_NAME_LENGTH = 255;
-  const MAX_URL_PATTERN_LENGTH = 2048;
-  const MAX_CODE_LENGTH = 1_048_576; // 1MB
-
-  if (body.name.length > MAX_NAME_LENGTH) {
-    return errorResponse('invalid_request', `Field 'name' must not exceed ${MAX_NAME_LENGTH} characters`, 400, context);
-  }
-
-  if (body.url_pattern.length > MAX_URL_PATTERN_LENGTH) {
-    return errorResponse('invalid_request', `Field 'url_pattern' must not exceed ${MAX_URL_PATTERN_LENGTH} characters`, 400, context);
-  }
-
-  if (body.code.length > MAX_CODE_LENGTH) {
-    return errorResponse('invalid_request', `Field 'code' must not exceed ${MAX_CODE_LENGTH} characters`, 400, context);
-  }
-
-  try {
-    new RegExp(body.url_pattern);
-  } catch {
-    return errorResponse('invalid_request', "Field 'url_pattern' must be a valid regex", 400, context);
-  }
+  const body = validationResult;
 
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
@@ -301,6 +279,12 @@ export default {
         // DELETE /crawlers/:id — delete
         if (crawlerID && request.method === 'DELETE') {
           return await handleDeleteCrawler(environment, context, crawlerID, userUUID);
+        }
+
+        // If the path looks like /crawlers/<something> but parseCrawlerID returned null,
+        // the resource path is invalid (not a valid UUID), so return 404
+        if (!crawlerID && url.pathname.startsWith('/crawlers/')) {
+          return errorResponse('not_found', 'Invalid crawler ID format', 404, context);
         }
 
         const response = errorResponse('method_not_allowed', 'Method not allowed', 405, context);
