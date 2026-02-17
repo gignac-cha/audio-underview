@@ -1,5 +1,5 @@
 import { writeFile, mkdir } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { createClient } from '@1password/sdk';
 
 const SCRIPT_DIRECTORY = import.meta.dirname;
@@ -179,7 +179,7 @@ async function generate(): Promise<void> {
     for (const variableName of environmentFile.variableNames) {
       const value = resolvedVariables.get(variableName);
       if (value !== undefined) {
-        lines.push(`${variableName}=${value}`);
+        lines.push(`${variableName}="${value}"`);
       }
     }
 
@@ -188,7 +188,7 @@ async function generate(): Promise<void> {
       continue;
     }
 
-    const outputDirectory = resolve(environmentFile.outputPath, '..');
+    const outputDirectory = dirname(environmentFile.outputPath);
     await mkdir(outputDirectory, { recursive: true });
     await writeFile(environmentFile.outputPath, lines.join('\n') + '\n', 'utf-8');
 
@@ -197,4 +197,4 @@ async function generate(): Promise<void> {
   }
 }
 
-generate();
+await generate();
