@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import styled from '@emotion/styled';
+import { keyframes } from '@emotion/react';
 import * as Dialog from '@radix-ui/react-dialog';
+import { useNavigate } from 'react-router';
 import { useToast } from '../../hooks/use-toast.ts';
+import { useCreateCrawler } from '../../hooks/use-crawler-manager.ts';
 
 const Overlay = styled(Dialog.Overlay)`
   position: fixed;
@@ -40,12 +43,36 @@ const Description = styled(Dialog.Description)`
   line-height: 1.5;
 `;
 
+const FieldGroup = styled.div`
+  margin-bottom: 1rem;
+`;
+
 const FieldLabel = styled.label`
   display: block;
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--text-secondary);
   margin-bottom: 0.375rem;
+`;
+
+const TextInput = styled.input`
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  background: var(--bg-deep);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  outline: none;
+  transition: var(--transition-fast);
+
+  &::placeholder {
+    color: var(--text-muted);
+  }
+
+  &:focus {
+    border-color: var(--border-focus);
+  }
 `;
 
 const RegexInput = styled.input`
@@ -103,18 +130,39 @@ const CancelButton = styled.button`
   }
 `;
 
-const SubmitButton = styled.button`
+const spin = keyframes`
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+`;
+
+const Spinner = styled.span`
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: ${spin} 0.6s linear infinite;
+`;
+
+const SubmitButton = styled('button', {
+  shouldForwardProp: (prop) => prop !== 'isSubmitting',
+})<{ isSubmitting?: boolean }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   padding: 0.5rem 1.25rem;
   border-radius: 8px;
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--text-primary);
   background: var(--accent-primary);
-  cursor: pointer;
+  cursor: ${({ isSubmitting }) => (isSubmitting ? 'not-allowed' : 'pointer')};
+  opacity: ${({ isSubmitting }) => (isSubmitting ? 0.7 : 1)};
   transition: var(--transition-fast);
 
   &:hover {
-    opacity: 0.9;
+    opacity: ${({ isSubmitting }) => (isSubmitting ? 0.7 : 0.9)};
   }
 `;
 
@@ -122,16 +170,22 @@ interface CrawlerSubmissionDialogProperties {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   url: string;
-  code: string; // Will be used for server submission in upcoming implementation
+  code: string;
 }
 
 export function CrawlerSubmissionDialog({
   open,
   onOpenChange,
   url,
+  code,
 }: CrawlerSubmissionDialogProperties) {
+  const navigate = useNavigate();
   const { showToast } = useToast();
+  const { createCrawler, status } = useCreateCrawler();
+  const [name, setName] = useState('');
   const [urlPattern, setURLPattern] = useState('');
+
+  const isSubmitting = status === 'pending';
 
   const testMatch = (() => {
     if (!urlPattern || !url) return null;
@@ -143,9 +197,29 @@ export function CrawlerSubmissionDialog({
     }
   })();
 
-  const handleSubmit = () => {
-    showToast('Coming Soon', 'Crawler submission will be supported in a future update.', 'info');
-    onOpenChange(false);
+  const handleSubmit = async () => {
+    if (!name.trim()) {
+      showToast('Validation Error', 'Please enter a crawler name.', 'error');
+      return;
+    }
+    if (!urlPattern.trim()) {
+      showToast('Validation Error', 'Please enter a URL pattern.', 'error');
+      return;
+    }
+
+    try {
+      await createCrawler({
+        name: name.trim(),
+        url_pattern: urlPattern.trim(),
+        code,
+      });
+      showToast('Success', 'Crawler saved successfully.', 'success');
+      onOpenChange(false);
+      navigate('/crawlers');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save crawler';
+      showToast('Error', message, 'error');
+    }
   };
 
   return (
@@ -155,15 +229,28 @@ export function CrawlerSubmissionDialog({
         <Content>
           <Title>Submit Crawler</Title>
           <Description>
-            Define a URL pattern to match pages this crawler should process.
+            Give your crawler a name and define a URL pattern to match pages it should process.
           </Description>
 
-          <FieldLabel>URL Pattern (Regex)</FieldLabel>
-          <RegexInput
-            placeholder="^https://example\\.com/posts/.*$"
-            value={urlPattern}
-            onChange={(event) => setURLPattern(event.target.value)}
-          />
+          <FieldGroup>
+            <FieldLabel>Name</FieldLabel>
+            <TextInput
+              placeholder="My Crawler"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              disabled={isSubmitting}
+            />
+          </FieldGroup>
+
+          <FieldGroup>
+            <FieldLabel>URL Pattern (Regex)</FieldLabel>
+            <RegexInput
+              placeholder="^https://example\\.com/posts/.*$"
+              value={urlPattern}
+              onChange={(event) => setURLPattern(event.target.value)}
+              disabled={isSubmitting}
+            />
+          </FieldGroup>
 
           {url && urlPattern && testMatch !== null && (
             <MatchPreview isMatch={testMatch}>
@@ -175,9 +262,16 @@ export function CrawlerSubmissionDialog({
 
           <ButtonRow>
             <Dialog.Close asChild>
-              <CancelButton>Cancel</CancelButton>
+              <CancelButton disabled={isSubmitting}>Cancel</CancelButton>
             </Dialog.Close>
-            <SubmitButton onClick={handleSubmit}>Submit</SubmitButton>
+            <SubmitButton
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+              isSubmitting={isSubmitting}
+            >
+              {isSubmitting && <Spinner />}
+              {isSubmitting ? 'Submitting...' : 'Submit'}
+            </SubmitButton>
           </ButtonRow>
         </Content>
       </Dialog.Portal>

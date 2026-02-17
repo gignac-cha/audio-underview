@@ -50,6 +50,20 @@ export interface LinkAccountResult {
 }
 
 /**
+ * Crawler table row type
+ * Represents a user-defined crawler with code to process matched URLs
+ */
+export interface CrawlerRow {
+  id: string;
+  user_uuid: string;
+  name: string;
+  url_pattern: string;
+  code: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
  * Supabase connector configuration
  */
 export interface SupabaseConnectorConfiguration {
@@ -88,6 +102,26 @@ export interface Database {
           },
         ];
       };
+      crawlers: {
+        Row: CrawlerRow;
+        Insert: {
+          id?: string;
+          user_uuid: string;
+          name: string;
+          url_pattern: string;
+          code: string;
+        };
+        Update: Partial<CrawlerRow>;
+        Relationships: [
+          {
+            foreignKeyName: 'crawlers_user_uuid_fkey';
+            columns: ['user_uuid'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['uuid'];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -103,3 +137,4 @@ export interface Database {
  */
 export type UsersInsert = Database['public']['Tables']['users']['Insert'];
 export type AccountsInsert = Database['public']['Tables']['accounts']['Insert'];
+export type CrawlersInsert = Database['public']['Tables']['crawlers']['Insert'];
