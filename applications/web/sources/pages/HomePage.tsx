@@ -1,9 +1,10 @@
 import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faHeadphones, faSignOutAlt } from '@fortawesome/free-solid-svg-icons';
+import { faSignOutAlt } from '@fortawesome/free-solid-svg-icons';
 import { useAuthentication } from '../hooks/use-authentication.ts';
 import { UserAvatar } from '../components/UserAvatar.tsx';
+import { NavigationLinks } from '../components/NavigationLinks.tsx';
 
 const fadeIn = keyframes`
   from {
@@ -30,20 +31,6 @@ const Header = styled.header`
   background: rgba(10, 10, 10, 0.9);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border-subtle);
-`;
-
-const Logo = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--text-primary);
-
-  svg {
-    color: var(--accent-primary);
-    font-size: 1.1em;
-  }
 `;
 
 const UserSection = styled.div`
@@ -144,10 +131,7 @@ export function HomePage() {
   return (
     <PageContainer>
       <Header>
-        <Logo>
-          <FontAwesomeIcon icon={faHeadphones} />
-          <span>Audio Underview</span>
-        </Logo>
+        <NavigationLinks />
 
         <UserSection>
           <UserAvatar user={user} />
