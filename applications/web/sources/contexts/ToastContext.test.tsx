@@ -15,7 +15,7 @@ function ToastTrigger({ type, title, description }: { type: 'toast' | 'error' | 
     }
   };
 
-  return <button onClick={handleClick}>Trigger</button>;
+  return <button type="button" onClick={handleClick}>Trigger</button>;
 }
 
 describe('useToast', () => {
