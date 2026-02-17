@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import styled from '@emotion/styled';
 import * as Dialog from '@radix-ui/react-dialog';
-import { useToast } from '../../contexts/ToastContext.tsx';
+import { useToast } from '../../hooks/use-toast.ts';
 
 const Overlay = styled(Dialog.Overlay)`
   position: fixed;

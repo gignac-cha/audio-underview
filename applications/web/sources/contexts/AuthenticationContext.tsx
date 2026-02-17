@@ -1,6 +1,4 @@
 import {
-  createContext,
-  useContext,
   useState,
   useEffect,
   useCallback,
@@ -16,10 +14,12 @@ import {
   parseStoredAuthenticationData,
   isAuthenticationExpired,
   createStoredAuthenticationData,
-  PROVIDER_DISPLAY_CONFIGURATIONS,
-  type ProviderDisplayConfiguration,
 } from '@audio-underview/sign-provider';
 import { createBrowserLogger } from '@audio-underview/logger';
+import {
+  AuthenticationContext,
+  type AuthenticationContextValue,
+} from './authentication-context-value.ts';
 
 const authenticationLogger = createBrowserLogger({
   defaultContext: {
@@ -59,20 +59,6 @@ function parseGoogleUserInfo(userInfo: Record<string, unknown>): OAuthUser {
     provider: 'google',
   };
 }
-
-interface AuthenticationContextValue {
-  user: OAuthUser | null;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  enabledProviders: OAuthProviderID[];
-  isGitHubConfigured: boolean;
-  loginWithGoogle: () => void;
-  loginWithGitHub: () => void;
-  loginWithProvider: (providerID: OAuthProviderID, user: OAuthUser, credential: string) => LoginResult;
-  logout: () => void;
-}
-
-const AuthenticationContext = createContext<AuthenticationContextValue | null>(null);
 
 interface AuthenticationProviderInnerProps {
   children: ReactNode;
@@ -330,15 +316,3 @@ export function AuthenticationProvider({
 
   return content;
 }
-
-export function useAuthentication(): AuthenticationContextValue {
-  const context = useContext(AuthenticationContext);
-  if (!context) {
-    throw new Error('useAuthentication must be used within AuthenticationProvider');
-  }
-  return context;
-}
-
-// Re-export for convenience
-export { PROVIDER_DISPLAY_CONFIGURATIONS, type ProviderDisplayConfiguration };
-export type { OAuthProviderID, OAuthUser };

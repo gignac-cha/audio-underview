@@ -1,13 +1,8 @@
-import { createContext, useContext, useMemo, type ReactNode } from 'react';
-import {
-  createBrowserLogger,
-  type Logger,
-  type LoggerOptions,
-} from '@audio-underview/logger';
+import { useMemo, type ReactNode } from 'react';
+import { createBrowserLogger, type LoggerOptions } from '@audio-underview/logger';
+import { LoggerContext } from './logger-context-value.ts';
 
-const LoggerContext = createContext<Logger | null>(null);
-
-interface LoggerProviderProps {
+interface LoggerProviderProperties {
   children: ReactNode;
   options?: LoggerOptions;
 }
@@ -15,7 +10,7 @@ interface LoggerProviderProps {
 /**
  * Provider for the application logger
  */
-export function LoggerProvider({ children, options }: LoggerProviderProps) {
+export function LoggerProvider({ children, options }: LoggerProviderProperties) {
   const logger = useMemo(() => {
     return createBrowserLogger({
       minimumLevel: 'debug',
@@ -30,38 +25,3 @@ export function LoggerProvider({ children, options }: LoggerProviderProps) {
 
   return <LoggerContext.Provider value={logger}>{children}</LoggerContext.Provider>;
 }
-
-/**
- * Hook to access the logger
- */
-export function useLogger(context?: { module?: string; function?: string }): Logger {
-  const logger = useContext(LoggerContext);
-
-  if (!logger) {
-    throw new Error('useLogger must be used within LoggerProvider');
-  }
-
-  if (context) {
-    return logger.createChild(context);
-  }
-
-  return logger;
-}
-
-/**
- * Create a standalone logger instance for use outside of React components
- */
-export function createWebLogger(options?: LoggerOptions): Logger {
-  return createBrowserLogger({
-    minimumLevel: 'debug',
-    includeTimestamp: true,
-    includeLevel: true,
-    defaultContext: {
-      module: 'web',
-    },
-    ...options,
-  });
-}
-
-// Export the singleton logger for non-component usage
-export const webLogger = createWebLogger();
