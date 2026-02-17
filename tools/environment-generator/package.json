@@ -1,0 +1,13 @@
+{
+  "name": "@audio-underview/environment-generator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "node sources/setup.ts",
+    "generate": "node sources/generate.ts"
+  },
+  "dependencies": {
+    "@1password/sdk": "^0.4.0"
+  }
+}
