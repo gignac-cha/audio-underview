@@ -7,6 +7,10 @@ on:
         description: 'Deploy Crawler Code Runner Worker'
         type: boolean
         default: false
+      crawler_manager:
+        description: 'Deploy Crawler Manager Worker'
+        type: boolean
+        default: false
       deploy_all:
         description: 'Deploy ALL crawler workers (overrides individual selections)'
         type: boolean
@@ -43,4 +47,32 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: workers/crawler-code-runner-worker
+          command: deploy
+
+  deploy-crawler-manager:
+    if: ${{ inputs.crawler_manager || inputs.deploy_all }}
+    runs-on: ubuntu-latest
+    name: Deploy Crawler Manager Worker
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'latest'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/crawler-manager-worker
           command: deploy

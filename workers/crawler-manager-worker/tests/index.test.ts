@@ -232,6 +232,19 @@ describe('crawler-manager-worker', () => {
       const body = await response.json();
       expect(body.error_description).toContain('regex');
     });
+
+    it('rejects ReDoS-prone regex in url_pattern', async () => {
+      mockAuthentication();
+      const request = authenticatedRequest('/crawlers', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'test', url_pattern: '(a+)+', code: '(x) => x' }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const response = await worker.fetch(request, env);
+      expect(response.status).toBe(400);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.error_description).toContain('unsafe regex pattern');
+    });
   });
 
   describe('POST /crawlers success', () => {
@@ -279,7 +292,7 @@ describe('crawler-manager-worker', () => {
       expect(body.data).toBeDefined();
       expect(Array.isArray(body.data)).toBe(true);
       expect(body.data.length).toBe(1);
-      expect(body.total).toBeDefined();
+      expect(body.total).toBe(1);
       expect(body.offset).toBe(0);
       expect(body.limit).toBe(20);
     });
