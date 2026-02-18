@@ -8,16 +8,71 @@ const logger = createWorkerLogger({
   },
 });
 
+interface ProviderUserInformation {
+  provider: 'google' | 'github';
+  identifier: string;
+}
+
 interface GoogleUserInformation {
   sub: string;
-  email?: string;
-  name?: string;
-  picture?: string;
+}
+
+interface GitHubUserInformation {
+  id: number;
+}
+
+async function resolveGoogleUser(accessToken: string): Promise<ProviderUserInformation | null> {
+  try {
+    const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const userInformation = await response.json() as GoogleUserInformation;
+    if (!userInformation.sub) {
+      return null;
+    }
+
+    return { provider: 'google', identifier: userInformation.sub };
+  } catch {
+    return null;
+  }
+}
+
+async function resolveGitHubUser(accessToken: string): Promise<ProviderUserInformation | null> {
+  try {
+    const response = await fetch('https://api.github.com/user', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'audio-underview-crawler-manager-worker',
+      },
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const userInformation = await response.json() as GitHubUserInformation;
+    if (!userInformation.id) {
+      return null;
+    }
+
+    return { provider: 'github', identifier: String(userInformation.id) };
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Authenticates a request by verifying the Google access token
- * and resolving the user UUID from the database.
+ * Authenticates a request by verifying the OAuth access token
+ * against supported providers (Google, GitHub) in parallel,
+ * then resolving the user UUID from the database.
  *
  * @param request - Incoming request with Authorization header
  * @param supabaseClient - Supabase client for account lookup
@@ -37,32 +92,21 @@ export async function authenticateRequest(
     return null;
   }
 
-  let userInformation: GoogleUserInformation;
-  try {
-    const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      signal: AbortSignal.timeout(5000),
-    });
+  const results = await Promise.all([
+    resolveGoogleUser(accessToken),
+    resolveGitHubUser(accessToken),
+  ]);
 
-    if (!response.ok) {
-      logger.error('Google userinfo responded with non-OK status', undefined, { function: 'authenticateRequest', status: response.status });
-      return null;
-    }
-
-    userInformation = await response.json() as GoogleUserInformation;
-  } catch (error) {
-    logger.error('Failed to fetch Google userinfo', error, { function: 'authenticateRequest' });
-    return null;
-  }
-
-  if (!userInformation.sub) {
+  const userInformation = results.find((result) => result !== null) ?? null;
+  if (!userInformation) {
+    logger.error('No provider could authenticate the token', undefined, { function: 'authenticateRequest' });
     return null;
   }
 
   try {
     const account = await findAccount(supabaseClient, {
-      provider: 'google',
-      identifier: userInformation.sub,
+      provider: userInformation.provider,
+      identifier: userInformation.identifier,
     });
 
     return account?.uuid ?? null;
