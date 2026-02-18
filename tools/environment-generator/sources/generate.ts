@@ -24,6 +24,10 @@ const SECRET_MAPPINGS: SecretMapping[] = [
     variableName: 'VITE_CRAWLER_CODE_RUNNER_URL',
   },
   {
+    reference: 'op://Audio Underview/Crawler Manager Worker/URL',
+    variableName: 'VITE_CRAWLER_MANAGER_WORKER_URL',
+  },
+  {
     reference: 'op://Audio Underview/GitHub OAuth/client ID',
     variableName: 'OAUTH_GITHUB_CLIENT_ID',
   },
@@ -77,6 +81,7 @@ const ENVIRONMENT_FILES: EnvironmentFileDefinition[] = [
       'VITE_GOOGLE_CLIENT_ID',
       'VITE_GITHUB_OAUTH_WORKER_URL',
       'VITE_CRAWLER_CODE_RUNNER_URL',
+      'VITE_CRAWLER_MANAGER_WORKER_URL',
     ],
   },
   {

@@ -1,9 +1,11 @@
 import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faHeadphones, faSignOutAlt } from '@fortawesome/free-solid-svg-icons';
+import { faSignOutAlt } from '@fortawesome/free-solid-svg-icons';
 import { useAuthentication } from '../hooks/use-authentication.ts';
 import { UserAvatar } from '../components/UserAvatar.tsx';
+import { NavigationLinks } from '../components/NavigationLinks.tsx';
+import { Header, LogoutButton, UserSection } from '../components/PageHeader.tsx';
 
 const fadeIn = keyframes`
   from {
@@ -17,67 +19,6 @@ const fadeIn = keyframes`
 const PageContainer = styled.div`
   min-height: 100vh;
   background: var(--bg-deep);
-`;
-
-const Header = styled.header`
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem 1.5rem;
-  background: rgba(10, 10, 10, 0.9);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--border-subtle);
-`;
-
-const Logo = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--text-primary);
-
-  svg {
-    color: var(--accent-primary);
-    font-size: 1.1em;
-  }
-`;
-
-const UserSection = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-`;
-
-const LogoutButton = styled.button`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-  transition: var(--transition-fast);
-
-  &:hover {
-    color: var(--text-primary);
-    background: var(--bg-surface);
-  }
-
-  span {
-    display: none;
-
-    @media (min-width: 640px) {
-      display: inline;
-    }
-  }
 `;
 
 const Main = styled.main`
@@ -144,10 +85,7 @@ export function HomePage() {
   return (
     <PageContainer>
       <Header>
-        <Logo>
-          <FontAwesomeIcon icon={faHeadphones} />
-          <span>Audio Underview</span>
-        </Logo>
+        <NavigationLinks />
 
         <UserSection>
           <UserAvatar user={user} />
