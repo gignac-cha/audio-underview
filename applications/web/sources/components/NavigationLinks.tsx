@@ -48,12 +48,12 @@ const Link = styled(NavLink)`
 export function NavigationLinks() {
   return (
     <Container>
-      <Link to="/home" end>
-        <FontAwesomeIcon icon={faHouse} />
+      <Link to="/home" end aria-label="Home">
+        <FontAwesomeIcon icon={faHouse} aria-hidden={true} />
         <span>Home</span>
       </Link>
-      <Link to="/crawlers">
-        <FontAwesomeIcon icon={faSpider} />
+      <Link to="/crawlers" aria-label="Crawlers">
+        <FontAwesomeIcon icon={faSpider} aria-hidden={true} />
         <span>Crawlers</span>
       </Link>
     </Container>

@@ -11,6 +11,7 @@ export type ProviderType = OAuthProviderID;
  * Represents an integrated account that can have multiple social login accounts
  */
 export interface UserRow {
+  [key: string]: unknown;
   uuid: string;
 }
 
@@ -19,6 +20,7 @@ export interface UserRow {
  * Represents a social login account linked to a user
  */
 export interface AccountRow {
+  [key: string]: unknown;
   provider: ProviderType;
   identifier: string;
   uuid: string;
@@ -54,6 +56,7 @@ export interface LinkAccountResult {
  * Represents a user-defined crawler with code to process matched URLs
  */
 export interface CrawlerRow {
+  [key: string]: unknown;
   id: string;
   user_uuid: string;
   name: string;
@@ -80,13 +83,14 @@ export interface Database {
     Tables: {
       users: {
         Row: UserRow;
-        Insert: { uuid?: string };
+        Insert: { [key: string]: unknown; uuid?: string };
         Update: Partial<UserRow>;
         Relationships: [];
       };
       accounts: {
         Row: AccountRow;
         Insert: {
+          [key: string]: unknown;
           provider: ProviderType;
           identifier: string;
           uuid: string;
@@ -105,6 +109,7 @@ export interface Database {
       crawlers: {
         Row: CrawlerRow;
         Insert: {
+          [key: string]: unknown;
           id?: string;
           user_uuid: string;
           name: string;

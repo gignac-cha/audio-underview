@@ -33,7 +33,7 @@ export async function createCrawler(
 
       const { data, error } = await client
         .from('crawlers')
-        .insert(input as never)
+        .insert(input)
         .select()
         .single();
 
@@ -156,7 +156,7 @@ export async function updateCrawler(
 
       const { data, error } = await client
         .from('crawlers')
-        .update(input as never)
+        .update(input)
         .eq('id', id)
         .eq('user_uuid', userUUID)
         .select()
