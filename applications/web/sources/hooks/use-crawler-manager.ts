@@ -2,6 +2,8 @@ import { useMutation, useInfiniteQuery, useQueryClient } from '@tanstack/react-q
 import { loadAuthenticationData } from '@audio-underview/sign-provider';
 import type { CrawlerRow } from '@audio-underview/supabase-connector';
 
+const FETCH_TIMEOUT_MS = 30_000;
+
 interface ListCrawlersParameters {
   offset: number;
   limit: number;
@@ -61,6 +63,7 @@ async function createCrawlerRequest(input: CreateCrawlerInput): Promise<CrawlerR
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify(input),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
 
   const body = await parseResponseJSON(response);
@@ -86,6 +89,7 @@ async function listCrawlersRequest(parameters: ListCrawlersParameters): Promise<
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
 
   const body = await parseResponseJSON(response);
@@ -106,6 +110,7 @@ async function deleteCrawlerRequest(id: string): Promise<void> {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
 
   if (!response.ok) {

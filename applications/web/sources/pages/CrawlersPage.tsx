@@ -410,17 +410,18 @@ export function CrawlersPage() {
         <>
           <ConfirmOverlay
             onClick={() => setConfirmTarget(null)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') setConfirmTarget(null);
-            }}
           />
           <ConfirmModal
             role="dialog"
             aria-modal="true"
             aria-labelledby="confirm-dialog-title"
+            aria-describedby="confirm-dialog-description"
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setConfirmTarget(null);
+            }}
           >
             <ConfirmTitle id="confirm-dialog-title">Delete Crawler</ConfirmTitle>
-            <ConfirmMessage>
+            <ConfirmMessage id="confirm-dialog-description">
               Are you sure you want to delete &ldquo;{confirmTarget.name}&rdquo;? This action cannot be undone.
             </ConfirmMessage>
             <ConfirmButtonRow>
