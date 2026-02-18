@@ -11,6 +11,7 @@ export type ProviderType = OAuthProviderID;
  * Represents an integrated account that can have multiple social login accounts
  */
 export interface UserRow {
+  [key: string]: unknown;
   uuid: string;
 }
 
@@ -19,6 +20,7 @@ export interface UserRow {
  * Represents a social login account linked to a user
  */
 export interface AccountRow {
+  [key: string]: unknown;
   provider: ProviderType;
   identifier: string;
   uuid: string;
@@ -50,6 +52,21 @@ export interface LinkAccountResult {
 }
 
 /**
+ * Crawler table row type
+ * Represents a user-defined crawler with code to process matched URLs
+ */
+export interface CrawlerRow {
+  [key: string]: unknown;
+  id: string;
+  user_uuid: string;
+  name: string;
+  url_pattern: string;
+  code: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
  * Supabase connector configuration
  */
 export interface SupabaseConnectorConfiguration {
@@ -66,13 +83,14 @@ export interface Database {
     Tables: {
       users: {
         Row: UserRow;
-        Insert: { uuid?: string };
+        Insert: { [key: string]: unknown; uuid?: string };
         Update: Partial<UserRow>;
         Relationships: [];
       };
       accounts: {
         Row: AccountRow;
         Insert: {
+          [key: string]: unknown;
           provider: ProviderType;
           identifier: string;
           uuid: string;
@@ -82,6 +100,27 @@ export interface Database {
           {
             foreignKeyName: 'accounts_uuid_fkey';
             columns: ['uuid'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['uuid'];
+          },
+        ];
+      };
+      crawlers: {
+        Row: CrawlerRow;
+        Insert: {
+          [key: string]: unknown;
+          id?: string;
+          user_uuid: string;
+          name: string;
+          url_pattern: string;
+          code: string;
+        };
+        Update: Partial<Omit<CrawlerRow, 'created_at' | 'updated_at'>>;
+        Relationships: [
+          {
+            foreignKeyName: 'crawlers_user_uuid_fkey';
+            columns: ['user_uuid'];
             isOneToOne: false;
             referencedRelation: 'users';
             referencedColumns: ['uuid'];
@@ -103,3 +142,5 @@ export interface Database {
  */
 export type UsersInsert = Database['public']['Tables']['users']['Insert'];
 export type AccountsInsert = Database['public']['Tables']['accounts']['Insert'];
+export type CrawlersInsert = Database['public']['Tables']['crawlers']['Insert'];
+export type CrawlersUpdate = Database['public']['Tables']['crawlers']['Update'];

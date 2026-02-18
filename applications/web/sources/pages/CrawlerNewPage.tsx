@@ -2,9 +2,11 @@ import { useState, useCallback } from 'react';
 import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowLeft, faPlay, faPaperPlane, faSignOutAlt } from '@fortawesome/free-solid-svg-icons';
+import { faPlay, faPaperPlane, faSignOutAlt } from '@fortawesome/free-solid-svg-icons';
 import { useNavigate } from 'react-router';
 import { useAuthentication } from '../hooks/use-authentication.ts';
+import { NavigationLinks } from '../components/NavigationLinks.tsx';
+import { Header, LogoutButton } from '../components/PageHeader.tsx';
 import { useCrawlerCodeRunner, type LogEntry } from '../hooks/use-crawler-code-runner.ts';
 import { useMediaQuery } from '../hooks/use-media-query.ts';
 import { URLInputPanel } from '../components/crawlers/URLInputPanel.tsx';
@@ -25,74 +27,20 @@ const PageContainer = styled.div`
   background: var(--bg-deep);
 `;
 
-const Header = styled.header`
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem 1.5rem;
-  background: rgba(10, 10, 10, 0.9);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--border-subtle);
-`;
-
 const HeaderLeft = styled.div`
   display: flex;
   align-items: center;
-  gap: 1rem;
-`;
-
-const BackButton = styled.button`
-  display: flex;
-  align-items: center;
   gap: 0.5rem;
-  padding: 0.375rem 0.75rem;
-  border-radius: 6px;
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: var(--transition-fast);
-
-  &:hover {
-    color: var(--text-primary);
-    background: var(--bg-surface);
-  }
 `;
 
-const PageTitle = styled.h1`
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-`;
-
-const LogoutButton = styled.button`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  cursor: pointer;
+const Breadcrumb = styled.span`
   font-size: 0.8125rem;
   font-weight: 500;
-  color: var(--text-secondary);
-  transition: var(--transition-fast);
+  color: var(--text-muted);
 
-  &:hover {
-    color: var(--text-primary);
-    background: var(--bg-surface);
-  }
-
-  span {
-    display: none;
-
-    @media (min-width: 640px) {
-      display: inline;
-    }
+  &::before {
+    content: '/';
+    margin-right: 0.5rem;
   }
 `;
 
@@ -312,11 +260,8 @@ export function CrawlerNewPage() {
     <PageContainer>
       <Header>
         <HeaderLeft>
-          <BackButton onClick={() => navigate('/home')}>
-            <FontAwesomeIcon icon={faArrowLeft} />
-            Home
-          </BackButton>
-          <PageTitle>New Crawler</PageTitle>
+          <NavigationLinks />
+          <Breadcrumb>New</Breadcrumb>
         </HeaderLeft>
 
         <LogoutButton onClick={logout}>
