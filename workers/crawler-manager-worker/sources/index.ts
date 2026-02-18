@@ -45,6 +45,11 @@ const HELP = {
   ],
 };
 
+function hasNestedQuantifiers(pattern: string): boolean {
+  // Detect patterns like (a+)+, (.*)*, (a{2,})+, etc.
+  return /(\([^)]*[+*][^)]*\))[+*]|\(\?:[^)]*[+*][^)]*\)[+*]/.test(pattern);
+}
+
 async function validateCrawlerBody(
   request: Request,
   context: ResponseContext,
@@ -82,6 +87,10 @@ async function validateCrawlerBody(
 
   if (body.code.length > MAX_CODE_LENGTH) {
     return errorResponse('invalid_request', `Field 'code' must not exceed ${MAX_CODE_LENGTH} characters`, 400, context);
+  }
+
+  if (hasNestedQuantifiers(body.url_pattern)) {
+    return errorResponse('invalid_request', "Field 'url_pattern' contains potentially unsafe regex pattern", 400, context);
   }
 
   try {
@@ -230,10 +239,10 @@ async function handleDeleteCrawler(
   return jsonResponse({ deleted: true }, 200, context);
 }
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function parseCrawlerID(pathname: string): string | null {
-  const match = pathname.match(/^\/crawlers\/([0-9a-f-]+)$/);
+  const match = pathname.match(/^\/crawlers\/([0-9a-f-]+)$/i);
   const id = match?.[1] ?? null;
   if (id && !UUID_PATTERN.test(id)) {
     return null;

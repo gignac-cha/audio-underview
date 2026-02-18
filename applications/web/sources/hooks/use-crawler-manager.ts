@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { loadAuthenticationData } from '@audio-underview/sign-provider';
 import type { CrawlerRow } from '@audio-underview/supabase-connector';
 
@@ -23,7 +23,7 @@ interface CreateCrawlerInput {
 function getAccessToken(): string {
   const authenticationData = loadAuthenticationData();
   if (!authenticationData) {
-    throw new Error('Not authenticated');
+    throw new Error('Authentication required. Please sign in.');
   }
   return authenticationData.credential;
 }
@@ -31,7 +31,7 @@ function getAccessToken(): string {
 function getBaseURL(): string {
   const baseURL = import.meta.env.VITE_CRAWLER_MANAGER_WORKER_URL;
   if (!baseURL) {
-    throw new Error('VITE_CRAWLER_MANAGER_WORKER_URL is not configured');
+    throw new Error('Service is not available. Please try again later.');
   }
   return baseURL;
 }

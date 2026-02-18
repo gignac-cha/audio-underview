@@ -8,7 +8,7 @@ const logger = createWorkerLogger({
   },
 });
 
-interface GoogleUserInfo {
+interface GoogleUserInformation {
   sub: string;
   email?: string;
   name?: string;
@@ -37,7 +37,7 @@ export async function authenticateRequest(
     return null;
   }
 
-  let userInfo: GoogleUserInfo;
+  let userInformation: GoogleUserInformation;
   try {
     const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -49,20 +49,20 @@ export async function authenticateRequest(
       return null;
     }
 
-    userInfo = await response.json() as GoogleUserInfo;
+    userInformation = await response.json() as GoogleUserInformation;
   } catch (error) {
     logger.error('Failed to fetch Google userinfo', error, { function: 'authenticateRequest' });
     return null;
   }
 
-  if (!userInfo.sub) {
+  if (!userInformation.sub) {
     return null;
   }
 
   try {
     const account = await findAccount(supabaseClient, {
       provider: 'google',
-      identifier: userInfo.sub,
+      identifier: userInformation.sub,
     });
 
     return account?.uuid ?? null;

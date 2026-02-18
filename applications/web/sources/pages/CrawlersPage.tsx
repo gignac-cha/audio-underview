@@ -8,6 +8,7 @@ import { useAuthentication } from '../hooks/use-authentication.ts';
 import { useToast } from '../hooks/use-toast.ts';
 import { useListCrawlers, useDeleteCrawler } from '../hooks/use-crawler-manager.ts';
 import { NavigationLinks } from '../components/NavigationLinks.tsx';
+import { Header, LogoutButton } from '../components/PageHeader.tsx';
 
 const fadeIn = keyframes`
   from { opacity: 0; }
@@ -22,47 +23,6 @@ const spin = keyframes`
 const PageContainer = styled.div`
   min-height: 100vh;
   background: var(--bg-deep);
-`;
-
-const Header = styled.header`
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem 1.5rem;
-  background: rgba(10, 10, 10, 0.9);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--border-subtle);
-`;
-
-const LogoutButton = styled.button`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-  transition: var(--transition-fast);
-
-  &:hover {
-    color: var(--text-primary);
-    background: var(--bg-surface);
-  }
-
-  span {
-    display: none;
-
-    @media (min-width: 640px) {
-      display: inline;
-    }
-  }
 `;
 
 const Main = styled.main`
@@ -360,13 +320,14 @@ export function CrawlersPage() {
     if (!confirmTarget) return;
 
     const { id, name } = confirmTarget;
-    setConfirmTarget(null);
     try {
       await deleteCrawler(id);
       showToast('Deleted', `Crawler "${name}" has been deleted.`, 'success');
+      setConfirmTarget(null);
     } catch (deleteError) {
       const message = deleteError instanceof Error ? deleteError.message : 'Failed to delete crawler';
       showToast('Error', message, 'error');
+      setConfirmTarget(null);
     }
   };
 
@@ -447,14 +408,23 @@ export function CrawlersPage() {
 
       {confirmTarget && (
         <>
-          <ConfirmOverlay onClick={() => setConfirmTarget(null)} />
-          <ConfirmModal>
-            <ConfirmTitle>Delete Crawler</ConfirmTitle>
+          <ConfirmOverlay
+            onClick={() => setConfirmTarget(null)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setConfirmTarget(null);
+            }}
+          />
+          <ConfirmModal
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-dialog-title"
+          >
+            <ConfirmTitle id="confirm-dialog-title">Delete Crawler</ConfirmTitle>
             <ConfirmMessage>
               Are you sure you want to delete &ldquo;{confirmTarget.name}&rdquo;? This action cannot be undone.
             </ConfirmMessage>
             <ConfirmButtonRow>
-              <ConfirmCancelButton onClick={() => setConfirmTarget(null)}>
+              <ConfirmCancelButton onClick={() => setConfirmTarget(null)} autoFocus>
                 Cancel
               </ConfirmCancelButton>
               <ConfirmDeleteButton

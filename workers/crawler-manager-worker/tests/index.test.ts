@@ -339,6 +339,30 @@ describe('crawler-manager-worker', () => {
       expect(body.error).toBe('invalid_request');
       expect(body.error_description).toContain('limit');
     });
+
+    it('returns 400 for non-numeric offset', async () => {
+      mockAuthentication();
+
+      const request = authenticatedRequest('/crawlers?offset=abc');
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toContain('offset');
+    });
+
+    it('returns 400 for non-integer limit', async () => {
+      mockAuthentication();
+
+      const request = authenticatedRequest('/crawlers?limit=1.5');
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toContain('limit');
+    });
   });
 
   describe('GET /crawlers/:id', () => {
