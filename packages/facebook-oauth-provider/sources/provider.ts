@@ -44,7 +44,7 @@ export function parseFacebookUserData(data: unknown): FacebookUserData {
   const result = facebookUserDataSchema.safeParse(data);
 
   if (!result.success) {
-    const errors = result.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+    const errors = result.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
     throw new Error(`Invalid Facebook user data: ${errors}`);
   }
 

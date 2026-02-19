@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { handler } from '../sources/index.ts';
+
+vi.mock('node:dns/promises', () => ({
+  lookup: vi.fn().mockResolvedValue([{ address: '93.184.216.34', family: 4 }]),
+}));
+
+// Must import handler after vi.mock so the mock is applied
+const { handler } = await import('../sources/index.ts');
 
 process.env.ALLOWED_ORIGINS = 'https://example.com';
 
