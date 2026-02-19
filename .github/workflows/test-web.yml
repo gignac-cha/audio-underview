@@ -36,6 +36,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Typecheck
+        run: pnpm --filter @audio-underview/web typecheck
+
       - name: Install Playwright Chromium
         run: pnpm --filter @audio-underview/web exec playwright install --with-deps chromium
 

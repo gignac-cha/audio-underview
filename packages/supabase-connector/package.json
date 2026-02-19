@@ -12,11 +12,15 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@audio-underview/axiom-logger": "workspace:*",
     "@audio-underview/sign-provider": "workspace:*",
     "@supabase/supabase-js": "^2.89.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18"
   }
 }
