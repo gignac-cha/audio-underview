@@ -1,6 +1,10 @@
 import { Logger } from './logger.ts';
 import type { LoggerOptions, LogLevel } from './types.ts';
 
+declare const process: { env?: Record<string, string | undefined> } | undefined;
+declare const window: unknown;
+declare const document: unknown;
+
 /**
  * Create a logger configured for browser/client-side usage
  * Uses pretty formatting for dev tools

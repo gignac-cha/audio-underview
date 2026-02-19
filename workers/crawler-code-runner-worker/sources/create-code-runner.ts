@@ -26,5 +26,5 @@ export function createCodeRunner(
     globalOutbound: null,
   }));
 
-  return worker.getEntrypoint('Runner') as CodeRunner;
+  return worker.getEntrypoint('Runner') as unknown as CodeRunner;
 }

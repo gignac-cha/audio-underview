@@ -44,7 +44,7 @@ export function parseNaverUserResponse(data: unknown): NaverUserResponse {
   const result = naverUserResponseSchema.safeParse(data);
 
   if (!result.success) {
-    const errors = result.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+    const errors = result.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
     throw new Error(`Invalid Naver user response: ${errors}`);
   }
 
