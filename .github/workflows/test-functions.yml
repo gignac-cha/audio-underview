@@ -36,6 +36,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Typecheck
+        run: pnpm -r --filter './functions/*' run typecheck
+
       - name: Run function tests
         run: pnpm --filter @audio-underview/crawler-code-runner-function exec vitest run --reporter=default --reporter=junit --outputFile.junit=test-results.xml
 
