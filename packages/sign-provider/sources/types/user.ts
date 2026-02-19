@@ -24,10 +24,11 @@ export type OAuthProviderID = z.infer<typeof oauthProviderID>;
  */
 export const oauthUserSchema = z.object({
   id: z.string().min(1, 'User ID is required'),
-  email: z.string().email('Invalid email format').optional().nullable(),
+  email: z.email('Invalid email format').optional().nullable(),
   name: z.string().min(1, 'Name is required'),
-  picture: z.string().url('Invalid picture URL').optional(),
+  picture: z.url('Invalid picture URL').optional(),
   provider: oauthProviderID,
+  uuid: z.uuid().optional(),
 });
 
 export type OAuthUser = z.infer<typeof oauthUserSchema>;
