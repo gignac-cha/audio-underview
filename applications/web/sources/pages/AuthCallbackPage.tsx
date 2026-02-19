@@ -32,7 +32,7 @@ export function AuthCallbackPage() {
   const processingRef = useRef(false);
 
   useEffect(() => {
-    const processCallback = () => {
+    const processCallback = async () => {
       // Prevent re-entrancy
       if (processingRef.current) {
         return;
@@ -92,11 +92,39 @@ export function AuthCallbackPage() {
         callbackLogger.info('OAuth callback data validated successfully', {
           provider: user.provider,
           userID: user.id,
-          email: user.email,
         }, { function: 'processCallback' });
 
-        // Login with the provider
-        const result = loginWithProvider(user.provider, user, accessToken);
+        // Exchange OAuth access token for a self-issued JWT
+        const crawlerManagerURL = import.meta.env.VITE_CRAWLER_MANAGER_WORKER_URL;
+        if (!crawlerManagerURL) {
+          throw new Error('Crawler manager worker URL is not configured');
+        }
+
+        const tokenResponse = await fetch(`${crawlerManagerURL}/auth/token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: user.provider, access_token: accessToken }),
+          signal: AbortSignal.timeout(10_000),
+        });
+
+        if (!tokenResponse.ok) {
+          const errorBody = await tokenResponse.json().catch(() => ({})) as Record<string, unknown>;
+          const errorDescription = String(errorBody.error_description ?? errorBody.error ?? 'Token exchange failed');
+          callbackLogger.error('Token exchange failed', new Error(errorDescription), {
+            function: 'processCallback',
+            metadata: { provider: user.provider, status: tokenResponse.status },
+          });
+          throw new Error(errorDescription);
+        }
+
+        const tokenData = await tokenResponse.json() as Record<string, unknown>;
+
+        if (typeof tokenData.token !== 'string' || typeof tokenData.expires_in !== 'number') {
+          throw new Error('Invalid token exchange response format');
+        }
+
+        // Login with the JWT (not the OAuth access token)
+        const result = loginWithProvider(user.provider, user, tokenData.token, (tokenData.expires_in as number) * 1000);
 
         if (result.success) {
           callbackLogger.info('OAuth login successful, redirecting to home', {

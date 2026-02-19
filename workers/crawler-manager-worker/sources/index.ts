@@ -4,6 +4,7 @@ import {
   createCORSHeaders,
   jsonResponse,
   errorResponse,
+  verifyJWT,
 } from '@audio-underview/worker-tools';
 import {
   createSupabaseClient,
@@ -13,12 +14,13 @@ import {
   updateCrawler,
   deleteCrawler,
 } from '@audio-underview/supabase-connector';
-import { authenticateRequest } from './authentication.ts';
+import { handleTokenExchange } from './token-exchange.ts';
 
 interface Environment {
   ALLOWED_ORIGINS: string;
   SUPABASE_URL: string;
   SUPABASE_SECRET_KEY: string;
+  JWT_SECRET: string;
 }
 
 interface CreateCrawlerRequestBody {
@@ -37,6 +39,7 @@ const HELP = {
   name: 'crawler-manager-worker',
   endpoints: [
     { method: 'GET', path: '/', description: 'Show this help' },
+    { method: 'POST', path: '/auth/token', description: 'Exchange OAuth access token for a JWT' },
     { method: 'POST', path: '/crawlers', description: 'Create a crawler' },
     { method: 'GET', path: '/crawlers', description: 'List crawlers for the authenticated user' },
     { method: 'GET', path: '/crawlers/:id', description: 'Get a crawler by ID' },
@@ -280,22 +283,44 @@ export default {
       logger,
     };
 
+    if (!environment.JWT_SECRET) {
+      logger.error('JWT_SECRET is not configured', undefined, { function: 'fetch' });
+      return errorResponse('server_error', 'Server configuration error', 500, context);
+    }
+
     try {
       if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/help')) {
         return jsonResponse(HELP, 200, context);
       }
 
-      // All /crawlers routes require authentication
-      if (url.pathname.startsWith('/crawlers')) {
+      // POST /auth/token — token exchange (unauthenticated)
+      if (url.pathname === '/auth/token') {
+        if (request.method !== 'POST') {
+          const response = errorResponse('method_not_allowed', 'Method not allowed', 405, context);
+          response.headers.set('Allow', 'POST');
+          return response;
+        }
         const supabaseClient = createSupabaseClient({
           supabaseURL: environment.SUPABASE_URL,
           supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
         });
+        return await handleTokenExchange(request, supabaseClient, environment.JWT_SECRET, context);
+      }
 
-        const userUUID = await authenticateRequest(request, supabaseClient);
-        if (!userUUID) {
+      // All /crawlers routes require JWT authentication
+      if (url.pathname === '/crawlers' || url.pathname.startsWith('/crawlers/')) {
+        const authorizationHeader = request.headers.get('Authorization');
+        if (!authorizationHeader?.startsWith('Bearer ')) {
           return errorResponse('unauthorized', 'Valid authentication is required', 401, context);
         }
+
+        const token = authorizationHeader.slice('Bearer '.length);
+        const payload = await verifyJWT(token, environment.JWT_SECRET);
+        if (!payload) {
+          return errorResponse('unauthorized', 'Valid authentication is required', 401, context);
+        }
+
+        const userUUID = payload.sub;
 
         // POST /crawlers — create
         if (url.pathname === '/crawlers' && request.method === 'POST') {

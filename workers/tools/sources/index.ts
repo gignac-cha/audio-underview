@@ -31,3 +31,12 @@ export {
 export {
   createOAuthWorkerHandler,
 } from './worker-handler.ts';
+
+export type {
+  JWTPayload,
+} from './jwt.ts';
+
+export {
+  signJWT,
+  verifyJWT,
+} from './jwt.ts';

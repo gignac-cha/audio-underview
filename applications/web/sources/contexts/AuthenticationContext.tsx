@@ -70,9 +70,9 @@ function AuthenticationProviderInner({
   }, [storageKey]);
 
   const saveUser = useCallback(
-    (userData: OAuthUser, credential: string): LoginResult => {
+    (userData: OAuthUser, credential: string, customDurationMilliseconds?: number): LoginResult => {
       try {
-        const authenticationData = createStoredAuthenticationData(userData, credential, sessionDuration);
+        const authenticationData = createStoredAuthenticationData(userData, credential, customDurationMilliseconds ?? sessionDuration);
         localStorage.setItem(storageKey, JSON.stringify(authenticationData));
         setUser(userData);
         return { success: true };
@@ -109,14 +109,13 @@ function AuthenticationProviderInner({
   }, [googleWorkerURL, onGoogleError]);
 
   const loginWithProvider = useCallback(
-    (providerID: OAuthProviderID, userData: OAuthUser, credential: string): LoginResult => {
+    (providerID: OAuthProviderID, userData: OAuthUser, credential: string, sessionDurationMilliseconds?: number): LoginResult => {
       authenticationLogger.info('Logging in with provider', {
         providerID,
         userID: userData.id,
-        email: userData.email,
       }, { function: 'loginWithProvider' });
 
-      const result = saveUser(userData, credential);
+      const result = saveUser(userData, credential, sessionDurationMilliseconds);
 
       if (result.success) {
         authenticationLogger.info('Provider login successful', {
