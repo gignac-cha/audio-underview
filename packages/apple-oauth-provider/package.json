@@ -12,10 +12,14 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@audio-underview/sign-provider": "workspace:*",
     "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18"
   }
 }
