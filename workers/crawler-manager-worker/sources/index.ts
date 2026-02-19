@@ -283,13 +283,23 @@ export default {
       logger,
     };
 
+    if (!environment.JWT_SECRET) {
+      logger.error('JWT_SECRET is not configured', undefined, { function: 'fetch' });
+      return errorResponse('server_error', 'Server configuration error', 500, context);
+    }
+
     try {
       if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/help')) {
         return jsonResponse(HELP, 200, context);
       }
 
       // POST /auth/token — token exchange (unauthenticated)
-      if (url.pathname === '/auth/token' && request.method === 'POST') {
+      if (url.pathname === '/auth/token') {
+        if (request.method !== 'POST') {
+          const response = errorResponse('method_not_allowed', 'Method not allowed', 405, context);
+          response.headers.set('Allow', 'POST');
+          return response;
+        }
         const supabaseClient = createSupabaseClient({
           supabaseURL: environment.SUPABASE_URL,
           supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
