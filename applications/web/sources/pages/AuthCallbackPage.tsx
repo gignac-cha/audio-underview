@@ -92,7 +92,6 @@ export function AuthCallbackPage() {
         callbackLogger.info('OAuth callback data validated successfully', {
           provider: user.provider,
           userID: user.id,
-          email: user.email,
         }, { function: 'processCallback' });
 
         // Exchange OAuth access token for a self-issued JWT
@@ -118,10 +117,14 @@ export function AuthCallbackPage() {
           throw new Error(errorDescription);
         }
 
-        const tokenData = await tokenResponse.json() as { token: string; expires_in: number };
+        const tokenData = await tokenResponse.json() as Record<string, unknown>;
+
+        if (typeof tokenData.token !== 'string' || typeof tokenData.expires_in !== 'number') {
+          throw new Error('Invalid token exchange response format');
+        }
 
         // Login with the JWT (not the OAuth access token)
-        const result = loginWithProvider(user.provider, user, tokenData.token, tokenData.expires_in * 1000);
+        const result = loginWithProvider(user.provider, user, tokenData.token, (tokenData.expires_in as number) * 1000);
 
         if (result.success) {
           callbackLogger.info('OAuth login successful, redirecting to home', {

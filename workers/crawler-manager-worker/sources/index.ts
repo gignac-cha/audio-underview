@@ -298,7 +298,7 @@ export default {
       }
 
       // All /crawlers routes require JWT authentication
-      if (url.pathname.startsWith('/crawlers')) {
+      if (url.pathname === '/crawlers' || url.pathname.startsWith('/crawlers/')) {
         const authorizationHeader = request.headers.get('Authorization');
         if (!authorizationHeader?.startsWith('Bearer ')) {
           return errorResponse('unauthorized', 'Valid authentication is required', 401, context);

@@ -14,7 +14,8 @@ function base64URLEncode(data: Uint8Array): string {
 }
 
 function base64URLEncodeString(data: string): string {
-  return btoa(data).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const bytes = new TextEncoder().encode(data);
+  return base64URLEncode(bytes);
 }
 
 function base64URLDecode(input: string): Uint8Array {
@@ -73,7 +74,11 @@ export async function verifyJWT(token: string, secret: string): Promise<JWTPaylo
     const decodedBody = new TextDecoder().decode(base64URLDecode(body));
     const payload = JSON.parse(decodedBody) as JWTPayload;
 
-    if (typeof payload.exp === 'number' && payload.exp < Math.floor(Date.now() / 1000)) {
+    if (typeof payload.sub !== 'string' || typeof payload.iat !== 'number' || typeof payload.exp !== 'number') {
+      return null;
+    }
+
+    if (payload.exp < Math.floor(Date.now() / 1000)) {
       return null;
     }
 
