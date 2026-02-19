@@ -113,7 +113,6 @@ function AuthenticationProviderInner({
       authenticationLogger.info('Logging in with provider', {
         providerID,
         userID: userData.id,
-        email: userData.email,
       }, { function: 'loginWithProvider' });
 
       const result = saveUser(userData, credential, sessionDurationMilliseconds);

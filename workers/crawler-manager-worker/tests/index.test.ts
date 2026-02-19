@@ -49,7 +49,7 @@ function mockSupabaseCrawlerList(data: unknown[] = [mockCrawlerResponse()], tota
   fetchMock
     .get('https://supabase.example.com')
     .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
-    .reply(200, JSON.stringify(data), { headers: { 'content-range': `0-${data.length - 1}/${total}` } });
+    .reply(200, JSON.stringify(data), { headers: { 'content-range': data.length > 0 ? `0-${data.length - 1}/${total}` : `*/${total}` } });
 }
 
 function mockSupabaseCrawlerGet(data: unknown = mockCrawlerResponse()) {
@@ -152,7 +152,7 @@ describe('crawler-manager-worker', () => {
       const response = await worker.fetch(request, env);
 
       const body = await response.json();
-      const tokenEndpoint = body.endpoints.find((e: { path: string }) => e.path === '/auth/token');
+      const tokenEndpoint = body.endpoints.find((endpoint: { path: string }) => endpoint.path === '/auth/token');
       expect(tokenEndpoint).toBeDefined();
       expect(tokenEndpoint.method).toBe('POST');
     });

@@ -105,6 +105,10 @@ export async function handleTokenExchange(
     return errorResponse('invalid_request', 'Request body must be valid JSON', 400, context);
   }
 
+  if (!body || typeof body !== 'object') {
+    return errorResponse('invalid_request', 'Request body must be a JSON object', 400, context);
+  }
+
   if (!body.provider || !['google', 'github'].includes(body.provider)) {
     return errorResponse('invalid_request', "Field 'provider' must be 'google' or 'github'", 400, context);
   }
