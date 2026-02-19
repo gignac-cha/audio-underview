@@ -23,7 +23,12 @@ export default defineConfig({
       '@radix-ui/react-dialog',
       '@fortawesome/react-fontawesome',
       '@fortawesome/free-solid-svg-icons',
+      '@tanstack/react-query',
     ],
+  },
+  define: {
+    'import.meta.env.VITE_CRAWLER_CODE_RUNNER_URL': JSON.stringify('http://localhost:9999'),
+    'import.meta.env.VITE_CRAWLER_MANAGER_WORKER_URL': JSON.stringify('http://localhost:8888'),
   },
   test: {
     globals: true,
