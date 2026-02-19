@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import { renderHook } from 'vitest-browser-react';
-import { createWebLogger, useLogger, LoggerProvider } from './LoggerContext.tsx';
+import { LoggerProvider } from './LoggerContext.tsx';
+import { createWebLogger, useLogger } from '../hooks/use-logger.ts';
 
 describe('createWebLogger', () => {
   test('creates a logger with standard methods', () => {
