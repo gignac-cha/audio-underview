@@ -1,6 +1,5 @@
 import {
   useState,
-  useEffect,
   useCallback,
   useMemo,
   type ReactNode,
@@ -48,26 +47,23 @@ function AuthenticationProviderInner({
   onGoogleError,
   onGitHubError,
 }: AuthenticationProviderInnerProps) {
-  const [user, setUser] = useState<OAuthUser | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
+  const [user, setUser] = useState<OAuthUser | null>(() => {
     const storedData = localStorage.getItem(storageKey);
     if (storedData) {
       try {
         const parsed = JSON.parse(storedData);
         const validatedData = parseStoredAuthenticationData(parsed);
         if (validatedData && !isAuthenticationExpired(validatedData)) {
-          setUser(validatedData.user);
-        } else {
-          localStorage.removeItem(storageKey);
+          return validatedData.user;
         }
+        localStorage.removeItem(storageKey);
       } catch {
         localStorage.removeItem(storageKey);
       }
     }
-    setIsLoading(false);
-  }, [storageKey]);
+    return null;
+  });
+  const [isLoading] = useState(false);
 
   const saveUser = useCallback(
     (userData: OAuthUser, credential: string, customDurationMilliseconds?: number): LoginResult => {

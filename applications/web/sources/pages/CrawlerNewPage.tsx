@@ -214,7 +214,7 @@ const SubmitButton = styled.button`
 type MobileTabID = 'editor' | 'result';
 
 export function CrawlerNewPage() {
-  const navigate = useNavigate();
+  const _navigate = useNavigate();
   const { logout } = useAuthentication();
 
   const [url, setURL] = useState('');
