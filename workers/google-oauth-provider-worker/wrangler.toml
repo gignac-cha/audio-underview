@@ -1,6 +1,7 @@
 name = "audio-underview-google-oauth-provider-worker"
 main = "sources/index.ts"
 compatibility_date = "2025-11-25"
+compatibility_flags = ["nodejs_compat"]
 
 [[kv_namespaces]]
 binding = "AUDIO_UNDERVIEW_OAUTH_STATE"
