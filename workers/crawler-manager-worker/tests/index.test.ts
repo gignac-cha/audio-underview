@@ -1,38 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { env, fetchMock } from 'cloudflare:test';
+import { signJWT } from '@audio-underview/worker-tools';
 import worker from '../sources/index.ts';
 
 const WORKER_URL = 'https://worker.example.com';
 const MOCK_USER_UUID = '00000000-0000-0000-0000-000000000001';
 const MOCK_CRAWLER_ID = '00000000-0000-0000-0000-000000000099';
-const VALID_TOKEN = 'valid-google-token';
+const JWT_SECRET = 'test-jwt-secret-key-for-testing-only';
 
-function mockAuthentication() {
-  fetchMock
-    .get('https://www.googleapis.com')
-    .intercept({ path: '/oauth2/v3/userinfo', method: 'GET' })
-    .reply(200, JSON.stringify({ sub: 'google-sub-123', email: 'test@example.com' }));
-
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({
-      path: /^\/rest\/v1\/accounts/,
-      method: 'GET',
-    })
-    .reply(200, JSON.stringify({ provider: 'google', identifier: 'google-sub-123', uuid: MOCK_USER_UUID }));
+async function createTestJWT(userUUID: string = MOCK_USER_UUID): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  return signJWT({ sub: userUUID, iat: now, exp: now + 86400 }, JWT_SECRET);
 }
 
-function mockAuthenticationFailure() {
-  fetchMock
-    .get('https://www.googleapis.com')
-    .intercept({ path: '/oauth2/v3/userinfo', method: 'GET' })
-    .reply(401, JSON.stringify({ error: 'invalid_token' }));
-}
-
-function authenticatedRequest(path: string, options: RequestInit = {}): Request {
+async function authenticatedRequest(path: string, options: RequestInit = {}): Promise<Request> {
+  const token = await createTestJWT();
   const headers = new Headers(options.headers);
   headers.set('Origin', 'https://example.com');
-  headers.set('Authorization', `Bearer ${VALID_TOKEN}`);
+  headers.set('Authorization', `Bearer ${token}`);
   return new Request(`${WORKER_URL}${path}`, { ...options, headers });
 }
 
@@ -51,6 +36,39 @@ function mockCrawlerResponse(overrides: Record<string, unknown> = {}) {
     updated_at: '2026-01-01T00:00:00Z',
     ...overrides,
   };
+}
+
+function mockSupabaseCrawlerCreate() {
+  fetchMock
+    .get('https://supabase.example.com')
+    .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'POST' })
+    .reply(201, JSON.stringify(mockCrawlerResponse()));
+}
+
+function mockSupabaseCrawlerList(data: unknown[] = [mockCrawlerResponse()], total: number = 1) {
+  fetchMock
+    .get('https://supabase.example.com')
+    .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
+    .reply(200, JSON.stringify(data), { headers: { 'content-range': `0-${data.length - 1}/${total}` } });
+}
+
+function mockSupabaseCrawlerGet(data: unknown = mockCrawlerResponse()) {
+  fetchMock
+    .get('https://supabase.example.com')
+    .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
+    .reply(200, JSON.stringify(data));
+}
+
+function mockSupabaseCrawlerNotFound() {
+  fetchMock
+    .get('https://supabase.example.com')
+    .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
+    .reply(406, JSON.stringify({
+      code: 'PGRST116',
+      details: 'The result contains 0 rows',
+      hint: null,
+      message: 'JSON object requested, multiple (or no) rows returned',
+    }));
 }
 
 beforeEach(() => {
@@ -126,6 +144,18 @@ describe('crawler-manager-worker', () => {
       const body = await response.json();
       expect(body.name).toBe('crawler-manager-worker');
     });
+
+    it('includes /auth/token in help endpoints', async () => {
+      const request = new Request(WORKER_URL, {
+        headers: { Origin: 'https://example.com' },
+      });
+      const response = await worker.fetch(request, env);
+
+      const body = await response.json();
+      const tokenEndpoint = body.endpoints.find((e: { path: string }) => e.path === '/auth/token');
+      expect(tokenEndpoint).toBeDefined();
+      expect(tokenEndpoint.method).toBe('POST');
+    });
   });
 
   describe('authentication', () => {
@@ -141,8 +171,6 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 401 when token is invalid', async () => {
-      mockAuthenticationFailure();
-
       const request = new Request(`${WORKER_URL}/crawlers`, {
         headers: {
           Origin: 'https://example.com',
@@ -155,13 +183,211 @@ describe('crawler-manager-worker', () => {
       const body = await response.json();
       expect(body.error).toBe('unauthorized');
     });
+
+    it('returns 401 when JWT is expired', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const expiredToken = await signJWT(
+        { sub: MOCK_USER_UUID, iat: now - 7200, exp: now - 3600 },
+        JWT_SECRET,
+      );
+
+      const request = new Request(`${WORKER_URL}/crawlers`, {
+        headers: {
+          Origin: 'https://example.com',
+          Authorization: `Bearer ${expiredToken}`,
+        },
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(401);
+      const body = await response.json();
+      expect(body.error).toBe('unauthorized');
+    });
+
+    it('returns 401 when JWT is signed with wrong secret', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const wrongSecretToken = await signJWT(
+        { sub: MOCK_USER_UUID, iat: now, exp: now + 86400 },
+        'wrong-secret',
+      );
+
+      const request = new Request(`${WORKER_URL}/crawlers`, {
+        headers: {
+          Origin: 'https://example.com',
+          Authorization: `Bearer ${wrongSecretToken}`,
+        },
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(401);
+    });
+  });
+
+  describe('POST /auth/token', () => {
+    it('returns a JWT for valid Google token', async () => {
+      fetchMock
+        .get('https://www.googleapis.com')
+        .intercept({ path: '/oauth2/v3/userinfo', method: 'GET' })
+        .reply(200, JSON.stringify({ sub: 'google-sub-123', email: 'test@example.com' }));
+
+      fetchMock
+        .get('https://supabase.example.com')
+        .intercept({ path: /^\/rest\/v1\/accounts/, method: 'GET' })
+        .reply(200, JSON.stringify({ provider: 'google', identifier: 'google-sub-123', uuid: MOCK_USER_UUID }));
+
+      const request = new Request(`${WORKER_URL}/auth/token`, {
+        method: 'POST',
+        headers: {
+          Origin: 'https://example.com',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ provider: 'google', access_token: 'valid-google-token' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.token).toBeDefined();
+      expect(body.token_type).toBe('Bearer');
+      expect(body.expires_in).toBe(86400);
+    });
+
+    it('returns a JWT for valid GitHub token', async () => {
+      fetchMock
+        .get('https://api.github.com')
+        .intercept({ path: '/user', method: 'GET' })
+        .reply(200, JSON.stringify({ id: 12345, login: 'testuser' }));
+
+      fetchMock
+        .get('https://supabase.example.com')
+        .intercept({ path: /^\/rest\/v1\/accounts/, method: 'GET' })
+        .reply(200, JSON.stringify({ provider: 'github', identifier: '12345', uuid: MOCK_USER_UUID }));
+
+      const request = new Request(`${WORKER_URL}/auth/token`, {
+        method: 'POST',
+        headers: {
+          Origin: 'https://example.com',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ provider: 'github', access_token: 'valid-github-token' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.token).toBeDefined();
+      expect(body.token_type).toBe('Bearer');
+    });
+
+    it('returns 400 for missing provider', async () => {
+      const request = new Request(`${WORKER_URL}/auth/token`, {
+        method: 'POST',
+        headers: {
+          Origin: 'https://example.com',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ access_token: 'some-token' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_request');
+    });
+
+    it('returns 400 for invalid provider', async () => {
+      const request = new Request(`${WORKER_URL}/auth/token`, {
+        method: 'POST',
+        headers: {
+          Origin: 'https://example.com',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ provider: 'twitter', access_token: 'some-token' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+    });
+
+    it('returns 400 for missing access_token', async () => {
+      const request = new Request(`${WORKER_URL}/auth/token`, {
+        method: 'POST',
+        headers: {
+          Origin: 'https://example.com',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ provider: 'google' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+    });
+
+    it('returns 400 for non-JSON body', async () => {
+      const request = new Request(`${WORKER_URL}/auth/token`, {
+        method: 'POST',
+        headers: {
+          Origin: 'https://example.com',
+        },
+        body: 'not json',
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+    });
+
+    it('returns 401 when provider rejects the token', async () => {
+      fetchMock
+        .get('https://www.googleapis.com')
+        .intercept({ path: '/oauth2/v3/userinfo', method: 'GET' })
+        .reply(401, JSON.stringify({ error: 'invalid_token' }));
+
+      const request = new Request(`${WORKER_URL}/auth/token`, {
+        method: 'POST',
+        headers: {
+          Origin: 'https://example.com',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ provider: 'google', access_token: 'bad-token' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(401);
+    });
+
+    it('returns 401 when no account exists for the provider user', async () => {
+      fetchMock
+        .get('https://www.googleapis.com')
+        .intercept({ path: '/oauth2/v3/userinfo', method: 'GET' })
+        .reply(200, JSON.stringify({ sub: 'unknown-sub' }));
+
+      fetchMock
+        .get('https://supabase.example.com')
+        .intercept({ path: /^\/rest\/v1\/accounts/, method: 'GET' })
+        .reply(406, JSON.stringify({
+          code: 'PGRST116',
+          details: 'The result contains 0 rows',
+          hint: null,
+          message: 'JSON object requested, multiple (or no) rows returned',
+        }));
+
+      const request = new Request(`${WORKER_URL}/auth/token`, {
+        method: 'POST',
+        headers: {
+          Origin: 'https://example.com',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ provider: 'google', access_token: 'valid-but-unregistered' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(401);
+    });
   });
 
   describe('POST /crawlers validation', () => {
     it('returns 400 for non-JSON body', async () => {
-      mockAuthentication();
-
-      const request = authenticatedRequest('/crawlers', {
+      const request = await authenticatedRequest('/crawlers', {
         method: 'POST',
         body: 'not json',
       });
@@ -174,9 +400,7 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 400 for missing name', async () => {
-      mockAuthentication();
-
-      const request = authenticatedRequest('/crawlers', {
+      const request = await authenticatedRequest('/crawlers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url_pattern: '.*', code: '(x) => x' }),
@@ -189,9 +413,7 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 400 for whitespace-only name', async () => {
-      mockAuthentication();
-
-      const request = authenticatedRequest('/crawlers', {
+      const request = await authenticatedRequest('/crawlers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: '   ', url_pattern: '.*', code: '(x) => x' }),
@@ -204,9 +426,7 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 400 when name exceeds max length', async () => {
-      mockAuthentication();
-
-      const request = authenticatedRequest('/crawlers', {
+      const request = await authenticatedRequest('/crawlers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'x'.repeat(256), url_pattern: '.*', code: '(x) => x' }),
@@ -219,9 +439,7 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 400 for invalid regex in url_pattern', async () => {
-      mockAuthentication();
-
-      const request = authenticatedRequest('/crawlers', {
+      const request = await authenticatedRequest('/crawlers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'test', url_pattern: '(((', code: '(x) => x' }),
@@ -234,8 +452,7 @@ describe('crawler-manager-worker', () => {
     });
 
     it('rejects ReDoS-prone regex in url_pattern', async () => {
-      mockAuthentication();
-      const request = authenticatedRequest('/crawlers', {
+      const request = await authenticatedRequest('/crawlers', {
         method: 'POST',
         body: JSON.stringify({ name: 'test', url_pattern: '(a+)+', code: '(x) => x' }),
         headers: { 'Content-Type': 'application/json' },
@@ -249,8 +466,6 @@ describe('crawler-manager-worker', () => {
 
   describe('POST /crawlers success', () => {
     it('creates a crawler and returns 201', async () => {
-      mockAuthentication();
-
       const crawlerData = validCrawlerBody();
       const mockResponse = mockCrawlerResponse(crawlerData);
 
@@ -259,7 +474,7 @@ describe('crawler-manager-worker', () => {
         .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'POST' })
         .reply(201, JSON.stringify(mockResponse));
 
-      const request = authenticatedRequest('/crawlers', {
+      const request = await authenticatedRequest('/crawlers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(crawlerData),
@@ -275,16 +490,9 @@ describe('crawler-manager-worker', () => {
 
   describe('GET /crawlers', () => {
     it('lists crawlers for the authenticated user', async () => {
-      mockAuthentication();
+      mockSupabaseCrawlerList();
 
-      const mockList = [mockCrawlerResponse()];
-
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
-        .reply(200, JSON.stringify(mockList), { headers: { 'content-range': '0-0/1' } });
-
-      const request = authenticatedRequest('/crawlers');
+      const request = await authenticatedRequest('/crawlers');
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(200);
@@ -298,16 +506,9 @@ describe('crawler-manager-worker', () => {
     });
 
     it('accepts valid offset and limit query parameters', async () => {
-      mockAuthentication();
+      mockSupabaseCrawlerList();
 
-      const mockList = [mockCrawlerResponse()];
-
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
-        .reply(200, JSON.stringify(mockList), { headers: { 'content-range': '0-0/1' } });
-
-      const request = authenticatedRequest('/crawlers?offset=0&limit=10');
+      const request = await authenticatedRequest('/crawlers?offset=0&limit=10');
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(200);
@@ -318,9 +519,7 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 400 for negative offset', async () => {
-      mockAuthentication();
-
-      const request = authenticatedRequest('/crawlers?offset=-1');
+      const request = await authenticatedRequest('/crawlers?offset=-1');
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(400);
@@ -330,9 +529,7 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 400 for zero limit', async () => {
-      mockAuthentication();
-
-      const request = authenticatedRequest('/crawlers?limit=0');
+      const request = await authenticatedRequest('/crawlers?limit=0');
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(400);
@@ -342,9 +539,7 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 400 for limit exceeding maximum', async () => {
-      mockAuthentication();
-
-      const request = authenticatedRequest('/crawlers?limit=101');
+      const request = await authenticatedRequest('/crawlers?limit=101');
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(400);
@@ -354,9 +549,7 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 400 for non-numeric offset', async () => {
-      mockAuthentication();
-
-      const request = authenticatedRequest('/crawlers?offset=abc');
+      const request = await authenticatedRequest('/crawlers?offset=abc');
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(400);
@@ -366,9 +559,7 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 400 for non-integer limit', async () => {
-      mockAuthentication();
-
-      const request = authenticatedRequest('/crawlers?limit=1.5');
+      const request = await authenticatedRequest('/crawlers?limit=1.5');
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(400);
@@ -380,16 +571,9 @@ describe('crawler-manager-worker', () => {
 
   describe('GET /crawlers/:id', () => {
     it('returns a crawler by ID', async () => {
-      mockAuthentication();
+      mockSupabaseCrawlerGet();
 
-      const mockData = mockCrawlerResponse();
-
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
-        .reply(200, JSON.stringify(mockData));
-
-      const request = authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`);
+      const request = await authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`);
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(200);
@@ -398,19 +582,9 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 404 when crawler belongs to another user', async () => {
-      mockAuthentication();
+      mockSupabaseCrawlerNotFound();
 
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
-        .reply(406, JSON.stringify({
-          code: 'PGRST116',
-          details: 'The result contains 0 rows',
-          hint: null,
-          message: 'JSON object requested, multiple (or no) rows returned',
-        }));
-
-      const request = authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`);
+      const request = await authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`);
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(404);
@@ -419,9 +593,7 @@ describe('crawler-manager-worker', () => {
 
   describe('PUT /crawlers/:id validation', () => {
     it('returns 400 for non-JSON body', async () => {
-      mockAuthentication();
-
-      const request = authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
+      const request = await authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
         method: 'PUT',
         body: 'not json',
       });
@@ -433,9 +605,7 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 400 for missing fields', async () => {
-      mockAuthentication();
-
-      const request = authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
+      const request = await authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'test' }),
@@ -448,8 +618,6 @@ describe('crawler-manager-worker', () => {
 
   describe('PUT /crawlers/:id success', () => {
     it('updates a crawler and returns 200', async () => {
-      mockAuthentication();
-
       const updatedData = { name: 'Updated Crawler', url_pattern: '.*', code: '(x) => x.toUpperCase()' };
       const mockResponse = mockCrawlerResponse(updatedData);
 
@@ -458,7 +626,7 @@ describe('crawler-manager-worker', () => {
         .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'PATCH' })
         .reply(200, JSON.stringify(mockResponse));
 
-      const request = authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
+      const request = await authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedData),
@@ -471,8 +639,6 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 404 when crawler does not exist or belongs to another user', async () => {
-      mockAuthentication();
-
       fetchMock
         .get('https://supabase.example.com')
         .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'PATCH' })
@@ -483,7 +649,7 @@ describe('crawler-manager-worker', () => {
           message: 'JSON object requested, multiple (or no) rows returned',
         }));
 
-      const request = authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
+      const request = await authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(validCrawlerBody()),
@@ -496,14 +662,12 @@ describe('crawler-manager-worker', () => {
 
   describe('DELETE /crawlers/:id', () => {
     it('deletes a crawler and returns 200', async () => {
-      mockAuthentication();
-
       fetchMock
         .get('https://supabase.example.com')
         .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'DELETE' })
         .reply(200, JSON.stringify([mockCrawlerResponse()]));
 
-      const request = authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
+      const request = await authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
         method: 'DELETE',
       });
       const response = await worker.fetch(request, env);
@@ -514,14 +678,12 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 404 when crawler belongs to another user', async () => {
-      mockAuthentication();
-
       fetchMock
         .get('https://supabase.example.com')
         .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'DELETE' })
         .reply(200, JSON.stringify([]));
 
-      const request = authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
+      const request = await authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
         method: 'DELETE',
       });
       const response = await worker.fetch(request, env);
@@ -534,18 +696,14 @@ describe('crawler-manager-worker', () => {
 
   describe('invalid UUID format', () => {
     it('returns 404 for invalid crawler ID in GET', async () => {
-      mockAuthentication();
-
-      const request = authenticatedRequest('/crawlers/abc');
+      const request = await authenticatedRequest('/crawlers/abc');
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(404);
     });
 
     it('returns 404 for invalid crawler ID in PUT', async () => {
-      mockAuthentication();
-
-      const request = authenticatedRequest('/crawlers/abc', {
+      const request = await authenticatedRequest('/crawlers/abc', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(validCrawlerBody()),
@@ -556,9 +714,7 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 404 for invalid crawler ID in DELETE', async () => {
-      mockAuthentication();
-
-      const request = authenticatedRequest('/crawlers/abc', {
+      const request = await authenticatedRequest('/crawlers/abc', {
         method: 'DELETE',
       });
       const response = await worker.fetch(request, env);
