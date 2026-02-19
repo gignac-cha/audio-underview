@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import { render, renderHook } from 'vitest-browser-react';
-import { ToastProvider, useToast } from './ToastContext.tsx';
+import { ToastProvider } from './ToastContext.tsx';
+import { useToast } from '../hooks/use-toast.ts';
 
 function ToastTrigger({ type, title, description }: { type: 'toast' | 'error' | 'success'; title: string; description?: string }) {
   const { showToast, showError, showSuccess } = useToast();
