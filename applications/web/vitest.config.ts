@@ -19,6 +19,10 @@ export default defineConfig({
       '@emotion/react',
       '@emotion/styled',
       'zod',
+      'react-router',
+      '@radix-ui/react-dialog',
+      '@fortawesome/react-fontawesome',
+      '@fortawesome/free-solid-svg-icons',
     ],
   },
   test: {
