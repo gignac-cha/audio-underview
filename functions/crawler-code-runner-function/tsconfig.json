@@ -4,5 +4,6 @@
     "types": ["node"],
     "lib": ["ESNext"]
   },
-  "include": ["sources/**/*.ts"]
+  "include": ["sources/**/*.ts"],
+  "exclude": ["sources/**/*.test.ts"]
 }
