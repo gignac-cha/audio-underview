@@ -14,7 +14,7 @@ export interface AuthenticationContextValue {
   isGitHubConfigured: boolean;
   loginWithGoogle: () => void;
   loginWithGitHub: () => void;
-  loginWithProvider: (providerID: OAuthProviderID, user: OAuthUser, credential: string) => LoginResult;
+  loginWithProvider: (providerID: OAuthProviderID, user: OAuthUser, credential: string, sessionDurationMilliseconds?: number) => LoginResult;
   logout: () => void;
 }
 
