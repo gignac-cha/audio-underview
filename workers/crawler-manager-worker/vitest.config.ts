@@ -11,6 +11,7 @@ export default defineWorkersConfig({
             ALLOWED_ORIGINS: 'https://example.com',
             SUPABASE_URL: 'https://supabase.example.com',
             SUPABASE_SECRET_KEY: 'test-secret-key',
+            JWT_SECRET: 'test-jwt-secret-key-for-testing-only',
           },
         },
       },
