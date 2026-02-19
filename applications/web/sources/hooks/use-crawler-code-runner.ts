@@ -28,9 +28,9 @@ function createLogEntry(level: LogEntry['level'], message: string, details?: str
 }
 
 async function runCrawlerCode(url: string, code: string): Promise<CrawlerRunSuccessResponse> {
-  const baseURL = import.meta.env.VITE_CRAWLER_CODE_RUNNER_URL;
+  const baseURL = import.meta.env.VITE_CRAWLER_CODE_RUNNER_FUNCTION_URL;
   if (!baseURL) {
-    throw new Error('VITE_CRAWLER_CODE_RUNNER_URL is not configured');
+    throw new Error('VITE_CRAWLER_CODE_RUNNER_FUNCTION_URL is not configured');
   }
 
   const controller = new AbortController();
