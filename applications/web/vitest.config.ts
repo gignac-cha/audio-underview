@@ -10,6 +10,17 @@ export default defineConfig({
       '@': path.resolve(__dirname, './sources'),
     },
   },
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      '@radix-ui/react-avatar',
+      '@radix-ui/react-toast',
+      '@emotion/react',
+      '@emotion/styled',
+      'zod',
+    ],
+  },
   test: {
     globals: true,
     setupFiles: ['./sources/tests/setup.ts'],
