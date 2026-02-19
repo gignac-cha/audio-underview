@@ -82,7 +82,7 @@ async function resolveGitHubUser(accessToken: string): Promise<ProviderUserInfor
     }
 
     const userInformation = await response.json() as GitHubUserInformation;
-    if (!userInformation.id) {
+    if (typeof userInformation.id !== 'number' || !Number.isFinite(userInformation.id)) {
       return null;
     }
 

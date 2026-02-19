@@ -38,11 +38,11 @@ function mockCrawlerResponse(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function mockSupabaseCrawlerCreate() {
+function mockSupabaseCrawlerCreate(overrides: Record<string, unknown> = {}) {
   fetchMock
     .get('https://supabase.example.com')
     .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'POST' })
-    .reply(201, JSON.stringify(mockCrawlerResponse()));
+    .reply(201, JSON.stringify(mockCrawlerResponse(overrides)));
 }
 
 function mockSupabaseCrawlerList(data: unknown[] = [mockCrawlerResponse()], total: number = 1) {
@@ -467,12 +467,7 @@ describe('crawler-manager-worker', () => {
   describe('POST /crawlers success', () => {
     it('creates a crawler and returns 201', async () => {
       const crawlerData = validCrawlerBody();
-      const mockResponse = mockCrawlerResponse(crawlerData);
-
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'POST' })
-        .reply(201, JSON.stringify(mockResponse));
+      mockSupabaseCrawlerCreate(crawlerData);
 
       const request = await authenticatedRequest('/crawlers', {
         method: 'POST',

@@ -74,7 +74,7 @@ export async function verifyJWT(token: string, secret: string): Promise<JWTPaylo
     const decodedBody = new TextDecoder().decode(base64URLDecode(body));
     const payload = JSON.parse(decodedBody) as JWTPayload;
 
-    if (typeof payload.sub !== 'string' || typeof payload.iat !== 'number' || typeof payload.exp !== 'number') {
+    if (!payload.sub || typeof payload.sub !== 'string' || typeof payload.iat !== 'number' || typeof payload.exp !== 'number') {
       return null;
     }
 
