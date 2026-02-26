@@ -5,18 +5,9 @@ import {
   updateCrawler,
   deleteCrawler,
 } from './crawlers.ts';
+import { createMockClient, setupTracerMock } from './test-helpers.ts';
 
-vi.mock('@audio-underview/axiom-logger/tracers', () => ({
-  traceDatabaseOperation: async (_options: unknown, fn: Function) =>
-    fn({
-      setAttribute: vi.fn(),
-      setStatus: vi.fn(),
-      end: vi.fn(),
-      recordException: vi.fn(),
-      addEvent: vi.fn(),
-    }),
-  SpanStatusCode: { OK: 0, ERROR: 2 },
-}));
+setupTracerMock();
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -31,28 +22,6 @@ const sampleCrawler = {
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-01T00:00:00Z',
 };
-
-function createMockClient(tableResults: Record<string, { data?: unknown; error?: unknown; count?: number }> = {}) {
-  const defaultResult = { data: null, error: null, count: 0 };
-
-  return {
-    from: vi.fn((table: string) => {
-      const result = tableResults[table] ?? defaultResult;
-
-      const createChain = (): Record<string, Function> => {
-        const self: Record<string, Function> = {};
-        for (const m of ['select', 'insert', 'update', 'delete', 'eq', 'range', 'order']) {
-          self[m] = vi.fn().mockReturnValue(self);
-        }
-        (self as any).then = (resolve: Function) => resolve(result);
-        self.single = vi.fn().mockImplementation(() => Promise.resolve(result));
-        return self;
-      };
-
-      return createChain();
-    }),
-  } as any;
-}
 
 describe('createCrawler', () => {
   test('returns created crawler', async () => {

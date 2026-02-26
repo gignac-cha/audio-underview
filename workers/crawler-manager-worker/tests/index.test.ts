@@ -25,13 +25,25 @@ function validCrawlerBody() {
   return { name: 'Test Crawler', url_pattern: '.*\\.example\\.com', code: '(text) => text' };
 }
 
+function validDataCrawlerBody() {
+  return {
+    name: 'Data Crawler',
+    type: 'data' as const,
+    code: '(data) => data',
+    input_schema: { items: 'array' },
+  };
+}
+
 function mockCrawlerResponse(overrides: Record<string, unknown> = {}) {
   return {
     id: MOCK_CRAWLER_ID,
     user_uuid: MOCK_USER_UUID,
     name: 'Test Crawler',
+    type: 'web',
     url_pattern: '.*\\.example\\.com',
     code: '(text) => text',
+    input_schema: { body: 'string' },
+    output_schema: {},
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     ...overrides,
@@ -462,10 +474,58 @@ describe('crawler-manager-worker', () => {
       const body = await response.json() as Record<string, unknown>;
       expect(body.error_description).toContain('unsafe regex pattern');
     });
+
+    it('returns 400 for invalid type', async () => {
+      const request = await authenticatedRequest('/crawlers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'test', type: 'invalid', code: '(x) => x', url_pattern: '.*' }),
+      });
+      const response = await worker.fetch(request, env);
+      expect(response.status).toBe(400);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.error_description).toContain('type');
+    });
+
+    it('returns 400 for web crawler without url_pattern', async () => {
+      const request = await authenticatedRequest('/crawlers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'test', type: 'web', code: '(x) => x' }),
+      });
+      const response = await worker.fetch(request, env);
+      expect(response.status).toBe(400);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.error_description).toContain('url_pattern');
+    });
+
+    it('returns 400 for data crawler without input_schema', async () => {
+      const request = await authenticatedRequest('/crawlers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'test', type: 'data', code: '(x) => x' }),
+      });
+      const response = await worker.fetch(request, env);
+      expect(response.status).toBe(400);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.error_description).toContain('input_schema');
+    });
+
+    it('returns 400 for non-object output_schema', async () => {
+      const request = await authenticatedRequest('/crawlers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'test', url_pattern: '.*', code: '(x) => x', output_schema: 'invalid' }),
+      });
+      const response = await worker.fetch(request, env);
+      expect(response.status).toBe(400);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body.error_description).toContain('output_schema');
+    });
   });
 
   describe('POST /crawlers success', () => {
-    it('creates a crawler and returns 201', async () => {
+    it('creates a web crawler and returns 201', async () => {
       const crawlerData = validCrawlerBody();
       mockSupabaseCrawlerCreate(crawlerData);
 
@@ -480,6 +540,27 @@ describe('crawler-manager-worker', () => {
       const body = await response.json();
       expect(body.name).toBe('Test Crawler');
       expect(body.id).toBe(MOCK_CRAWLER_ID);
+      expect(body.type).toBe('web');
+    });
+
+    it('creates a data crawler and returns 201', async () => {
+      const crawlerData = validDataCrawlerBody();
+      mockSupabaseCrawlerCreate({
+        ...crawlerData,
+        url_pattern: null,
+      });
+
+      const request = await authenticatedRequest('/crawlers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(crawlerData),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(201);
+      const body = await response.json();
+      expect(body.name).toBe('Data Crawler');
+      expect(body.type).toBe('data');
     });
   });
 
