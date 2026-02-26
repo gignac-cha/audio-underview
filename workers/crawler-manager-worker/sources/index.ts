@@ -25,8 +25,11 @@ interface Environment {
 
 interface CreateCrawlerRequestBody {
   name: string;
-  url_pattern: string;
+  type?: 'web' | 'data';
+  url_pattern?: string;
   code: string;
+  input_schema?: Record<string, unknown>;
+  output_schema?: Record<string, unknown>;
 }
 
 const logger = createWorkerLogger({
@@ -68,12 +71,35 @@ async function validateCrawlerBody(
     return errorResponse('invalid_request', "Field 'name' is required and must be a non-empty string", 400, context);
   }
 
-  if (typeof body.url_pattern !== 'string' || !body.url_pattern.trim()) {
-    return errorResponse('invalid_request', "Field 'url_pattern' is required and must be a non-empty string", 400, context);
-  }
-
   if (typeof body.code !== 'string' || !body.code.trim()) {
     return errorResponse('invalid_request', "Field 'code' is required and must be a non-empty string", 400, context);
+  }
+
+  // Validate type (defaults to 'web')
+  const crawlerType = body.type ?? 'web';
+  if (crawlerType !== 'web' && crawlerType !== 'data') {
+    return errorResponse('invalid_request', "Field 'type' must be 'web' or 'data'", 400, context);
+  }
+
+  // For web crawlers, url_pattern is required
+  if (crawlerType === 'web') {
+    if (typeof body.url_pattern !== 'string' || !body.url_pattern.trim()) {
+      return errorResponse('invalid_request', "Field 'url_pattern' is required for web crawlers", 400, context);
+    }
+  }
+
+  // For data crawlers, input_schema is required
+  if (crawlerType === 'data') {
+    if (body.input_schema == null || typeof body.input_schema !== 'object' || Array.isArray(body.input_schema)) {
+      return errorResponse('invalid_request', "Field 'input_schema' is required for data crawlers and must be a JSON object", 400, context);
+    }
+  }
+
+  // Validate output_schema if provided
+  if (body.output_schema !== undefined) {
+    if (typeof body.output_schema !== 'object' || body.output_schema == null || Array.isArray(body.output_schema)) {
+      return errorResponse('invalid_request', "Field 'output_schema' must be a JSON object", 400, context);
+    }
   }
 
   const MAX_NAME_LENGTH = 255;
@@ -84,22 +110,30 @@ async function validateCrawlerBody(
     return errorResponse('invalid_request', `Field 'name' must not exceed ${MAX_NAME_LENGTH} characters`, 400, context);
   }
 
-  if (body.url_pattern.length > MAX_URL_PATTERN_LENGTH) {
-    return errorResponse('invalid_request', `Field 'url_pattern' must not exceed ${MAX_URL_PATTERN_LENGTH} characters`, 400, context);
+  if (body.url_pattern != null && typeof body.url_pattern === 'string') {
+    if (body.url_pattern.length > MAX_URL_PATTERN_LENGTH) {
+      return errorResponse('invalid_request', `Field 'url_pattern' must not exceed ${MAX_URL_PATTERN_LENGTH} characters`, 400, context);
+    }
+
+    if (hasNestedQuantifiers(body.url_pattern)) {
+      return errorResponse('invalid_request', "Field 'url_pattern' contains potentially unsafe regex pattern", 400, context);
+    }
+
+    try {
+      new RegExp(body.url_pattern);
+    } catch {
+      return errorResponse('invalid_request', "Field 'url_pattern' must be a valid regex", 400, context);
+    }
   }
 
   if (body.code.length > MAX_CODE_LENGTH) {
     return errorResponse('invalid_request', `Field 'code' must not exceed ${MAX_CODE_LENGTH} characters`, 400, context);
   }
 
-  if (hasNestedQuantifiers(body.url_pattern)) {
-    return errorResponse('invalid_request', "Field 'url_pattern' contains potentially unsafe regex pattern", 400, context);
-  }
-
-  try {
-    new RegExp(body.url_pattern);
-  } catch {
-    return errorResponse('invalid_request', "Field 'url_pattern' must be a valid regex", 400, context);
+  // Normalize body
+  body.type = crawlerType;
+  if (crawlerType === 'web') {
+    body.input_schema = { body: 'string' };
   }
 
   return body;
@@ -125,8 +159,11 @@ async function handleCreateCrawler(
   const crawler = await createCrawler(supabaseClient, {
     user_uuid: userUUID,
     name: body.name,
-    url_pattern: body.url_pattern,
+    type: body.type,
+    url_pattern: body.type === 'data' ? null : body.url_pattern,
     code: body.code,
+    input_schema: body.input_schema,
+    output_schema: body.output_schema,
   });
 
   return jsonResponse(crawler, 201, context);
@@ -212,8 +249,11 @@ async function handleUpdateCrawler(
 
   const crawler = await updateCrawler(supabaseClient, crawlerID, userUUID, {
     name: body.name,
-    url_pattern: body.url_pattern,
+    type: body.type,
+    url_pattern: body.type === 'data' ? null : body.url_pattern,
     code: body.code,
+    input_schema: body.input_schema,
+    output_schema: body.output_schema,
   });
 
   if (!crawler) {
