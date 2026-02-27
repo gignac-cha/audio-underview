@@ -1,7 +1,7 @@
 /**
  * Database operation types
  */
-export type DatabaseOperation = 'select' | 'insert' | 'update' | 'delete';
+export type DatabaseOperation = 'select' | 'insert' | 'update' | 'delete' | 'rpc';
 
 /**
  * Options for tracing database operations
