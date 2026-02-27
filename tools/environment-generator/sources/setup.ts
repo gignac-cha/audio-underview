@@ -1,14 +1,15 @@
-import { execSync } from 'node:child_process';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execPromise = promisify(exec);
 
 const onePasswordReferencePath =
-  process.env.OP_SERVICE_ACCOUNT_REFERENCE ?? 'op://Personal/Service Account Token/credential';
+  process.env.OP_SERVICE_ACCOUNT_REFERENCE ??
+  'op://Personal/Service Account Auth Token - Audio Underview/credential';
 
 try {
-  const token = execSync(`op read "${onePasswordReferencePath}"`, {
-    encoding: 'utf-8',
-  }).trim();
-
-  process.stdout.write(token);
+  const { stdout } = await execPromise(`op read "${onePasswordReferencePath}"`);
+  process.stdout.write(stdout.trim());
 } catch (error) {
   const typedError = error as NodeJS.ErrnoException;
   const message = typedError.message ?? '';
