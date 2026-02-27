@@ -46,7 +46,7 @@ function mockStageResponse(overrides: Record<string, unknown> = {}) {
     stage_order: 0,
     input_schema: { url: { type: 'string', default: 'https://example.com' } },
     output_schema: {},
-    foreach_field: null,
+    fan_out_field: null,
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
   };

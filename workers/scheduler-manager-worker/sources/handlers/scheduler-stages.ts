@@ -20,14 +20,14 @@ interface CreateStageRequestBody {
   stage_order: number;
   input_schema: Record<string, unknown>;
   output_schema?: Record<string, unknown>;
-  foreach_field?: string;
+  fan_out_field?: string;
 }
 
 interface UpdateStageRequestBody {
   crawler_id?: string;
   input_schema?: Record<string, unknown>;
   output_schema?: Record<string, unknown>;
-  foreach_field?: string | null;
+  fan_out_field?: string | null;
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -74,9 +74,9 @@ export async function handleCreateStage(
     return errorResponse('invalid_request', "Field 'output_schema' must be a JSON object", 400, context);
   }
 
-  if (body.foreach_field !== undefined) {
-    if (typeof body.foreach_field !== 'string' || !body.foreach_field.trim()) {
-      return errorResponse('invalid_request', "Field 'foreach_field' must be a non-empty string", 400, context);
+  if (body.fan_out_field !== undefined) {
+    if (typeof body.fan_out_field !== 'string' || !body.fan_out_field.trim()) {
+      return errorResponse('invalid_request', "Field 'fan_out_field' must be a non-empty string", 400, context);
     }
   }
 
@@ -87,7 +87,7 @@ export async function handleCreateStage(
       stage_order: body.stage_order,
       input_schema: body.input_schema,
       output_schema: body.output_schema,
-      foreach_field: body.foreach_field,
+      fan_out_field: body.fan_out_field,
     });
 
     return jsonResponse(stage, 201, context);
@@ -181,13 +181,13 @@ export async function handleUpdateStage(
     return errorResponse('invalid_request', "Field 'output_schema' must be a JSON object", 400, context);
   }
 
-  if (body.foreach_field !== undefined && body.foreach_field !== null) {
-    if (typeof body.foreach_field !== 'string' || !body.foreach_field.trim()) {
-      return errorResponse('invalid_request', "Field 'foreach_field' must be a non-empty string or null", 400, context);
+  if (body.fan_out_field !== undefined && body.fan_out_field !== null) {
+    if (typeof body.fan_out_field !== 'string' || !body.fan_out_field.trim()) {
+      return errorResponse('invalid_request', "Field 'fan_out_field' must be a non-empty string or null", 400, context);
     }
   }
 
-  if (body.crawler_id === undefined && body.input_schema === undefined && body.output_schema === undefined && body.foreach_field === undefined) {
+  if (body.crawler_id === undefined && body.input_schema === undefined && body.output_schema === undefined && body.fan_out_field === undefined) {
     return errorResponse('invalid_request', 'At least one field must be provided for update', 400, context);
   }
 
@@ -195,7 +195,7 @@ export async function handleUpdateStage(
   if (body.crawler_id !== undefined) updatePayload.crawler_id = body.crawler_id;
   if (body.input_schema !== undefined) updatePayload.input_schema = body.input_schema;
   if (body.output_schema !== undefined) updatePayload.output_schema = body.output_schema;
-  if (body.foreach_field !== undefined) updatePayload.foreach_field = body.foreach_field;
+  if (body.fan_out_field !== undefined) updatePayload.fan_out_field = body.fan_out_field;
 
   const stage = await updateSchedulerStage(supabaseClient, stageID, schedulerID, updatePayload);
 
