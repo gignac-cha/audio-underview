@@ -6,6 +6,7 @@ export const environmentSchema = z.object({
   VITE_GITHUB_OAUTH_WORKER_URL: z.url().optional(),
   VITE_CRAWLER_CODE_RUNNER_FUNCTION_URL: z.url().optional(),
   VITE_CRAWLER_MANAGER_WORKER_URL: z.url().optional(),
+  VITE_SCHEDULER_MANAGER_WORKER_URL: z.url().optional(),
 });
 
 export type Environment = z.infer<typeof environmentSchema>;
@@ -17,6 +18,7 @@ export function validateEnvironment(): Environment {
     VITE_GITHUB_OAUTH_WORKER_URL: import.meta.env.VITE_GITHUB_OAUTH_WORKER_URL,
     VITE_CRAWLER_CODE_RUNNER_FUNCTION_URL: import.meta.env.VITE_CRAWLER_CODE_RUNNER_FUNCTION_URL,
     VITE_CRAWLER_MANAGER_WORKER_URL: import.meta.env.VITE_CRAWLER_MANAGER_WORKER_URL,
+    VITE_SCHEDULER_MANAGER_WORKER_URL: import.meta.env.VITE_SCHEDULER_MANAGER_WORKER_URL,
   });
 
   if (!result.success) {
