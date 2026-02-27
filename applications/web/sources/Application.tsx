@@ -6,6 +6,8 @@ import { SignInPage } from './pages/SignInPage.tsx';
 import { HomePage } from './pages/HomePage.tsx';
 import { CrawlersPage } from './pages/CrawlersPage.tsx';
 import { CrawlerNewPage } from './pages/CrawlerNewPage.tsx';
+import { SchedulersPage } from './pages/SchedulersPage.tsx';
+import { SchedulerDetailPage } from './pages/SchedulerDetailPage.tsx';
 import { AuthCallbackPage } from './pages/AuthCallbackPage.tsx';
 import { ProtectedRoute } from './components/ProtectedRoute.tsx';
 
@@ -65,6 +67,22 @@ function ApplicationRoutes() {
         element={
           <ProtectedRoute>
             <CrawlerNewPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/schedulers"
+        element={
+          <ProtectedRoute>
+            <SchedulersPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/schedulers/:id"
+        element={
+          <ProtectedRoute>
+            <SchedulerDetailPage />
           </ProtectedRoute>
         }
       />
