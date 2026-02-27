@@ -21,7 +21,7 @@ const sampleStage = {
   stage_order: 0,
   input_schema: { url: { type: 'string', default: 'https://example.com' } },
   output_schema: {},
-  foreach_field: null,
+  fan_out_field: null,
   created_at: '2024-01-01T00:00:00Z',
 };
 
@@ -92,10 +92,10 @@ describe('getSchedulerStage', () => {
 
 describe('updateSchedulerStage', () => {
   test('returns updated stage', async () => {
-    const updated = { ...sampleStage, foreach_field: 'urls' };
+    const updated = { ...sampleStage, fan_out_field: 'urls' };
     const client = createMockClient({ scheduler_stages: { data: updated, error: null } });
 
-    const result = await updateSchedulerStage(client, 'stage-1', 'scheduler-1', { foreach_field: 'urls' });
+    const result = await updateSchedulerStage(client, 'stage-1', 'scheduler-1', { fan_out_field: 'urls' });
     expect(result).toEqual(updated);
   });
 
@@ -104,7 +104,7 @@ describe('updateSchedulerStage', () => {
       scheduler_stages: { data: null, error: { code: 'PGRST116', message: 'not found' } },
     });
 
-    const result = await updateSchedulerStage(client, 'stage-1', 'scheduler-1', { foreach_field: 'urls' });
+    const result = await updateSchedulerStage(client, 'stage-1', 'scheduler-1', { fan_out_field: 'urls' });
     expect(result).toBeNull();
   });
 });

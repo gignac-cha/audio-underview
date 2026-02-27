@@ -96,7 +96,7 @@ export interface SchedulerRow {
  * input_schema uses JSON Schema format with optional defaults
  * (e.g. { url: { type: "string", default: "https://..." } }).
  * output_schema is derived from the crawler's output_schema.
- * foreach_field names the array field in previous output to fan-out over.
+ * fan_out_field names the array field in previous output to fan-out over.
  */
 export interface SchedulerStageRow {
   [key: string]: unknown;
@@ -106,7 +106,7 @@ export interface SchedulerStageRow {
   stage_order: number;
   input_schema: Record<string, unknown>;
   output_schema: Record<string, unknown>;
-  foreach_field: string | null;
+  fan_out_field: string | null;
   created_at: string;
 }
 
@@ -248,7 +248,7 @@ export interface Database {
           stage_order: number;
           input_schema: Record<string, unknown>;
           output_schema?: Record<string, unknown>;
-          foreach_field?: string | null;
+          fan_out_field?: string | null;
         };
         Update: Partial<Omit<SchedulerStageRow, 'id' | 'scheduler_id' | 'created_at'>>;
         Relationships: [

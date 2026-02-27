@@ -45,7 +45,7 @@ CREATE TABLE scheduler_stages (
   stage_order INTEGER NOT NULL,
   input_schema JSONB NOT NULL,
   output_schema JSONB NOT NULL DEFAULT '{}',
-  foreach_field TEXT,
+  fan_out_field TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(scheduler_id, stage_order)
 );
@@ -57,7 +57,7 @@ COMMENT ON COLUMN scheduler_stages.crawler_id IS 'Reference to the crawler to ex
 COMMENT ON COLUMN scheduler_stages.stage_order IS 'Execution order within the pipeline (0-based)';
 COMMENT ON COLUMN scheduler_stages.input_schema IS 'JSON Schema defining stage input with optional defaults (e.g. { url: { type: "string", default: "https://..." } })';
 COMMENT ON COLUMN scheduler_stages.output_schema IS 'JSON Schema defining stage output, derived from crawler output_schema';
-COMMENT ON COLUMN scheduler_stages.foreach_field IS 'Field name in previous stage output to fan-out over (null if no fan-out)';
+COMMENT ON COLUMN scheduler_stages.fan_out_field IS 'Field name in previous stage output to fan-out over (null if no fan-out)';
 
 -- Run status enum
 CREATE TYPE scheduler_run_status AS ENUM (
