@@ -157,14 +157,14 @@ describe('crawler-manager-worker', () => {
       expect(body.name).toBe('crawler-manager-worker');
     });
 
-    it('includes /auth/token in help endpoints', async () => {
+    it('includes /authentication/token in help endpoints', async () => {
       const request = new Request(WORKER_URL, {
         headers: { Origin: 'https://example.com' },
       });
       const response = await worker.fetch(request, env);
 
       const body = await response.json();
-      const tokenEndpoint = body.endpoints.find((endpoint: { path: string }) => endpoint.path === '/auth/token');
+      const tokenEndpoint = body.endpoints.find((endpoint: { path: string }) => endpoint.path === '/authentication/token');
       expect(tokenEndpoint).toBeDefined();
       expect(tokenEndpoint.method).toBe('POST');
     });
@@ -235,7 +235,7 @@ describe('crawler-manager-worker', () => {
     });
   });
 
-  describe('POST /auth/token', () => {
+  describe('POST /authentication/token', () => {
     it('returns a JWT for valid Google token', async () => {
       fetchMock
         .get('https://www.googleapis.com')
@@ -247,7 +247,7 @@ describe('crawler-manager-worker', () => {
         .intercept({ path: /^\/rest\/v1\/accounts/, method: 'GET' })
         .reply(200, JSON.stringify({ provider: 'google', identifier: 'google-sub-123', uuid: MOCK_USER_UUID }));
 
-      const request = new Request(`${WORKER_URL}/auth/token`, {
+      const request = new Request(`${WORKER_URL}/authentication/token`, {
         method: 'POST',
         headers: {
           Origin: 'https://example.com',
@@ -275,7 +275,7 @@ describe('crawler-manager-worker', () => {
         .intercept({ path: /^\/rest\/v1\/accounts/, method: 'GET' })
         .reply(200, JSON.stringify({ provider: 'github', identifier: '12345', uuid: MOCK_USER_UUID }));
 
-      const request = new Request(`${WORKER_URL}/auth/token`, {
+      const request = new Request(`${WORKER_URL}/authentication/token`, {
         method: 'POST',
         headers: {
           Origin: 'https://example.com',
@@ -292,7 +292,7 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 400 for missing provider', async () => {
-      const request = new Request(`${WORKER_URL}/auth/token`, {
+      const request = new Request(`${WORKER_URL}/authentication/token`, {
         method: 'POST',
         headers: {
           Origin: 'https://example.com',
@@ -308,7 +308,7 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 400 for invalid provider', async () => {
-      const request = new Request(`${WORKER_URL}/auth/token`, {
+      const request = new Request(`${WORKER_URL}/authentication/token`, {
         method: 'POST',
         headers: {
           Origin: 'https://example.com',
@@ -322,7 +322,7 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 400 for missing access_token', async () => {
-      const request = new Request(`${WORKER_URL}/auth/token`, {
+      const request = new Request(`${WORKER_URL}/authentication/token`, {
         method: 'POST',
         headers: {
           Origin: 'https://example.com',
@@ -336,7 +336,7 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 400 for non-JSON body', async () => {
-      const request = new Request(`${WORKER_URL}/auth/token`, {
+      const request = new Request(`${WORKER_URL}/authentication/token`, {
         method: 'POST',
         headers: {
           Origin: 'https://example.com',
@@ -354,7 +354,7 @@ describe('crawler-manager-worker', () => {
         .intercept({ path: '/oauth2/v3/userinfo', method: 'GET' })
         .reply(401, JSON.stringify({ error: 'invalid_token' }));
 
-      const request = new Request(`${WORKER_URL}/auth/token`, {
+      const request = new Request(`${WORKER_URL}/authentication/token`, {
         method: 'POST',
         headers: {
           Origin: 'https://example.com',
@@ -383,7 +383,7 @@ describe('crawler-manager-worker', () => {
           message: 'JSON object requested, multiple (or no) rows returned',
         }));
 
-      const request = new Request(`${WORKER_URL}/auth/token`, {
+      const request = new Request(`${WORKER_URL}/authentication/token`, {
         method: 'POST',
         headers: {
           Origin: 'https://example.com',

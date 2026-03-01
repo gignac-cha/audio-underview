@@ -42,7 +42,7 @@ const HELP = {
   name: 'crawler-manager-worker',
   endpoints: [
     { method: 'GET', path: '/', description: 'Show this help' },
-    { method: 'POST', path: '/auth/token', description: 'Exchange OAuth access token for a JWT' },
+    { method: 'POST', path: '/authentication/token', description: 'Exchange OAuth access token for a JWT' },
     { method: 'POST', path: '/crawlers', description: 'Create a crawler' },
     { method: 'GET', path: '/crawlers', description: 'List crawlers for the authenticated user' },
     { method: 'GET', path: '/crawlers/:id', description: 'Get a crawler by ID' },
@@ -333,8 +333,8 @@ export default {
         return jsonResponse(HELP, 200, context);
       }
 
-      // POST /auth/token — token exchange (unauthenticated)
-      if (url.pathname === '/auth/token') {
+      // POST /authentication/token — token exchange (unauthenticated)
+      if (url.pathname === '/authentication/token') {
         if (request.method !== 'POST') {
           const response = errorResponse('method_not_allowed', 'Method not allowed', 405, context);
           response.headers.set('Allow', 'POST');
