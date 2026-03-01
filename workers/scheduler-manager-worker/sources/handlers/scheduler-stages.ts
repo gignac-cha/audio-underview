@@ -13,7 +13,7 @@ import {
   reorderSchedulerStages,
 } from '@audio-underview/supabase-connector';
 import type { Environment } from '../index.ts';
-import { verifySchedulerOwnership } from './shared.ts';
+import { verifySchedulerOwnership, UUID_PATTERN } from './tools.ts';
 
 interface CreateStageRequestBody {
   crawler_id: string;
@@ -29,8 +29,6 @@ interface UpdateStageRequestBody {
   output_schema?: Record<string, unknown>;
   fan_out_field?: string | null;
 }
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
