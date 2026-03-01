@@ -27,6 +27,7 @@ import {
   handleListRuns,
   handleGetRun,
 } from './handlers/scheduler-runs.ts';
+import { UUID_PATTERN } from './handlers/tools.ts';
 
 export interface Environment {
   ALLOWED_ORIGINS: string;
@@ -61,8 +62,6 @@ const HELP = {
     { method: 'GET', path: '/schedulers/:id/runs/:runID', description: 'Get a run by ID' },
   ],
 };
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface ParsedRoute {
   type: 'schedulers_collection'

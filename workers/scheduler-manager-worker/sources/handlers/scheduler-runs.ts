@@ -9,7 +9,7 @@ import {
   listSchedulerRuns,
 } from '@audio-underview/supabase-connector';
 import type { Environment } from '../index.ts';
-import { verifySchedulerOwnership } from './shared.ts';
+import { verifySchedulerOwnership } from './tools.ts';
 
 export async function handleListRuns(
   request: Request,

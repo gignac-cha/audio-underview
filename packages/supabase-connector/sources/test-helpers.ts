@@ -24,14 +24,13 @@ export function createMockClient(
     from: vi.fn((table: string) => {
       const result = tableResults[table] ?? defaultResult;
 
-      const createChain = (): Record<string, Function> => {
-        const self: Record<string, Function> = {};
+      const createChain = () => {
+        const promise = Promise.resolve(result) as any;
         for (const m of ['select', 'insert', 'update', 'delete', 'eq', 'range', 'order']) {
-          self[m] = vi.fn().mockReturnValue(self);
+          promise[m] = vi.fn().mockReturnValue(promise);
         }
-        (self as any).then = (resolve: Function) => resolve(result);
-        self.single = vi.fn().mockImplementation(() => Promise.resolve(result));
-        return self;
+        promise.single = vi.fn().mockImplementation(() => Promise.resolve(result));
+        return promise;
       };
 
       return createChain();

@@ -12,6 +12,7 @@ import {
   deleteScheduler,
 } from '@audio-underview/supabase-connector';
 import type { Environment } from '../index.ts';
+import { isValidCronExpression } from './tools.ts';
 
 interface CreateSchedulerRequestBody {
   name: string;
@@ -54,8 +55,8 @@ async function validateCreateSchedulerBody(
     if (body.cron_expression.length > MAX_CRON_EXPRESSION_LENGTH) {
       return errorResponse('invalid_request', `Field 'cron_expression' must not exceed ${MAX_CRON_EXPRESSION_LENGTH} characters`, 400, context);
     }
-    if (!/^\S+(\s+\S+){4,5}$/.test(body.cron_expression)) {
-      return errorResponse('invalid_request', "Field 'cron_expression' must be a valid cron expression (5 or 6 fields)", 400, context);
+    if (!isValidCronExpression(body.cron_expression)) {
+      return errorResponse('invalid_request', "Field 'cron_expression' must be a valid cron expression", 400, context);
     }
   }
 
@@ -93,8 +94,8 @@ async function validateUpdateSchedulerBody(
     if (body.cron_expression.length > MAX_CRON_EXPRESSION_LENGTH) {
       return errorResponse('invalid_request', `Field 'cron_expression' must not exceed ${MAX_CRON_EXPRESSION_LENGTH} characters`, 400, context);
     }
-    if (!/^\S+(\s+\S+){4,5}$/.test(body.cron_expression)) {
-      return errorResponse('invalid_request', "Field 'cron_expression' must be a valid cron expression (5 or 6 fields)", 400, context);
+    if (!isValidCronExpression(body.cron_expression)) {
+      return errorResponse('invalid_request', "Field 'cron_expression' must be a valid cron expression", 400, context);
     }
   }
 

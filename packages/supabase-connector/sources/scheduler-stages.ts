@@ -7,8 +7,10 @@ import type {
   SchedulerStagesUpdate,
 } from './types/index.ts';
 
+type SupabaseClientType = SupabaseClient<Database>;
+
 export async function reorderSchedulerStages(
-  client: SupabaseClient<Database>,
+  client: SupabaseClientType,
   schedulerID: string,
   stageIDs: string[],
 ): Promise<SchedulerStageRow[]> {
@@ -35,8 +37,6 @@ export async function reorderSchedulerStages(
     },
   );
 }
-
-type SupabaseClientType = SupabaseClient<Database>;
 
 export async function createSchedulerStage(
   client: SupabaseClientType,
