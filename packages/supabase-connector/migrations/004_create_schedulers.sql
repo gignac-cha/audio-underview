@@ -50,8 +50,6 @@ CREATE TABLE scheduler_stages (
   UNIQUE(scheduler_id, stage_order)
 );
 
-CREATE INDEX scheduler_stages_scheduler_id_index ON scheduler_stages(scheduler_id);
-
 COMMENT ON TABLE scheduler_stages IS 'Stages within a scheduler pipeline, each referencing a crawler';
 COMMENT ON COLUMN scheduler_stages.crawler_id IS 'Reference to the crawler to execute (RESTRICT prevents deleting in-use crawlers)';
 COMMENT ON COLUMN scheduler_stages.stage_order IS 'Execution order within the pipeline (0-based)';

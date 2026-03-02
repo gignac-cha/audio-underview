@@ -16,10 +16,21 @@ const CRON_FIELD_PATTERNS = [
   /^(\*(\/[1-9]\d*)?|[0-7](\/[1-9]\d*)?|[0-7](-[0-7])?(,[0-7](-[0-7])?)*)$/,
 ];
 
+function hasValidRangeOrder(field: string): boolean {
+  return field.split(',').every((segment) => {
+    const [base] = segment.split('/');
+    if (!base.includes('-')) return true;
+    const [startText, endText] = base.split('-');
+    const start = Number(startText);
+    const end = Number(endText);
+    return Number.isInteger(start) && Number.isInteger(end) && start <= end;
+  });
+}
+
 export function isValidCronExpression(expression: string): boolean {
   const fields = expression.trim().split(/\s+/);
   if (fields.length !== 5) return false;
-  return fields.every((field, index) => CRON_FIELD_PATTERNS[index].test(field));
+  return fields.every((field, index) => CRON_FIELD_PATTERNS[index].test(field) && hasValidRangeOrder(field));
 }
 
 export async function verifySchedulerOwnership(

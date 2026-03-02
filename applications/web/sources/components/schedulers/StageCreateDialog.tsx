@@ -185,6 +185,8 @@ const CancelButton = styled.button`
   border-radius: 8px;
   font-size: 0.875rem;
   font-weight: 500;
+  background: transparent;
+  border: none;
   color: var(--text-secondary);
   cursor: pointer;
   transition: var(--transition-fast);
@@ -295,23 +297,22 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
       return;
     }
 
-    let inputSchema: Record<string, unknown>;
-    if (showJSON) {
+    const parseSchemaJSON = (): Record<string, unknown> | null => {
       try {
-        inputSchema = JSON.parse(schemaJSON);
+        return JSON.parse(schemaJSON);
       } catch {
         showToast('Validation Error', 'Invalid JSON in input schema.', 'error');
-        return;
+        return null;
       }
-    } else if (selectedCrawler?.type === 'web') {
+    };
+
+    let inputSchema: Record<string, unknown>;
+    if (!showJSON && selectedCrawler?.type === 'web') {
       inputSchema = { url: { type: 'string', default: defaultURL ?? '' } };
     } else {
-      try {
-        inputSchema = JSON.parse(schemaJSON);
-      } catch {
-        showToast('Validation Error', 'Invalid JSON in input schema.', 'error');
-        return;
-      }
+      const parsed = parseSchemaJSON();
+      if (!parsed) return;
+      inputSchema = parsed;
     }
 
     try {

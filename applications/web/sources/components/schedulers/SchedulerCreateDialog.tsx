@@ -102,6 +102,8 @@ const CancelButton = styled.button`
   border-radius: 8px;
   font-size: 0.875rem;
   font-weight: 500;
+  background: transparent;
+  border: none;
   color: var(--text-secondary);
   cursor: pointer;
   transition: var(--transition-fast);
@@ -135,6 +137,7 @@ const SubmitButton = styled('button', {
   gap: 0.5rem;
   padding: 0.5rem 1.25rem;
   border-radius: 8px;
+  border: none;
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--text-primary);
@@ -203,50 +206,52 @@ export function SchedulerCreateDialog({ open, onOpenChange }: SchedulerCreateDia
           <Title>New Scheduler</Title>
           <Description>Create a pipeline that chains multiple crawlers into sequential stages.</Description>
 
-          <FieldGroup>
-            <FieldLabel htmlFor="scheduler-name">Name</FieldLabel>
-            <TextInput
-              id="scheduler-name"
-              placeholder="My Pipeline"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              disabled={isSubmitting}
-              autoFocus
-            />
-          </FieldGroup>
+          <form onSubmit={(event) => { event.preventDefault(); handleSubmit(); }}>
+            <FieldGroup>
+              <FieldLabel htmlFor="scheduler-name">Name</FieldLabel>
+              <TextInput
+                id="scheduler-name"
+                placeholder="My Pipeline"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                disabled={isSubmitting}
+                autoFocus
+              />
+            </FieldGroup>
 
-          <FieldGroup>
-            <FieldLabel htmlFor="scheduler-cron-expression">Cron Expression (optional)</FieldLabel>
-            <TextInput
-              id="scheduler-cron-expression"
-              placeholder="0 9 * * *"
-              value={cronExpression}
-              onChange={(event) => setCronExpression(event.target.value)}
-              disabled={isSubmitting}
-            />
-          </FieldGroup>
-
-          <FieldGroup>
-            <CheckboxRow>
-              <input
-                type="checkbox"
-                checked={isEnabled}
-                onChange={(event) => setIsEnabled(event.target.checked)}
+            <FieldGroup>
+              <FieldLabel htmlFor="scheduler-cron-expression">Cron Expression (optional)</FieldLabel>
+              <TextInput
+                id="scheduler-cron-expression"
+                placeholder="0 9 * * *"
+                value={cronExpression}
+                onChange={(event) => setCronExpression(event.target.value)}
                 disabled={isSubmitting}
               />
-              Enabled
-            </CheckboxRow>
-          </FieldGroup>
+            </FieldGroup>
 
-          <ButtonRow>
-            <Dialog.Close asChild>
-              <CancelButton disabled={isSubmitting}>Cancel</CancelButton>
-            </Dialog.Close>
-            <SubmitButton onClick={handleSubmit} disabled={isSubmitting} isSubmitting={isSubmitting}>
-              {isSubmitting && <Spinner />}
-              {isSubmitting ? 'Creating...' : 'Create'}
-            </SubmitButton>
-          </ButtonRow>
+            <FieldGroup>
+              <CheckboxRow>
+                <input
+                  type="checkbox"
+                  checked={isEnabled}
+                  onChange={(event) => setIsEnabled(event.target.checked)}
+                  disabled={isSubmitting}
+                />
+                Enabled
+              </CheckboxRow>
+            </FieldGroup>
+
+            <ButtonRow>
+              <Dialog.Close asChild>
+                <CancelButton type="button" disabled={isSubmitting}>Cancel</CancelButton>
+              </Dialog.Close>
+              <SubmitButton type="submit" disabled={isSubmitting} isSubmitting={isSubmitting}>
+                {isSubmitting && <Spinner />}
+                {isSubmitting ? 'Creating...' : 'Create'}
+              </SubmitButton>
+            </ButtonRow>
+          </form>
         </Content>
       </Dialog.Portal>
     </Dialog.Root>
