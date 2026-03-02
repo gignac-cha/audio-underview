@@ -2,8 +2,8 @@ import { vi } from 'vitest';
 
 export function setupTracerMock() {
   vi.mock('@audio-underview/axiom-logger/tracers', () => ({
-    traceDatabaseOperation: async (_options: unknown, fn: Function) =>
-      fn({
+    traceDatabaseOperation: async (_options: unknown, operation: Function) =>
+      operation({
         setAttribute: vi.fn(),
         setStatus: vi.fn(),
         end: vi.fn(),
@@ -26,8 +26,8 @@ export function createMockClient(
 
       const createChain = () => {
         const promise = Promise.resolve(result) as any;
-        for (const m of ['select', 'insert', 'update', 'delete', 'eq', 'range', 'order']) {
-          promise[m] = vi.fn().mockReturnValue(promise);
+        for (const method of ['select', 'insert', 'update', 'delete', 'eq', 'range', 'order']) {
+          promise[method] = vi.fn().mockReturnValue(promise);
         }
         promise.single = vi.fn().mockImplementation(() => Promise.resolve(result));
         return promise;

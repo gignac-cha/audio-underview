@@ -12,6 +12,7 @@ import {
   isAuthenticationExpired,
   createStoredAuthenticationData,
 } from '@audio-underview/sign-provider';
+import { useQueryClient } from '@tanstack/react-query';
 import { createBrowserLogger } from '@audio-underview/logger';
 import {
   AuthenticationContext,
@@ -47,6 +48,8 @@ function AuthenticationProviderInner({
   onGoogleError,
   onGitHubError,
 }: AuthenticationProviderInnerProps) {
+  const queryClient = useQueryClient();
+
   const [user, setUser] = useState<OAuthUser | null>(() => {
     const storedData = localStorage.getItem(storageKey);
     if (storedData) {
@@ -92,7 +95,7 @@ function AuthenticationProviderInner({
       return;
     }
 
-    const callbackURL = `${window.location.origin}/auth/callback`;
+    const callbackURL = `${window.location.origin}/authentication/callback`;
     const authorizeURL = new URL('/authorize', googleWorkerURL);
     authorizeURL.searchParams.set('redirect_uri', callbackURL);
 
@@ -142,8 +145,8 @@ function AuthenticationProviderInner({
       return;
     }
 
-    // Build the callback URL (current origin + /auth/callback)
-    const callbackURL = `${window.location.origin}/auth/callback`;
+    // Build the callback URL (current origin + /authentication/callback)
+    const callbackURL = `${window.location.origin}/authentication/callback`;
     const authorizeURL = new URL('/authorize', githubWorkerURL);
     authorizeURL.searchParams.set('redirect_uri', callbackURL);
 
@@ -163,10 +166,11 @@ function AuthenticationProviderInner({
     }, { function: 'logout' });
 
     localStorage.removeItem(storageKey);
+    queryClient.clear();
     setUser(null);
 
     authenticationLogger.info('User logged out successfully', undefined, { function: 'logout' });
-  }, [user, storageKey]);
+  }, [user, storageKey, queryClient]);
 
   const value = useMemo<AuthenticationContextValue>(
     () => ({

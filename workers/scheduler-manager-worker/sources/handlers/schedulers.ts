@@ -40,6 +40,10 @@ async function validateCreateSchedulerBody(
     return errorResponse('invalid_request', 'Request body must be valid JSON', 400, context);
   }
 
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return errorResponse('invalid_request', 'Request body must be a JSON object', 400, context);
+  }
+
   if (typeof body.name !== 'string' || !body.name.trim()) {
     return errorResponse('invalid_request', "Field 'name' is required and must be a non-empty string", 400, context);
   }
@@ -76,6 +80,10 @@ async function validateUpdateSchedulerBody(
     body = await request.json() as UpdateSchedulerRequestBody;
   } catch {
     return errorResponse('invalid_request', 'Request body must be valid JSON', 400, context);
+  }
+
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return errorResponse('invalid_request', 'Request body must be a JSON object', 400, context);
   }
 
   if (body.name !== undefined) {

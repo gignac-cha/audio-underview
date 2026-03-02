@@ -56,6 +56,10 @@ export async function handleCreateStage(
     return errorResponse('invalid_request', 'Request body must be valid JSON', 400, context);
   }
 
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return errorResponse('invalid_request', 'Request body must be a JSON object', 400, context);
+  }
+
   if (typeof body.crawler_id !== 'string' || !UUID_PATTERN.test(body.crawler_id)) {
     return errorResponse('invalid_request', "Field 'crawler_id' is required and must be a valid UUID", 400, context);
   }
@@ -165,6 +169,10 @@ export async function handleUpdateStage(
     return errorResponse('invalid_request', 'Request body must be valid JSON', 400, context);
   }
 
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return errorResponse('invalid_request', 'Request body must be a JSON object', 400, context);
+  }
+
   if (body.crawler_id !== undefined) {
     if (typeof body.crawler_id !== 'string' || !UUID_PATTERN.test(body.crawler_id)) {
       return errorResponse('invalid_request', "Field 'crawler_id' must be a valid UUID", 400, context);
@@ -195,13 +203,24 @@ export async function handleUpdateStage(
   if (body.output_schema !== undefined) updatePayload.output_schema = body.output_schema;
   if (body.fan_out_field !== undefined) updatePayload.fan_out_field = body.fan_out_field;
 
-  const stage = await updateSchedulerStage(supabaseClient, stageID, schedulerID, updatePayload);
+  try {
+    const stage = await updateSchedulerStage(supabaseClient, stageID, schedulerID, updatePayload);
 
-  if (!stage) {
-    return errorResponse('not_found', 'Stage not found', 404, context);
+    if (!stage) {
+      return errorResponse('not_found', 'Stage not found', 404, context);
+    }
+
+    return jsonResponse(stage, 200, context);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    if (message.includes('RESTRICT') || message.includes('23503') || message.includes('violates foreign key')) {
+      return errorResponse('invalid_request', 'Referenced crawler does not exist', 400, context);
+    }
+    if (message.includes('unique') || message.includes('UNIQUE') || message.includes('23505')) {
+      return errorResponse('conflict', 'A stage with this configuration already exists', 409, context);
+    }
+    throw error;
   }
-
-  return jsonResponse(stage, 200, context);
 }
 
 export async function handleDeleteStage(
@@ -253,6 +272,10 @@ export async function handleReorderStages(
     return errorResponse('invalid_request', 'Request body must be valid JSON', 400, context);
   }
 
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return errorResponse('invalid_request', 'Request body must be a JSON object', 400, context);
+  }
+
   if (!Array.isArray(body.stage_ids) || body.stage_ids.length === 0) {
     return errorResponse('invalid_request', "Field 'stage_ids' is required and must be a non-empty array of UUIDs", 400, context);
   }
@@ -268,6 +291,21 @@ export async function handleReorderStages(
     return errorResponse('invalid_request', "Field 'stage_ids' must not contain duplicates", 400, context);
   }
 
-  const stages = await reorderSchedulerStages(supabaseClient, schedulerID, body.stage_ids);
-  return jsonResponse({ data: stages }, 200, context);
+  try {
+    const stages = await reorderSchedulerStages(supabaseClient, schedulerID, body.stage_ids);
+    return jsonResponse({ data: stages }, 200, context);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    if (
+      message.includes('mismatch') ||
+      message.includes('unknown') ||
+      message.includes('not found') ||
+      message.includes('validation') ||
+      message.includes('23503') ||
+      message.includes('violates')
+    ) {
+      return errorResponse('invalid_request', 'Stage reorder validation failed', 400, context);
+    }
+    throw error;
+  }
 }

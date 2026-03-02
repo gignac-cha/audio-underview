@@ -1,14 +1,16 @@
-import { exec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-const execPromise = promisify(exec);
+const executeCommandPromise = promisify(execFile);
 
 const onePasswordReferencePath =
   process.env.OP_SERVICE_ACCOUNT_REFERENCE ??
   'op://Personal/Service Account Auth Token - Audio Underview/credential';
 
 try {
-  const { stdout } = await execPromise(`op read "${onePasswordReferencePath}"`);
+  const { stdout } = await executeCommandPromise('op', ['read', onePasswordReferencePath], {
+    timeout: 10_000,
+  });
   process.stdout.write(stdout.trim());
 } catch (error) {
   const typedError = error as NodeJS.ErrnoException;

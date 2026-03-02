@@ -31,6 +31,11 @@ const Name = styled.h1`
   &:hover {
     color: var(--accent-primary);
   }
+
+  &:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+  }
 `;
 
 const NameInput = styled.input`
@@ -82,6 +87,11 @@ const EditableValue = styled.span`
 
   &:hover {
     color: var(--accent-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
   }
 `;
 
@@ -155,7 +165,9 @@ export function SchedulerInfoSection({ scheduler }: SchedulerInfoSectionProperti
   const nameInputRef = useRef<HTMLInputElement>(null);
   const cronInputRef = useRef<HTMLInputElement>(null);
 
-  const saveField = async (field: string, value: unknown) => {
+  type UpdatableSchedulerField = 'name' | 'cron_expression' | 'is_enabled';
+
+  const saveField = async (field: UpdatableSchedulerField, value: string | boolean | null) => {
     try {
       await updateScheduler({ id: scheduler.id, [field]: value });
     } catch (error) {
@@ -208,9 +220,18 @@ export function SchedulerInfoSection({ scheduler }: SchedulerInfoSectionProperti
         ) : (
           <>
             <Name
+              tabIndex={0}
+              aria-label="Edit scheduler name"
               onClick={() => {
                 setEditingName(true);
                 setNameValue(scheduler.name);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setEditingName(true);
+                  setNameValue(scheduler.name);
+                }
               }}
             >
               {scheduler.name}
@@ -243,9 +264,19 @@ export function SchedulerInfoSection({ scheduler }: SchedulerInfoSectionProperti
             />
           ) : (
             <EditableValue
+              tabIndex={0}
+              role="button"
+              aria-label="Edit cron expression"
               onClick={() => {
                 setEditingCron(true);
                 setCronValue(scheduler.cron_expression ?? '');
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setEditingCron(true);
+                  setCronValue(scheduler.cron_expression ?? '');
+                }
               }}
             >
               {scheduler.cron_expression ?? 'Manual only'}
@@ -256,7 +287,13 @@ export function SchedulerInfoSection({ scheduler }: SchedulerInfoSectionProperti
         <MetaItem>
           <MetaLabel>Enabled</MetaLabel>
           <EnabledRow>
-            <ToggleSwitch active={scheduler.is_enabled} onClick={handleToggleEnabled} />
+            <ToggleSwitch
+              active={scheduler.is_enabled}
+              onClick={handleToggleEnabled}
+              role="switch"
+              aria-checked={scheduler.is_enabled}
+              aria-label="Enable scheduler"
+            />
             <MetaValue>{scheduler.is_enabled ? 'Yes' : 'No'}</MetaValue>
           </EnabledRow>
         </MetaItem>
