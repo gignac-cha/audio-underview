@@ -45,7 +45,7 @@ function ApplicationRoutes() {
     <Routes>
       <Route path="/" element={<RootRedirect />} />
       <Route path="/sign/in" element={<SignInPage />} />
-      <Route path="/auth/callback" element={<AuthenticationCallbackPage />} />
+      <Route path="/authentication/callback" element={<AuthenticationCallbackPage />} />
       <Route
         path="/home"
         element={

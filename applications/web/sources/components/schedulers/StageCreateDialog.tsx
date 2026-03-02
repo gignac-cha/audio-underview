@@ -273,7 +273,7 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
         return;
       }
     } else if (selectedCrawler?.type === 'web') {
-      inputSchema = { url: { type: 'string', default: defaultURL || '' } };
+      inputSchema = { url: { type: 'string', default: defaultURL ?? '' } };
     } else {
       try {
         inputSchema = JSON.parse(schemaJSON);
@@ -288,7 +288,7 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
         crawler_id: selectedCrawlerID,
         stage_order: nextOrder,
         input_schema: inputSchema,
-        fan_out_field: fanOutField.trim() || undefined,
+        fan_out_field: (() => { const trimmed = fanOutField.trim(); return trimmed.length > 0 ? trimmed : undefined; })(),
       });
       showToast('Success', 'Stage added to pipeline.', 'success');
       handleOpenChange(false);

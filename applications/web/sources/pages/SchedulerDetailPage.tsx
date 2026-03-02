@@ -109,8 +109,8 @@ export function SchedulerDetailPage() {
   const navigate = useNavigate();
   const { logout } = useAuthentication();
   const { scheduler, isLoading, error, refetch } = useGetScheduler(id);
-  const { stages } = useListStages(id);
-  const { crawlers } = useListCrawlers();
+  const { stages, error: stagesError, refetch: refetchStages } = useListStages(id);
+  const { crawlers, error: crawlersError, refetch: refetchCrawlers } = useListCrawlers();
 
   const crawlerMap = useMemo(() => {
     const map = new Map<string, (typeof crawlers)[number]>();
@@ -151,7 +151,26 @@ export function SchedulerDetailPage() {
         ) : scheduler ? (
           <>
             <SchedulerInfoSection scheduler={scheduler} />
-            <StageList schedulerID={scheduler.id} stages={stages} crawlerMap={crawlerMap} />
+            {stagesError ?? crawlersError ? (
+              <ErrorState>
+                <ErrorMessage>
+                  {stagesError && crawlersError
+                    ? 'Failed to load stages and crawlers.'
+                    : stagesError
+                      ? 'Failed to load stages.'
+                      : 'Failed to load crawlers.'}
+                </ErrorMessage>
+                <RetryButton onClick={() => {
+                  if (stagesError) refetchStages();
+                  if (crawlersError) refetchCrawlers();
+                }}>
+                  <FontAwesomeIcon icon={faArrowsRotate} />
+                  Retry
+                </RetryButton>
+              </ErrorState>
+            ) : (
+              <StageList schedulerID={scheduler.id} stages={stages} crawlerMap={crawlerMap} />
+            )}
             <RunHistorySection schedulerID={scheduler.id} />
           </>
         ) : null}

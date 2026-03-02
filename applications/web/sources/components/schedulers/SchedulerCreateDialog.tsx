@@ -180,9 +180,10 @@ export function SchedulerCreateDialog({ open, onOpenChange }: SchedulerCreateDia
     }
 
     try {
+      const trimmedCron = cronExpression.trim();
       const scheduler = await createScheduler({
         name: name.trim(),
-        cron_expression: cronExpression.trim() || null,
+        cron_expression: trimmedCron.length > 0 ? trimmedCron : undefined,
         is_enabled: isEnabled,
       });
       showToast('Success', 'Scheduler created successfully.', 'success');

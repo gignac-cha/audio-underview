@@ -91,6 +91,11 @@ const SchedulerCard = styled.div`
   &:hover {
     border-color: var(--border-focus);
   }
+
+  &:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+  }
 `;
 
 const SchedulerInfo = styled.div`
@@ -389,7 +394,19 @@ export function SchedulersPage() {
             </TopBar>
             <SchedulerList>
               {schedulers.map((scheduler) => (
-                <SchedulerCard key={scheduler.id} onClick={() => navigate(`/schedulers/${scheduler.id}`)}>
+                <SchedulerCard
+                  key={scheduler.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/schedulers/${scheduler.id}`)}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      if (event.key === ' ') event.preventDefault();
+                      navigate(`/schedulers/${scheduler.id}`);
+                    }
+                  }}
+                >
                   <SchedulerInfo>
                     <SchedulerName>{scheduler.name}</SchedulerName>
                     <SchedulerMeta>
@@ -405,6 +422,7 @@ export function SchedulersPage() {
                     onClick={(event) => handleDelete(event, scheduler.id, scheduler.name)}
                     disabled={deleteStatus === 'pending'}
                     title="Delete scheduler"
+                    aria-label={`Delete scheduler ${scheduler.name}`}
                   >
                     <FontAwesomeIcon icon={faTrash} />
                   </DeleteButton>

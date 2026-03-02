@@ -204,6 +204,9 @@ export default {
         }
 
         const userUUID = payload.sub;
+        if (!UUID_PATTERN.test(userUUID)) {
+          return errorResponse('unauthorized', 'Valid authentication is required', 401, context);
+        }
         const route = parseRoute(url.pathname);
 
         switch (route.type) {

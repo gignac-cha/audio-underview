@@ -38,6 +38,11 @@ const TableRow = styled('div', {
   &:hover {
     background: ${({ clickable }) => (clickable ? 'var(--bg-surface)' : 'transparent')};
   }
+
+  &:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: -2px;
+  }
 `;
 
 const TableHeader = styled(TableRow)`
@@ -101,6 +106,13 @@ const EmptyMessage = styled.p`
   font-size: 0.875rem;
 `;
 
+const ErrorMessage = styled.p`
+  text-align: center;
+  padding: 2rem;
+  color: var(--status-error, #e53e3e);
+  font-size: 0.875rem;
+`;
+
 const LoadMoreContainer = styled.div`
   display: flex;
   justify-content: center;
@@ -157,7 +169,7 @@ interface RunHistorySectionProperties {
 }
 
 export function RunHistorySection({ schedulerID }: RunHistorySectionProperties) {
-  const { runs, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useListRuns(schedulerID);
+  const { runs, isLoading, error, hasNextPage, fetchNextPage, isFetchingNextPage } = useListRuns(schedulerID);
   const [expandedRunID, setExpandedRunID] = useState<string | null>(null);
 
   const toggleExpand = (run: SchedulerRunRow) => {
@@ -170,7 +182,9 @@ export function RunHistorySection({ schedulerID }: RunHistorySectionProperties) 
     <Container>
       <SectionTitle>Run History</SectionTitle>
 
-      {runs.length === 0 ? (
+      {error ? (
+        <ErrorMessage>Failed to load run history: {error.message}</ErrorMessage>
+      ) : runs.length === 0 ? (
         <EmptyMessage>No runs yet.</EmptyMessage>
       ) : (
         <>
@@ -182,7 +196,19 @@ export function RunHistorySection({ schedulerID }: RunHistorySectionProperties) 
             </TableHeader>
             {runs.map((run) => (
               <div key={run.id}>
-                <TableRow clickable onClick={() => toggleExpand(run)}>
+                <TableRow
+                  clickable
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={expandedRunID === run.id}
+                  onClick={() => toggleExpand(run)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      toggleExpand(run);
+                    }
+                  }}
+                >
                   <Cell>
                     <RunStatusBadge status={run.status} />
                   </Cell>

@@ -1,4 +1,5 @@
 import { renderHook } from 'vitest-browser-react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthenticationProvider } from './AuthenticationContext.tsx';
 import { useAuthentication } from '../hooks/use-authentication.ts';
 import type { ReactNode } from 'react';
@@ -28,15 +29,21 @@ function createWrapper(props: {
     ...rest
   } = props;
 
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+
   return ({ children }: { children: ReactNode }) => (
-    <AuthenticationProvider
-      enabledProviders={enabledProviders as never[]}
-      storageKey={storageKey}
-      sessionDuration={sessionDuration}
-      {...rest}
-    >
-      {children}
-    </AuthenticationProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthenticationProvider
+        enabledProviders={enabledProviders as never[]}
+        storageKey={storageKey}
+        sessionDuration={sessionDuration}
+        {...rest}
+      >
+        {children}
+      </AuthenticationProvider>
+    </QueryClientProvider>
   );
 }
 
