@@ -74,7 +74,8 @@ interface StageListProperties {
 
 export function StageList({ schedulerID, stages, crawlerMap }: StageListProperties) {
   const { showToast } = useToast();
-  const { reorderStages } = useReorderStages();
+  const { reorderStages, status: reorderStatus } = useReorderStages();
+  const isReordering = reorderStatus === 'pending';
   const { deleteStage } = useDeleteStage();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [optimisticStages, setOptimisticStages] = useState<SchedulerStageRow[] | null>(null);
@@ -95,6 +96,7 @@ export function StageList({ schedulerID, stages, crawlerMap }: StageListProperti
   );
 
   const handleDragEnd = async (event: DragEndEvent) => {
+    if (isReordering) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
