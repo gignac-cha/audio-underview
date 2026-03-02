@@ -3,7 +3,7 @@ import { worker } from './mocks/browser.ts';
 
 export const test = testBase.extend({
   worker: [
-    async ({}, use: (value: typeof worker) => Promise<void>) => {
+    async (_fixtures: Record<string, never>, use: (value: typeof worker) => Promise<void>) => {
       await worker.start({ quiet: true });
       await use(worker);
       worker.resetHandlers();

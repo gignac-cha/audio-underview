@@ -39,6 +39,9 @@ jobs:
       - name: Typecheck
         run: pnpm --filter @audio-underview/web typecheck
 
+      - name: Lint
+        run: pnpm --filter @audio-underview/web lint
+
       - name: Install Playwright Chromium
         run: pnpm --filter @audio-underview/web exec playwright install --with-deps chromium
 

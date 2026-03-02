@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useReducer } from 'react';
 import styled from '@emotion/styled';
 import { DndContext, closestCenter, type DragEndEvent, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
@@ -66,6 +66,32 @@ const EmptyMessage = styled.p`
   font-size: 0.875rem;
 `;
 
+interface OptimisticState {
+  serverStages: SchedulerStageRow[];
+  displayStages: SchedulerStageRow[];
+  createDialogOpen: boolean;
+}
+
+type OptimisticAction =
+  | { type: 'reorder'; reordered: SchedulerStageRow[] }
+  | { type: 'reset' }
+  | { type: 'set_dialog'; open: boolean };
+
+function optimisticReducer(state: OptimisticState, action: OptimisticAction): OptimisticState {
+  switch (action.type) {
+    case 'reorder':
+      return { ...state, displayStages: action.reordered };
+    case 'reset':
+      return { ...state, displayStages: state.serverStages };
+    case 'set_dialog':
+      return { ...state, createDialogOpen: action.open };
+  }
+}
+
+function initializeState(stages: SchedulerStageRow[]): OptimisticState {
+  return { serverStages: stages, displayStages: stages, createDialogOpen: false };
+}
+
 interface StageListProperties {
   schedulerID: string;
   stages: SchedulerStageRow[];
@@ -77,14 +103,9 @@ export function StageList({ schedulerID, stages, crawlerMap }: StageListProperti
   const { reorderStages, status: reorderStatus } = useReorderStages();
   const isReordering = reorderStatus === 'pending';
   const { deleteStage } = useDeleteStage();
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [optimisticStages, setOptimisticStages] = useState<SchedulerStageRow[] | null>(null);
+  const [state, dispatch] = useReducer(optimisticReducer, stages, initializeState);
 
-  useEffect(() => {
-    setOptimisticStages(null);
-  }, [stages]);
-
-  const displayStages = optimisticStages ?? stages;
+  const displayStages = state.serverStages === stages ? state.displayStages : stages;
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -109,15 +130,15 @@ export function StageList({ schedulerID, stages, crawlerMap }: StageListProperti
       stage_order: index,
     }));
 
-    setOptimisticStages(reordered);
+    dispatch({ type: 'reorder', reordered });
 
     try {
       await reorderStages({
         scheduler_id: schedulerID,
-        stage_ids: reordered.map((stage) => stage.id),
+        stage_ids: reordered.map((stage: SchedulerStageRow) => stage.id),
       });
     } catch (error) {
-      setOptimisticStages(null);
+      dispatch({ type: 'reset' });
       const message = error instanceof Error ? error.message : 'Failed to reorder stages';
       showToast('Error', message, 'error');
     }
@@ -137,7 +158,7 @@ export function StageList({ schedulerID, stages, crawlerMap }: StageListProperti
     <Container>
       <SectionHeader>
         <SectionTitle>Pipeline Stages</SectionTitle>
-        <AddButton onClick={() => setCreateDialogOpen(true)}>
+        <AddButton onClick={() => dispatch({ type: 'set_dialog', open: true })}>
           <FontAwesomeIcon icon={faPlus} />
           Add Stage
         </AddButton>
@@ -165,8 +186,8 @@ export function StageList({ schedulerID, stages, crawlerMap }: StageListProperti
       )}
 
       <StageCreateDialog
-        open={createDialogOpen}
-        onOpenChange={setCreateDialogOpen}
+        open={state.createDialogOpen}
+        onOpenChange={(open: boolean) => dispatch({ type: 'set_dialog', open })}
         schedulerID={schedulerID}
         nextOrder={displayStages.length}
       />
