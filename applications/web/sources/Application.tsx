@@ -6,7 +6,9 @@ import { SignInPage } from './pages/SignInPage.tsx';
 import { HomePage } from './pages/HomePage.tsx';
 import { CrawlersPage } from './pages/CrawlersPage.tsx';
 import { CrawlerNewPage } from './pages/CrawlerNewPage.tsx';
-import { AuthCallbackPage } from './pages/AuthCallbackPage.tsx';
+import { SchedulersPage } from './pages/SchedulersPage.tsx';
+import { SchedulerDetailPage } from './pages/SchedulerDetailPage.tsx';
+import { AuthenticationCallbackPage } from './pages/AuthenticationCallbackPage.tsx';
 import { ProtectedRoute } from './components/ProtectedRoute.tsx';
 
 const ENABLED_PROVIDERS: OAuthProviderID[] = [
@@ -43,7 +45,7 @@ function ApplicationRoutes() {
     <Routes>
       <Route path="/" element={<RootRedirect />} />
       <Route path="/sign/in" element={<SignInPage />} />
-      <Route path="/auth/callback" element={<AuthCallbackPage />} />
+      <Route path="/authentication/callback" element={<AuthenticationCallbackPage />} />
       <Route
         path="/home"
         element={
@@ -65,6 +67,22 @@ function ApplicationRoutes() {
         element={
           <ProtectedRoute>
             <CrawlerNewPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/schedulers"
+        element={
+          <ProtectedRoute>
+            <SchedulersPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/schedulers/:id"
+        element={
+          <ProtectedRoute>
+            <SchedulerDetailPage />
           </ProtectedRoute>
         }
       />

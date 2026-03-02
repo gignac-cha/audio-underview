@@ -7,7 +7,7 @@ import { createBrowserLogger } from '@audio-underview/logger';
 
 const callbackLogger = createBrowserLogger({
   defaultContext: {
-    module: 'AuthCallbackPage',
+    module: 'AuthenticationCallbackPage',
   },
 });
 
@@ -23,7 +23,7 @@ const oAuthUserSchema = z.object({
   uuid: z.uuid().optional(),
 });
 
-export function AuthCallbackPage() {
+export function AuthenticationCallbackPage() {
   const navigate = useNavigate();
   const [searchParameters] = useSearchParams();
   const { loginWithProvider } = useAuthentication();
@@ -100,7 +100,7 @@ export function AuthCallbackPage() {
           throw new Error('Crawler manager worker URL is not configured');
         }
 
-        const tokenResponse = await fetch(`${crawlerManagerURL}/auth/token`, {
+        const tokenResponse = await fetch(`${crawlerManagerURL}/authentication/token`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ provider: user.provider, access_token: accessToken }),

@@ -1,0 +1,16 @@
+name = "audio-underview-scheduler-manager-worker"
+main = "sources/index.ts"
+compatibility_date = "2025-11-25"
+
+[vars]
+ALLOWED_ORIGINS = "http://localhost:5173,https://audio-underview.pages.dev"
+
+# Secrets (set via wrangler secret put):
+# SUPABASE_URL
+# SUPABASE_SECRET_KEY
+# JWT_SECRET
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
