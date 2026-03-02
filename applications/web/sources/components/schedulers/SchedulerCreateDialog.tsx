@@ -204,8 +204,9 @@ export function SchedulerCreateDialog({ open, onOpenChange }: SchedulerCreateDia
           <Description>Create a pipeline that chains multiple crawlers into sequential stages.</Description>
 
           <FieldGroup>
-            <FieldLabel>Name</FieldLabel>
+            <FieldLabel htmlFor="scheduler-name">Name</FieldLabel>
             <TextInput
+              id="scheduler-name"
               placeholder="My Pipeline"
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -215,8 +216,9 @@ export function SchedulerCreateDialog({ open, onOpenChange }: SchedulerCreateDia
           </FieldGroup>
 
           <FieldGroup>
-            <FieldLabel>Cron Expression (optional)</FieldLabel>
+            <FieldLabel htmlFor="scheduler-cron-expression">Cron Expression (optional)</FieldLabel>
             <TextInput
+              id="scheduler-cron-expression"
               placeholder="0 9 * * *"
               value={cronExpression}
               onChange={(event) => setCronExpression(event.target.value)}

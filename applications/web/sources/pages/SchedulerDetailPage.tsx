@@ -109,8 +109,8 @@ export function SchedulerDetailPage() {
   const navigate = useNavigate();
   const { logout } = useAuthentication();
   const { scheduler, isLoading, error, refetch } = useGetScheduler(id);
-  const { stages, error: stagesError, refetch: refetchStages } = useListStages(id);
-  const { crawlers, error: crawlersError, refetch: refetchCrawlers } = useListCrawlers();
+  const { stages, isLoading: stagesLoading, error: stagesError, refetch: refetchStages } = useListStages(id);
+  const { crawlers, isLoading: crawlersLoading, error: crawlersError, refetch: refetchCrawlers } = useListCrawlers();
 
   const crawlerMap = useMemo(() => {
     const map = new Map<string, (typeof crawlers)[number]>();
@@ -151,7 +151,11 @@ export function SchedulerDetailPage() {
         ) : scheduler ? (
           <>
             <SchedulerInfoSection scheduler={scheduler} />
-            {stagesError ?? crawlersError ? (
+            {stagesLoading || crawlersLoading ? (
+              <LoadingContainer>
+                <Spinner />
+              </LoadingContainer>
+            ) : stagesError || crawlersError ? (
               <ErrorState>
                 <ErrorMessage>
                   {stagesError && crawlersError
