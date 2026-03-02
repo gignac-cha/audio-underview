@@ -142,6 +142,37 @@ const ToggleLink = styled.button`
   }
 `;
 
+const LoadMoreContainer = styled.div`
+  display: flex;
+  justify-content: center;
+  margin-top: 0.5rem;
+`;
+
+const LoadMoreButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-deep);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: var(--transition-fast);
+
+  &:hover {
+    color: var(--text-primary);
+    border-color: var(--border-focus);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+`;
+
 const ButtonRow = styled.div`
   display: flex;
   justify-content: flex-end;
@@ -220,7 +251,7 @@ function buildDefaultSchema(crawler: CrawlerRow): Record<string, unknown> {
 export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }: StageCreateDialogProperties) {
   const { showToast } = useToast();
   const { createStage, status } = useCreateStage();
-  const { crawlers } = useListCrawlers();
+  const { crawlers, hasNextPage, fetchNextPage, isFetchingNextPage } = useListCrawlers();
 
   const [selectedCrawlerID, setSelectedCrawlerID] = useState('');
   const [fanOutField, setFanOutField] = useState('');
@@ -278,7 +309,8 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
       try {
         inputSchema = JSON.parse(schemaJSON);
       } catch {
-        inputSchema = {};
+        showToast('Validation Error', 'Invalid JSON in input schema.', 'error');
+        return;
       }
     }
 
@@ -307,8 +339,9 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
           <Description>Add a crawler as a new stage in this pipeline.</Description>
 
           <FieldGroup>
-            <FieldLabel>Crawler</FieldLabel>
+            <FieldLabel htmlFor="stage-crawler">Crawler</FieldLabel>
             <Select
+              id="stage-crawler"
               value={selectedCrawlerID}
               onChange={(event) => handleCrawlerChange(event.target.value)}
               disabled={isSubmitting}
@@ -320,19 +353,27 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
                 </option>
               ))}
             </Select>
+            {hasNextPage && (
+              <LoadMoreContainer>
+                <LoadMoreButton onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+                  {isFetchingNextPage ? 'Loading...' : 'Load more crawlers'}
+                </LoadMoreButton>
+              </LoadMoreContainer>
+            )}
           </FieldGroup>
 
           {selectedCrawler && (
             <>
               <FieldGroup>
                 <ToggleRow>
-                  <FieldLabel style={{ marginBottom: 0 }}>Input Schema</FieldLabel>
+                  <FieldLabel htmlFor="stage-input-schema" style={{ marginBottom: 0 }}>Input Schema</FieldLabel>
                   <ToggleLink onClick={() => setShowJSON(!showJSON)}>
                     {showJSON ? 'Simple mode' : 'Edit JSON'}
                   </ToggleLink>
                 </ToggleRow>
                 {showJSON ? (
                   <TextArea
+                    id="stage-input-schema"
                     value={schemaJSON}
                     onChange={(event) => setSchemaJSON(event.target.value)}
                     disabled={isSubmitting}
@@ -340,6 +381,7 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
                   />
                 ) : selectedCrawler.type === 'web' ? (
                   <TextInput
+                    id="stage-input-schema"
                     placeholder="https://example.com"
                     value={defaultURL}
                     onChange={(event) => setDefaultURL(event.target.value)}
@@ -347,6 +389,7 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
                   />
                 ) : (
                   <TextArea
+                    id="stage-input-schema"
                     value={schemaJSON}
                     onChange={(event) => setSchemaJSON(event.target.value)}
                     disabled={isSubmitting}
@@ -357,8 +400,9 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
               </FieldGroup>
 
               <FieldGroup>
-                <FieldLabel>Fan-out Field (optional)</FieldLabel>
+                <FieldLabel htmlFor="stage-fan-out-field">Fan-out Field (optional)</FieldLabel>
                 <TextInput
+                  id="stage-fan-out-field"
                   placeholder="items"
                   value={fanOutField}
                   onChange={(event) => setFanOutField(event.target.value)}

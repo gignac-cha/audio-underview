@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import styled from '@emotion/styled';
 import { DndContext, closestCenter, type DragEndEvent, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
@@ -79,6 +79,10 @@ export function StageList({ schedulerID, stages, crawlerMap }: StageListProperti
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [optimisticStages, setOptimisticStages] = useState<SchedulerStageRow[] | null>(null);
 
+  useEffect(() => {
+    setOptimisticStages(null);
+  }, [stages]);
+
   const displayStages = optimisticStages ?? stages;
 
   const sensors = useSensors(
@@ -115,8 +119,6 @@ export function StageList({ schedulerID, stages, crawlerMap }: StageListProperti
       const message = error instanceof Error ? error.message : 'Failed to reorder stages';
       showToast('Error', message, 'error');
     }
-
-    setOptimisticStages(null);
   };
 
   const handleDeleteStage = async (stageID: string) => {

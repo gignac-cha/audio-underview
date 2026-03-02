@@ -74,7 +74,8 @@ CREATE TABLE scheduler_runs (
   completed_at TIMESTAMPTZ,
   result JSONB,
   error TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (completed_at IS NULL OR started_at IS NULL OR completed_at >= started_at)
 );
 
 CREATE INDEX scheduler_runs_scheduler_id_index ON scheduler_runs(scheduler_id);
@@ -98,7 +99,9 @@ CREATE TABLE scheduler_stage_runs (
   items_total INTEGER CHECK (items_total >= 0),
   items_succeeded INTEGER CHECK (items_succeeded >= 0),
   items_failed INTEGER CHECK (items_failed >= 0),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (completed_at IS NULL OR started_at IS NULL OR completed_at >= started_at),
+  CHECK (items_total IS NULL OR items_succeeded IS NULL OR items_failed IS NULL OR items_succeeded + items_failed <= items_total)
 );
 
 CREATE INDEX scheduler_stage_runs_run_id_index ON scheduler_stage_runs(run_id);
