@@ -1,3 +1,4 @@
+import { WorkerEntrypoint } from 'cloudflare:workers';
 import { createWorkerLogger } from '@audio-underview/logger';
 import {
   type ResponseContext,
@@ -11,16 +12,23 @@ import {
   createCrawler,
   listCrawlersByUser,
   getCrawler,
+  getCrawlerByID,
   updateCrawler,
   deleteCrawler,
 } from '@audio-underview/supabase-connector';
 import { handleTokenExchange } from './token-exchange.ts';
+import { HTTPCodeRunnerClient } from './code-runner-client.ts';
+import { executeCrawler } from './crawler-executor.ts';
+import type { CrawlerExecuteResult } from './crawler-executor.ts';
+
+export type { CrawlerExecuteResult };
 
 interface Environment {
   ALLOWED_ORIGINS: string;
   SUPABASE_URL: string;
   SUPABASE_SECRET_KEY: string;
   JWT_SECRET: string;
+  CODE_RUNNER_FUNCTION_URL: string;
 }
 
 interface CreateCrawlerRequestBody {
@@ -293,8 +301,9 @@ function parseCrawlerID(pathname: string): string | null {
   return id;
 }
 
-export default {
-  async fetch(request: Request, environment: Environment): Promise<Response> {
+export default class CrawlerManagerWorker extends WorkerEntrypoint<Environment> {
+  async fetch(request: Request): Promise<Response> {
+    const environment = this.env;
     const url = new URL(request.url);
     const origin = request.headers.get('Origin') ?? '';
 
@@ -404,5 +413,20 @@ export default {
       logger.error('Unhandled worker error', error, { function: 'fetch' });
       return errorResponse('server_error', 'An unexpected error occurred', 500, context);
     }
-  },
-};
+  }
+
+  async executeCrawler(crawlerID: string, input: unknown): Promise<CrawlerExecuteResult> {
+    const supabaseClient = createSupabaseClient({
+      supabaseURL: this.env.SUPABASE_URL,
+      supabaseSecretKey: this.env.SUPABASE_SECRET_KEY,
+    });
+
+    const crawler = await getCrawlerByID(supabaseClient, crawlerID);
+    if (!crawler) {
+      throw new Error(`Crawler ${crawlerID} not found`);
+    }
+
+    const codeRunnerClient = new HTTPCodeRunnerClient(this.env.CODE_RUNNER_FUNCTION_URL);
+    return executeCrawler(codeRunnerClient, crawler, input, logger);
+  }
+}

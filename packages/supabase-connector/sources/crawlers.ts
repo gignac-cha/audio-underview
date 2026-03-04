@@ -93,6 +93,44 @@ export async function listCrawlersByUser(
 }
 
 /**
+ * Gets a single crawler by ID without ownership check.
+ * Used by the execution engine where the crawler may belong to any user.
+ *
+ * @param client - Supabase client
+ * @param id - Crawler ID
+ * @returns Crawler row if found, null otherwise
+ */
+export async function getCrawlerByID(
+  client: SupabaseClientType,
+  id: string,
+): Promise<CrawlerRow | null> {
+  return traceDatabaseOperation(
+    { serviceName: 'supabase-connector', operation: 'select', table: 'crawlers' },
+    async (span) => {
+      span.setAttribute('db.query.id', id);
+
+      const { data, error } = await client
+        .from('crawlers')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          span.setAttribute('db.rows_affected', 0);
+          return null;
+        }
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw new Error(`Failed to get crawler by ID: ${error.message}`);
+      }
+
+      span.setAttribute('db.rows_affected', 1);
+      return data as CrawlerRow;
+    }
+  );
+}
+
+/**
  * Gets a single crawler by ID, verifying ownership.
  *
  * @param client - Supabase client

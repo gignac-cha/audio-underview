@@ -12,6 +12,7 @@ export default defineWorkersConfig({
             SUPABASE_URL: 'https://supabase.example.com',
             SUPABASE_SECRET_KEY: 'test-secret-key',
             JWT_SECRET: 'test-jwt-secret-key-for-testing-only',
+            CODE_RUNNER_FUNCTION_URL: 'https://code-runner.example.com',
           },
         },
       },

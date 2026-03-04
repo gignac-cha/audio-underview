@@ -13,6 +13,13 @@ export default defineWorkersConfig({
             SUPABASE_SECRET_KEY: 'test-secret-key',
             JWT_SECRET: 'test-jwt-secret-key-for-testing-only',
           },
+          workers: [
+            {
+              name: 'audio-underview-crawler-manager-worker',
+              modules: true,
+              script: 'export default { async fetch() { return new Response("{}"); } }',
+            },
+          ],
         },
       },
     },

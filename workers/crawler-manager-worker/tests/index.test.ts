@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { env, fetchMock } from 'cloudflare:test';
+import { env, fetchMock, SELF } from 'cloudflare:test';
 import { signJWT } from '@audio-underview/worker-tools';
-import worker from '../sources/index.ts';
 
 const WORKER_URL = 'https://worker.example.com';
 const MOCK_USER_UUID = '00000000-0000-0000-0000-000000000001';
@@ -99,7 +98,7 @@ describe('crawler-manager-worker', () => {
         method: 'OPTIONS',
         headers: { Origin: 'https://example.com' },
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(204);
       expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
@@ -111,7 +110,7 @@ describe('crawler-manager-worker', () => {
         method: 'OPTIONS',
         headers: { Origin: 'https://unknown.example.com' },
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(204);
       expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
@@ -124,7 +123,7 @@ describe('crawler-manager-worker', () => {
         method: 'HEAD',
         headers: { Origin: 'https://example.com' },
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(200);
       expect(response.headers.get('Content-Type')).toBe('application/json');
@@ -137,7 +136,7 @@ describe('crawler-manager-worker', () => {
       const request = new Request(WORKER_URL, {
         headers: { Origin: 'https://example.com' },
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -150,7 +149,7 @@ describe('crawler-manager-worker', () => {
       const request = new Request(`${WORKER_URL}/help`, {
         headers: { Origin: 'https://example.com' },
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -161,7 +160,7 @@ describe('crawler-manager-worker', () => {
       const request = new Request(WORKER_URL, {
         headers: { Origin: 'https://example.com' },
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       const body = await response.json();
       const tokenEndpoint = body.endpoints.find((endpoint: { path: string }) => endpoint.path === '/authentication/token');
@@ -175,7 +174,7 @@ describe('crawler-manager-worker', () => {
       const request = new Request(`${WORKER_URL}/crawlers`, {
         headers: { Origin: 'https://example.com' },
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(401);
       const body = await response.json();
@@ -189,7 +188,7 @@ describe('crawler-manager-worker', () => {
           Authorization: 'Bearer invalid-token',
         },
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(401);
       const body = await response.json();
@@ -209,7 +208,7 @@ describe('crawler-manager-worker', () => {
           Authorization: `Bearer ${expiredToken}`,
         },
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(401);
       const body = await response.json();
@@ -229,7 +228,7 @@ describe('crawler-manager-worker', () => {
           Authorization: `Bearer ${wrongSecretToken}`,
         },
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(401);
     });
@@ -255,7 +254,7 @@ describe('crawler-manager-worker', () => {
         },
         body: JSON.stringify({ provider: 'google', access_token: 'valid-google-token' }),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -283,7 +282,7 @@ describe('crawler-manager-worker', () => {
         },
         body: JSON.stringify({ provider: 'github', access_token: 'valid-github-token' }),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -300,7 +299,7 @@ describe('crawler-manager-worker', () => {
         },
         body: JSON.stringify({ access_token: 'some-token' }),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(400);
       const body = await response.json();
@@ -316,7 +315,7 @@ describe('crawler-manager-worker', () => {
         },
         body: JSON.stringify({ provider: 'twitter', access_token: 'some-token' }),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(400);
     });
@@ -330,7 +329,7 @@ describe('crawler-manager-worker', () => {
         },
         body: JSON.stringify({ provider: 'google' }),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(400);
     });
@@ -343,7 +342,7 @@ describe('crawler-manager-worker', () => {
         },
         body: 'not json',
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(400);
     });
@@ -362,7 +361,7 @@ describe('crawler-manager-worker', () => {
         },
         body: JSON.stringify({ provider: 'google', access_token: 'bad-token' }),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(401);
     });
@@ -391,7 +390,7 @@ describe('crawler-manager-worker', () => {
         },
         body: JSON.stringify({ provider: 'google', access_token: 'valid-but-unregistered' }),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(401);
     });
@@ -403,7 +402,7 @@ describe('crawler-manager-worker', () => {
         method: 'POST',
         body: 'not json',
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(400);
       const body = await response.json();
@@ -417,7 +416,7 @@ describe('crawler-manager-worker', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url_pattern: '.*', code: '(x) => x' }),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(400);
       const body = await response.json();
@@ -430,7 +429,7 @@ describe('crawler-manager-worker', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: '   ', url_pattern: '.*', code: '(x) => x' }),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(400);
       const body = await response.json();
@@ -443,7 +442,7 @@ describe('crawler-manager-worker', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'x'.repeat(256), url_pattern: '.*', code: '(x) => x' }),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(400);
       const body = await response.json();
@@ -456,7 +455,7 @@ describe('crawler-manager-worker', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'test', url_pattern: '(((', code: '(x) => x' }),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(400);
       const body = await response.json();
@@ -469,7 +468,7 @@ describe('crawler-manager-worker', () => {
         body: JSON.stringify({ name: 'test', url_pattern: '(a+)+', code: '(x) => x' }),
         headers: { 'Content-Type': 'application/json' },
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
       expect(response.status).toBe(400);
       const body = await response.json() as Record<string, unknown>;
       expect(body.error_description).toContain('unsafe regex pattern');
@@ -481,7 +480,7 @@ describe('crawler-manager-worker', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'test', type: 'invalid', code: '(x) => x', url_pattern: '.*' }),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
       expect(response.status).toBe(400);
       const body = await response.json() as Record<string, unknown>;
       expect(body.error_description).toContain('type');
@@ -493,7 +492,7 @@ describe('crawler-manager-worker', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'test', type: 'web', code: '(x) => x' }),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
       expect(response.status).toBe(400);
       const body = await response.json() as Record<string, unknown>;
       expect(body.error_description).toContain('url_pattern');
@@ -505,7 +504,7 @@ describe('crawler-manager-worker', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'test', type: 'data', code: '(x) => x' }),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
       expect(response.status).toBe(400);
       const body = await response.json() as Record<string, unknown>;
       expect(body.error_description).toContain('input_schema');
@@ -517,7 +516,7 @@ describe('crawler-manager-worker', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'test', url_pattern: '.*', code: '(x) => x', output_schema: 'invalid' }),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
       expect(response.status).toBe(400);
       const body = await response.json() as Record<string, unknown>;
       expect(body.error_description).toContain('output_schema');
@@ -534,7 +533,7 @@ describe('crawler-manager-worker', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(crawlerData),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(201);
       const body = await response.json();
@@ -555,7 +554,7 @@ describe('crawler-manager-worker', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(crawlerData),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(201);
       const body = await response.json();
@@ -569,7 +568,7 @@ describe('crawler-manager-worker', () => {
       mockSupabaseCrawlerList();
 
       const request = await authenticatedRequest('/crawlers');
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -585,7 +584,7 @@ describe('crawler-manager-worker', () => {
       mockSupabaseCrawlerList();
 
       const request = await authenticatedRequest('/crawlers?offset=0&limit=10');
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -596,7 +595,7 @@ describe('crawler-manager-worker', () => {
 
     it('returns 400 for negative offset', async () => {
       const request = await authenticatedRequest('/crawlers?offset=-1');
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(400);
       const body = await response.json();
@@ -606,7 +605,7 @@ describe('crawler-manager-worker', () => {
 
     it('returns 400 for zero limit', async () => {
       const request = await authenticatedRequest('/crawlers?limit=0');
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(400);
       const body = await response.json();
@@ -616,7 +615,7 @@ describe('crawler-manager-worker', () => {
 
     it('returns 400 for limit exceeding maximum', async () => {
       const request = await authenticatedRequest('/crawlers?limit=101');
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(400);
       const body = await response.json();
@@ -626,7 +625,7 @@ describe('crawler-manager-worker', () => {
 
     it('returns 400 for non-numeric offset', async () => {
       const request = await authenticatedRequest('/crawlers?offset=abc');
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(400);
       const body = await response.json();
@@ -636,7 +635,7 @@ describe('crawler-manager-worker', () => {
 
     it('returns 400 for non-integer limit', async () => {
       const request = await authenticatedRequest('/crawlers?limit=1.5');
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(400);
       const body = await response.json();
@@ -650,7 +649,7 @@ describe('crawler-manager-worker', () => {
       mockSupabaseCrawlerGet();
 
       const request = await authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`);
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -661,7 +660,7 @@ describe('crawler-manager-worker', () => {
       mockSupabaseCrawlerNotFound();
 
       const request = await authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`);
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(404);
     });
@@ -673,7 +672,7 @@ describe('crawler-manager-worker', () => {
         method: 'PUT',
         body: 'not json',
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(400);
       const body = await response.json();
@@ -686,7 +685,7 @@ describe('crawler-manager-worker', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'test' }),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(400);
     });
@@ -707,7 +706,7 @@ describe('crawler-manager-worker', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedData),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -730,7 +729,7 @@ describe('crawler-manager-worker', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(validCrawlerBody()),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(404);
     });
@@ -746,7 +745,7 @@ describe('crawler-manager-worker', () => {
       const request = await authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
         method: 'DELETE',
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -762,7 +761,7 @@ describe('crawler-manager-worker', () => {
       const request = await authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
         method: 'DELETE',
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(404);
       const body = await response.json();
@@ -773,7 +772,7 @@ describe('crawler-manager-worker', () => {
   describe('invalid UUID format', () => {
     it('returns 404 for invalid crawler ID in GET', async () => {
       const request = await authenticatedRequest('/crawlers/abc');
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(404);
     });
@@ -784,7 +783,7 @@ describe('crawler-manager-worker', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(validCrawlerBody()),
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(404);
     });
@@ -793,7 +792,7 @@ describe('crawler-manager-worker', () => {
       const request = await authenticatedRequest('/crawlers/abc', {
         method: 'DELETE',
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(404);
     });
@@ -804,7 +803,7 @@ describe('crawler-manager-worker', () => {
       const request = new Request(`${WORKER_URL}/unknown`, {
         headers: { Origin: 'https://example.com' },
       });
-      const response = await worker.fetch(request, env);
+      const response = await SELF.fetch(request);
 
       expect(response.status).toBe(404);
       const body = await response.json();

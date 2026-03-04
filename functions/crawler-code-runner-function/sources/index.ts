@@ -1,4 +1,4 @@
-import { createServerLogger } from '@audio-underview/logger';
+import { createServerLogger, Logger } from '@audio-underview/logger';
 import {
   type LambdaEvent,
   type LambdaResponse,
@@ -10,10 +10,34 @@ import {
 import { createContext, Script } from 'node:vm';
 import { lookup } from 'node:dns/promises';
 
-interface RunRequestBody {
-  type: 'test' | 'run';
+interface WebRunRequestBody {
+  type: 'web';
+  mode: 'test' | 'run';
   url: string;
   code: string;
+}
+
+interface DataRunRequestBody {
+  type: 'data';
+  mode: 'test' | 'run';
+  data: unknown;
+  code: string;
+}
+
+type RunRequestBody = WebRunRequestBody | DataRunRequestBody;
+
+class SandboxTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SandboxTimeoutError';
+  }
+}
+
+class SandboxExecutionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SandboxExecutionError';
+  }
 }
 
 const FETCH_TIMEOUT_MILLISECONDS = 10_000;
@@ -67,6 +91,90 @@ async function validateTargetURL(targetURL: URL, context: ResponseContext): Prom
   return null;
 }
 
+async function executeInSandbox(code: string, argument: unknown, logger: Logger): Promise<{ result: unknown }> {
+  const sandbox = createContext({
+    Array,
+    Boolean,
+    Date,
+    Error,
+    JSON,
+    Map,
+    Math,
+    Number,
+    Object,
+    Promise,
+    RegExp,
+    Set,
+    String,
+    TypeError,
+    RangeError,
+    URL,
+    URLSearchParams,
+    parseInt,
+    parseFloat,
+    isNaN,
+    isFinite,
+    encodeURIComponent,
+    decodeURIComponent,
+    encodeURI,
+    decodeURI,
+    undefined,
+    NaN,
+    Infinity,
+  });
+
+  // For non-string arguments, re-create inside sandbox context via JSON.parse.
+  // This ensures Array.isArray, instanceof etc. work correctly inside the sandbox.
+  let sandboxArgument: unknown = argument;
+  if (typeof argument !== 'string') {
+    sandbox.__rawInput__ = JSON.stringify(argument);
+    new Script('globalThis.__input__ = JSON.parse(globalThis.__rawInput__)').runInContext(sandbox);
+    sandboxArgument = sandbox.__input__;
+    delete sandbox.__rawInput__;
+    delete sandbox.__input__;
+  }
+
+  try {
+    const script = new Script(`(${code})`);
+    const userFunction = script.runInContext(sandbox, { timeout: CODE_EXECUTION_TIMEOUT_MILLISECONDS });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const asyncTimeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Async execution timed out')), CODE_EXECUTION_TIMEOUT_MILLISECONDS);
+      timer.unref();
+    });
+    let result: unknown;
+    try {
+      result = await Promise.race([userFunction(sandboxArgument), asyncTimeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+
+    // Normalize undefined to null to prevent JSON.stringify field drop
+    if (result === undefined) {
+      result = null;
+    }
+
+    return { result };
+  } catch (executionError) {
+    logger.error('Code execution failed', executionError, { function: 'executeInSandbox' });
+    if (
+      executionError != null
+      && typeof executionError === 'object'
+      && 'code' in executionError
+      && executionError.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT'
+    ) {
+      throw new SandboxTimeoutError(`Code execution timed out after ${CODE_EXECUTION_TIMEOUT_MILLISECONDS}ms`);
+    }
+    const message = executionError instanceof Error
+      ? executionError.message
+      : 'Unknown execution error';
+    if (message === 'Async execution timed out') {
+      throw new SandboxTimeoutError(`Code execution timed out after ${CODE_EXECUTION_TIMEOUT_MILLISECONDS}ms`);
+    }
+    throw new SandboxExecutionError(message);
+  }
+}
+
 const logger = createServerLogger({
   defaultContext: {
     module: 'crawler-code-runner-function',
@@ -81,24 +189,58 @@ const HELP = {
     {
       method: 'POST',
       path: '/run',
-      description: 'Fetch a URL and run code against the response body',
+      description: 'Run code against a fetched URL response (web) or provided data (data)',
       body: {
-        type: "'test' | 'run'",
-        url: 'string - The URL to fetch',
-        code: 'string - JavaScript function source to execute against the fetched response body',
+        type: "'web' | 'data'",
+        mode: "'test' | 'run'",
+        url: "string - The URL to fetch (required for type 'web')",
+        data: "unknown - The data to process (required for type 'data')",
+        code: 'string - JavaScript function source to execute against the input',
       },
     },
   ],
 };
 
-function isRunRequestBody(value: unknown): value is RunRequestBody {
-  if (value == null || typeof value !== 'object') return false;
-  const object = value as Record<string, unknown>;
-  return (
-    (object.type === 'test' || object.type === 'run')
-    && typeof object.url === 'string'
-    && typeof object.code === 'string'
-  );
+function validateRunRequestBody(raw: unknown): RunRequestBody | string {
+  if (raw == null || typeof raw !== 'object') {
+    return 'Request body must be a JSON object';
+  }
+  const object = raw as Record<string, unknown>;
+
+  if (object.type !== 'web' && object.type !== 'data') {
+    return "Field 'type' must be 'web' or 'data'";
+  }
+
+  if (object.mode !== 'test' && object.mode !== 'run') {
+    return "Field 'mode' must be 'test' or 'run'";
+  }
+
+  if (typeof object.code !== 'string') {
+    return "Field 'code' is required and must be a string";
+  }
+
+  if (object.type === 'web') {
+    if (typeof object.url !== 'string') {
+      return "Field 'url' is required and must be a string when type is 'web'";
+    }
+    return {
+      type: 'web',
+      mode: object.mode as 'test' | 'run',
+      url: object.url as string,
+      code: object.code as string,
+    };
+  }
+
+  // type === 'data'
+  if (!('data' in object)) {
+    return "Field 'data' is required when type is 'data'";
+  }
+  return {
+    type: 'data',
+    mode: object.mode as 'test' | 'run',
+    data: object.data,
+    code: object.code as string,
+  };
 }
 
 async function handleRun(body: string | undefined, context: ResponseContext): Promise<LambdaResponse> {
@@ -109,116 +251,76 @@ async function handleRun(body: string | undefined, context: ResponseContext): Pr
     return errorResponse('invalid_request', 'Request body must be valid JSON', 400, context);
   }
 
-  if (!isRunRequestBody(raw)) {
-    const object = raw != null && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-    if (!object.type || (object.type !== 'test' && object.type !== 'run')) {
-      return errorResponse('invalid_request', "Field 'type' must be 'test' or 'run'", 400, context);
-    }
-    if (!object.url || typeof object.url !== 'string') {
-      return errorResponse('invalid_request', "Field 'url' is required and must be a string", 400, context);
-    }
-    return errorResponse('invalid_request', "Field 'code' is required and must be a string", 400, context);
+  const validated = validateRunRequestBody(raw);
+  if (typeof validated === 'string') {
+    return errorResponse('invalid_request', validated, 400, context);
   }
 
-  const parsed = raw;
+  const parsed = validated;
 
   if (parsed.code.length > MAX_CODE_LENGTH) {
     return errorResponse('invalid_request', `Field 'code' exceeds maximum length of ${MAX_CODE_LENGTH} characters`, 400, context);
   }
 
-  let targetURL: URL;
-  try {
-    targetURL = new URL(parsed.url);
-  } catch {
-    return errorResponse('invalid_request', "Field 'url' must be a valid URL", 400, context);
-  }
-
-  const ssrfError = await validateTargetURL(targetURL, context);
-  if (ssrfError) {
-    return ssrfError;
-  }
-
-  let responseText: string;
-  try {
-    const signal = AbortSignal.timeout(FETCH_TIMEOUT_MILLISECONDS);
-    logger.info('Fetching target URL', { url: targetURL.toString() }, { function: 'handleRun' });
-    const fetchResponse = await fetch(targetURL.toString(), { signal });
-    responseText = await fetchResponse.text();
-    logger.info('Target URL fetched', {
-      status: fetchResponse.status,
-      contentLength: responseText.length,
-    }, { function: 'handleRun' });
-  } catch (fetchError) {
-    if (fetchError instanceof DOMException && fetchError.name === 'TimeoutError') {
-      logger.error('Fetch timed out', { url: targetURL.toString(), timeoutMilliseconds: FETCH_TIMEOUT_MILLISECONDS }, { function: 'handleRun' });
-      return errorResponse('fetch_timeout', `Fetch timed out after ${FETCH_TIMEOUT_MILLISECONDS}ms`, 504, context);
-    }
-    logger.error('Failed to fetch target URL', { error: fetchError, url: targetURL.toString() }, { function: 'handleRun' });
-    return errorResponse('fetch_failed', 'Failed to fetch the target URL', 502, context);
-  }
-
-  let result: unknown;
-  try {
-    const sandbox = createContext({
-      Array,
-      Boolean,
-      Date,
-      Error,
-      JSON,
-      Map,
-      Math,
-      Number,
-      Object,
-      Promise,
-      RegExp,
-      Set,
-      String,
-      TypeError,
-      RangeError,
-      parseInt,
-      parseFloat,
-      isNaN,
-      isFinite,
-      encodeURIComponent,
-      decodeURIComponent,
-      encodeURI,
-      decodeURI,
-      undefined,
-      NaN,
-      Infinity,
-    });
-    const script = new Script(`(${parsed.code})`);
-    const userFunction = script.runInContext(sandbox, { timeout: CODE_EXECUTION_TIMEOUT_MILLISECONDS });
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const asyncTimeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error('Async execution timed out')), CODE_EXECUTION_TIMEOUT_MILLISECONDS);
-      timer.unref();
-    });
+  if (parsed.type === 'web') {
+    let targetURL: URL;
     try {
-      result = await Promise.race([userFunction(responseText), asyncTimeout]);
-    } finally {
-      clearTimeout(timer);
+      targetURL = new URL(parsed.url);
+    } catch {
+      return errorResponse('invalid_request', "Field 'url' must be a valid URL", 400, context);
     }
-  } catch (executionError) {
-    logger.error('Code execution failed', executionError, { function: 'handleRun' });
-    if (
-      executionError != null
-      && typeof executionError === 'object'
-      && 'code' in executionError
-      && executionError.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT'
-    ) {
-      return errorResponse('execution_timeout', `Code execution timed out after ${CODE_EXECUTION_TIMEOUT_MILLISECONDS}ms`, 422, context);
+
+    const ssrfError = await validateTargetURL(targetURL, context);
+    if (ssrfError) {
+      return ssrfError;
     }
-    const message = executionError instanceof Error
-      ? executionError.message
-      : 'Unknown execution error';
-    if (message === 'Async execution timed out') {
-      return errorResponse('execution_timeout', `Code execution timed out after ${CODE_EXECUTION_TIMEOUT_MILLISECONDS}ms`, 422, context);
+
+    let responseText: string;
+    try {
+      const signal = AbortSignal.timeout(FETCH_TIMEOUT_MILLISECONDS);
+      logger.info('Fetching target URL', { url: targetURL.toString() }, { function: 'handleRun' });
+      const fetchResponse = await fetch(targetURL.toString(), { signal });
+      responseText = await fetchResponse.text();
+      logger.info('Target URL fetched', {
+        status: fetchResponse.status,
+        contentLength: responseText.length,
+      }, { function: 'handleRun' });
+    } catch (fetchError) {
+      if (fetchError instanceof DOMException && fetchError.name === 'TimeoutError') {
+        logger.error('Fetch timed out', { url: targetURL.toString(), timeoutMilliseconds: FETCH_TIMEOUT_MILLISECONDS }, { function: 'handleRun' });
+        return errorResponse('fetch_timeout', `Fetch timed out after ${FETCH_TIMEOUT_MILLISECONDS}ms`, 504, context);
+      }
+      logger.error('Failed to fetch target URL', { error: fetchError, url: targetURL.toString() }, { function: 'handleRun' });
+      return errorResponse('fetch_failed', 'Failed to fetch the target URL', 502, context);
     }
-    return errorResponse('execution_failed', message, 422, context);
+
+    try {
+      const { result } = await executeInSandbox(parsed.code, responseText, logger);
+      return jsonResponse({ type: parsed.type, mode: parsed.mode, result }, 200, context);
+    } catch (executionError) {
+      if (executionError instanceof SandboxTimeoutError) {
+        return errorResponse('execution_timeout', executionError.message, 422, context);
+      }
+      if (executionError instanceof SandboxExecutionError) {
+        return errorResponse('execution_failed', executionError.message, 422, context);
+      }
+      return errorResponse('execution_failed', 'Unknown execution error', 422, context);
+    }
   }
 
-  return jsonResponse({ type: parsed.type, result }, 200, context);
+  // type === 'data'
+  try {
+    const { result } = await executeInSandbox(parsed.code, parsed.data, logger);
+    return jsonResponse({ type: parsed.type, mode: parsed.mode, result }, 200, context);
+  } catch (executionError) {
+    if (executionError instanceof SandboxTimeoutError) {
+      return errorResponse('execution_timeout', executionError.message, 422, context);
+    }
+    if (executionError instanceof SandboxExecutionError) {
+      return errorResponse('execution_failed', executionError.message, 422, context);
+    }
+    return errorResponse('execution_failed', 'Unknown execution error', 422, context);
+  }
 }
 
 export async function handler(event: LambdaEvent): Promise<LambdaResponse> {

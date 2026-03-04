@@ -223,13 +223,13 @@ export function RunHistorySection({ schedulerID }: RunHistorySectionProperties) 
                         <ExpandedContent>{run.error}</ExpandedContent>
                       </>
                     )}
-                    {run.result && (
+                    {run.result != null && (
                       <>
                         <ExpandedLabel>Result</ExpandedLabel>
                         <ExpandedContent>{JSON.stringify(run.result, null, 2)}</ExpandedContent>
                       </>
                     )}
-                    {!run.error && !run.result && (
+                    {!run.error && run.result == null && (
                       <ExpandedContent>No additional details.</ExpandedContent>
                     )}
                   </ExpandedRow>

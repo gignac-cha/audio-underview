@@ -52,6 +52,7 @@ export {
   createCrawler,
   listCrawlersByUser,
   getCrawler,
+  getCrawlerByID,
   updateCrawler,
   deleteCrawler,
 } from './crawlers.ts';
@@ -84,3 +85,10 @@ export {
   updateSchedulerRun,
   listSchedulerRuns,
 } from './scheduler-runs.ts';
+
+// Scheduler stage run operations
+export {
+  createSchedulerStageRun,
+  updateSchedulerStageRun,
+  listSchedulerStageRunsByRun,
+} from './scheduler-stage-runs.ts';

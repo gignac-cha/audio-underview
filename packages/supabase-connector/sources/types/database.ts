@@ -126,7 +126,7 @@ export interface SchedulerRunRow {
   status: SchedulerRunStatus;
   started_at: string | null;
   completed_at: string | null;
-  result: Record<string, unknown> | null;
+  result: unknown;
   error: string | null;
   created_at: string;
 }
@@ -144,8 +144,8 @@ export interface SchedulerStageRunRow {
   status: SchedulerRunStatus;
   started_at: string | null;
   completed_at: string | null;
-  input: Record<string, unknown> | null;
-  output: Record<string, unknown> | null;
+  input: unknown;
+  output: unknown;
   error: string | null;
   items_total: number | null;
   items_succeeded: number | null;
@@ -277,7 +277,7 @@ export interface Database {
           status?: SchedulerRunStatus;
           started_at?: string | null;
           completed_at?: string | null;
-          result?: Record<string, unknown> | null;
+          result?: unknown;
           error?: string | null;
         };
         Update: Partial<Omit<SchedulerRunRow, 'id' | 'scheduler_id' | 'created_at'>>;
@@ -302,8 +302,8 @@ export interface Database {
           status?: SchedulerRunStatus;
           started_at?: string | null;
           completed_at?: string | null;
-          input?: Record<string, unknown> | null;
-          output?: Record<string, unknown> | null;
+          input?: unknown;
+          output?: unknown;
           error?: string | null;
           items_total?: number | null;
           items_succeeded?: number | null;
