@@ -1,10 +1,12 @@
-export interface CrawlerExecuteResult {
-  type: 'web' | 'data';
-  result: unknown;
-}
+import {
+  type CrawlerExecuteResult,
+  validateCrawlerExecuteResult,
+} from '@audio-underview/worker-tools';
+
+export type { CrawlerExecuteResult };
 
 interface CrawlerManagerRPC {
-  executeCrawler(crawlerID: string, input: unknown): Promise<CrawlerExecuteResult>;
+  executeCrawler(crawlerID: string, input: unknown): Promise<unknown>;
 }
 
 export interface CrawlerExecutionClient {
@@ -19,6 +21,7 @@ export class ServiceBindingCrawlerExecutionClient implements CrawlerExecutionCli
   }
 
   async execute(crawlerID: string, input: unknown): Promise<CrawlerExecuteResult> {
-    return (this.binding as unknown as CrawlerManagerRPC).executeCrawler(crawlerID, input);
+    const raw = await (this.binding as unknown as CrawlerManagerRPC).executeCrawler(crawlerID, input);
+    return validateCrawlerExecuteResult(raw);
   }
 }

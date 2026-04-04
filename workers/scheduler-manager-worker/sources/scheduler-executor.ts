@@ -25,6 +25,7 @@ export async function executeScheduler(
   schedulerID: string,
   userUUID: string,
   runID: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   const { supabaseClient, logger } = dependencies;
 
@@ -144,13 +145,17 @@ export async function executeScheduler(
       }
     }
 
-    // Pipeline completed successfully
+    // Pipeline completed successfully — skip if handler already timed out
+    if (signal?.aborted) return;
+
     await updateSchedulerRun(supabaseClient, runID, schedulerID, {
       status: hasPartialFailure ? 'partially_failed' : 'completed',
       completed_at: new Date().toISOString(),
       result: lastOutput,
     });
   } catch (error: unknown) {
+    if (signal?.aborted) return;
+
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     logger.error('Scheduler execution failed', error, {
@@ -169,6 +174,7 @@ export async function executeScheduler(
       });
     });
   } finally {
+    if (signal?.aborted) return;
     // Always update last_run_at
     await updateScheduler(supabaseClient, schedulerID, userUUID, {
       last_run_at: new Date().toISOString(),

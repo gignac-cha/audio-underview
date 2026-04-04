@@ -4,6 +4,23 @@ export interface CodeRunnerResult {
   result: unknown;
 }
 
+export function validateCodeRunnerResult(value: unknown): CodeRunnerResult {
+  if (value == null || typeof value !== 'object') {
+    throw new CodeRunnerExecutionError('invalid_response', 'Expected object from code-runner', 0);
+  }
+  const record = value as Record<string, unknown>;
+  if (record.type !== 'web' && record.type !== 'data') {
+    throw new CodeRunnerExecutionError('invalid_response', `Expected type 'web' or 'data', got '${String(record.type)}'`, 0);
+  }
+  if (record.mode !== 'test' && record.mode !== 'run') {
+    throw new CodeRunnerExecutionError('invalid_response', `Expected mode 'test' or 'run', got '${String(record.mode)}'`, 0);
+  }
+  if (!('result' in record)) {
+    throw new CodeRunnerExecutionError('invalid_response', 'Missing result field', 0);
+  }
+  return { type: record.type, mode: record.mode, result: record.result };
+}
+
 export interface CodeRunnerClient {
   run(
     type: 'web' | 'data',
@@ -109,7 +126,7 @@ export class HTTPCodeRunnerClient implements CodeRunnerClient {
       }
 
       if (response.ok) {
-        const result = (await response.json()) as CodeRunnerResult;
+        const result = validateCodeRunnerResult(await response.json());
         return result;
       }
 

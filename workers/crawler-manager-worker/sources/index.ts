@@ -1,4 +1,5 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { isSafeURLPattern } from './safe-url-pattern.ts';
 import { createWorkerLogger } from '@audio-underview/logger';
 import {
   type ResponseContext,
@@ -59,10 +60,6 @@ const HELP = {
   ],
 };
 
-function hasNestedQuantifiers(pattern: string): boolean {
-  // Detect patterns like (a+)+, (.*)*, (a{2,})+, etc.
-  return /(\([^)]*[+*][^)]*\))[+*]|\(\?:[^)]*[+*][^)]*\)[+*]/.test(pattern);
-}
 
 async function validateCrawlerBody(
   request: Request,
@@ -123,7 +120,7 @@ async function validateCrawlerBody(
       return errorResponse('invalid_request', `Field 'url_pattern' must not exceed ${MAX_URL_PATTERN_LENGTH} characters`, 400, context);
     }
 
-    if (hasNestedQuantifiers(body.url_pattern)) {
+    if (!isSafeURLPattern(body.url_pattern)) {
       return errorResponse('invalid_request', "Field 'url_pattern' contains potentially unsafe regex pattern", 400, context);
     }
 
@@ -415,7 +412,14 @@ export default class CrawlerManagerWorker extends WorkerEntrypoint<Environment> 
     }
   }
 
+  // Service Binding RPC — called by scheduler-manager-worker only.
+  // No user ownership check: binding declaration itself is the access control.
   async executeCrawler(crawlerID: string, input: unknown): Promise<CrawlerExecuteResult> {
+    const rpcLogger = logger.createChild({
+      function: 'executeCrawler',
+      metadata: { crawlerID },
+    });
+
     const supabaseClient = createSupabaseClient({
       supabaseURL: this.env.SUPABASE_URL,
       supabaseSecretKey: this.env.SUPABASE_SECRET_KEY,
@@ -427,6 +431,6 @@ export default class CrawlerManagerWorker extends WorkerEntrypoint<Environment> 
     }
 
     const codeRunnerClient = new HTTPCodeRunnerClient(this.env.CODE_RUNNER_FUNCTION_URL);
-    return executeCrawler(codeRunnerClient, crawler, input, logger);
+    return executeCrawler(codeRunnerClient, crawler, input, rpcLogger);
   }
 }

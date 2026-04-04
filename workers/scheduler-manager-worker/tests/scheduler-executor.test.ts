@@ -3,6 +3,7 @@ import { env, fetchMock } from 'cloudflare:test';
 import { createSupabaseClient } from '@audio-underview/supabase-connector';
 import type { SchedulerStageRow } from '@audio-underview/supabase-connector';
 import type { CrawlerExecutionClient } from '../sources/crawler-execution-client.ts';
+import type { Logger } from '@audio-underview/logger';
 import { executeScheduler } from '../sources/scheduler-executor.ts';
 import type { ExecutorDependencies } from '../sources/scheduler-executor.ts';
 
@@ -137,13 +138,14 @@ function createMockCrawlerExecutionClient(
   };
 }
 
-function createMockLogger() {
+function createMockLogger(): Logger {
   return {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-  } as any;
+    createChild: vi.fn().mockReturnThis(),
+  } as unknown as Logger;
 }
 
 function createDependencies(crawlerResults: unknown[] = []): {

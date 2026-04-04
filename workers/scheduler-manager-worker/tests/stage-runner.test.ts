@@ -3,6 +3,7 @@ import { env, fetchMock } from 'cloudflare:test';
 import { createSupabaseClient } from '@audio-underview/supabase-connector';
 import type { SchedulerStageRow } from '@audio-underview/supabase-connector';
 import type { CrawlerExecutionClient } from '../sources/crawler-execution-client.ts';
+import type { Logger } from '@audio-underview/logger';
 import {
   resolveDefaultInput,
   executeStage,
@@ -72,13 +73,14 @@ function createMockCrawlerExecutionClient(): CrawlerExecutionClient & {
   };
 }
 
-function createMockLogger() {
+function createMockLogger(): Logger {
   return {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-  } as any;
+    createChild: vi.fn().mockReturnThis(),
+  } as unknown as Logger;
 }
 
 function createDependencies(
@@ -339,6 +341,22 @@ describe('executeFanOut', () => {
     expect(result.results).toEqual([]);
   });
 
+  it('preserves null results from successful crawlers', async () => {
+    const { dependencies, crawlerExecutionClient } = createDependencies();
+    const stage = mockStage();
+
+    crawlerExecutionClient.execute
+      .mockResolvedValueOnce({ type: 'web', result: 'first' })
+      .mockResolvedValueOnce({ type: 'web', result: null })
+      .mockResolvedValueOnce({ type: 'web', result: 'third' });
+
+    const result = await executeFanOut(dependencies, stage, ['a', 'b', 'c']);
+
+    expect(result.status).toBe('completed');
+    expect(result.itemsSucceeded).toBe(3);
+    expect(result.results).toEqual(['first', null, 'third']);
+  });
+
   it('handles empty items array', async () => {
     const { dependencies } = createDependencies();
     const stage = mockStage();
@@ -371,7 +389,7 @@ describe('executeFanOut', () => {
       error1,
       expect.objectContaining({
         function: 'executeFanOut',
-        metadata: { stageID: MOCK_STAGE_ID },
+        metadata: { stageID: MOCK_STAGE_ID, itemIndex: 0 },
       }),
     );
     expect(logger.warn).toHaveBeenCalledWith(
@@ -379,7 +397,7 @@ describe('executeFanOut', () => {
       error2,
       expect.objectContaining({
         function: 'executeFanOut',
-        metadata: { stageID: MOCK_STAGE_ID },
+        metadata: { stageID: MOCK_STAGE_ID, itemIndex: 1 },
       }),
     );
   });

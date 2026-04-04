@@ -1,11 +1,10 @@
 import type { Logger } from '@audio-underview/logger';
 import type { CrawlerRow } from '@audio-underview/supabase-connector';
+import type { CrawlerExecuteResult } from '@audio-underview/worker-tools';
 import type { CodeRunnerClient } from './code-runner-client.ts';
+import { isSafeURLPattern } from './safe-url-pattern.ts';
 
-export interface CrawlerExecuteResult {
-  type: 'web' | 'data';
-  result: unknown;
-}
+export type { CrawlerExecuteResult };
 
 function resolveURL(
   input: unknown,
@@ -46,17 +45,24 @@ export async function executeCrawler(
     }
 
     if (crawler.url_pattern) {
-      try {
-        const pattern = new RegExp(crawler.url_pattern);
-        if (!pattern.test(url)) {
-          logger.warn('URL does not match crawler url_pattern', {
-            url,
-            urlPattern: crawler.url_pattern,
-            crawlerID: crawler.id,
-          }, { function: 'executeCrawler' });
+      if (!isSafeURLPattern(crawler.url_pattern)) {
+        logger.warn('Skipping url_pattern validation: potential ReDoS pattern detected', {
+          urlPattern: crawler.url_pattern,
+          crawlerID: crawler.id,
+        }, { function: 'executeCrawler' });
+      } else {
+        try {
+          const pattern = new RegExp(crawler.url_pattern);
+          if (!pattern.test(url)) {
+            logger.warn('URL does not match crawler url_pattern', {
+              url,
+              urlPattern: crawler.url_pattern,
+              crawlerID: crawler.id,
+            }, { function: 'executeCrawler' });
+          }
+        } catch {
+          // Invalid regex — skip validation
         }
-      } catch {
-        // Invalid regex — skip validation
       }
     }
 

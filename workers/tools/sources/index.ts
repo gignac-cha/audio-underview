@@ -5,6 +5,11 @@ export type {
   BaseEnvironment,
   OAuthWorkerHandlers,
   OAuthWorkerOptions,
+  CrawlerExecuteResult,
+} from './types.ts';
+
+export {
+  validateCrawlerExecuteResult,
 } from './types.ts';
 
 export {

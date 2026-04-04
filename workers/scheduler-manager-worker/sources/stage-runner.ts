@@ -29,7 +29,10 @@ export interface FanOutResult {
   status: 'completed' | 'partially_failed' | 'failed';
 }
 
-export function resolveDefaultInput(inputSchema: Record<string, unknown>): Record<string, unknown> {
+export function resolveDefaultInput(inputSchema: unknown): Record<string, unknown> {
+  if (inputSchema == null || typeof inputSchema !== 'object' || Array.isArray(inputSchema)) {
+    throw new Error(`Invalid input_schema: expected object, got ${typeof inputSchema}`);
+  }
   const defaults: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(inputSchema)) {
     if (value != null && typeof value === 'object' && 'default' in value) {
@@ -78,36 +81,53 @@ export async function executeStage(
       status: 'failed',
       completed_at: new Date().toISOString(),
       error: errorMessage,
+    }).catch((updateError: unknown) => {
+      logger.error('Failed to update stage run status after error', updateError, {
+        function: 'executeStage',
+        metadata: { stageRunID: stageRun.id, runID },
+      });
     });
 
     throw error;
   }
 }
 
+const FAN_OUT_FAILED = Symbol('fan-out-failed');
+
 export async function executeFanOut(
   dependencies: StageRunnerDependencies,
   stage: SchedulerStageRow,
   items: unknown[],
+  concurrency: number = 1,
 ): Promise<FanOutResult> {
   const { crawlerExecutionClient, logger } = dependencies;
 
-  const results: unknown[] = [];
+  const results: (unknown | typeof FAN_OUT_FAILED)[] = new Array(items.length).fill(FAN_OUT_FAILED);
   let itemsSucceeded = 0;
   let itemsFailed = 0;
 
-  for (const item of items) {
-    try {
-      const response = await crawlerExecutionClient.execute(stage.crawler_id, item);
-      results.push(response.result);
-      itemsSucceeded++;
-    } catch (error: unknown) {
-      logger.warn('Fan-out item failed', error, {
-        function: 'executeFanOut',
-        metadata: { stageID: stage.id },
-      });
-      itemsFailed++;
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      const item = items[index];
+      try {
+        const response = await crawlerExecutionClient.execute(stage.crawler_id, item);
+        results[index] = response.result;
+        itemsSucceeded++;
+      } catch (error: unknown) {
+        logger.warn('Fan-out item failed', error, {
+          function: 'executeFanOut',
+          metadata: { stageID: stage.id, itemIndex: index },
+        });
+        itemsFailed++;
+      }
     }
   }
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+  await Promise.all(workers);
 
   let status: 'completed' | 'partially_failed' | 'failed';
   if (itemsFailed === 0) {
@@ -118,8 +138,10 @@ export async function executeFanOut(
     status = 'failed';
   }
 
+  const successfulResults = results.filter((result) => result !== FAN_OUT_FAILED);
+
   return {
-    results,
+    results: successfulResults,
     itemsTotal: items.length,
     itemsSucceeded,
     itemsFailed,

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { executeCrawler } from '../sources/crawler-executor.ts';
+import { validateCodeRunnerResult } from '../sources/code-runner-client.ts';
 import type { CodeRunnerClient } from '../sources/code-runner-client.ts';
 import type { CrawlerRow } from '@audio-underview/supabase-connector';
 
@@ -111,7 +112,7 @@ describe('executeCrawler', () => {
       expect(client.run).toHaveBeenCalledOnce();
     });
 
-    it('skips url_pattern validation on invalid regex', async () => {
+    it('skips url_pattern validation on unsafe regex and logs warning', async () => {
       const client = createMockCodeRunnerClient();
       const logger = createMockLogger();
       const crawler = createMockCrawler({ url_pattern: '[invalid(' });
@@ -119,7 +120,14 @@ describe('executeCrawler', () => {
 
       const result = await executeCrawler(client, crawler, input, logger);
 
-      expect(logger.warn).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Skipping url_pattern validation: potential ReDoS pattern detected',
+        expect.objectContaining({
+          urlPattern: '[invalid(',
+          crawlerID: crawler.id,
+        }),
+        expect.objectContaining({ function: 'executeCrawler' }),
+      );
       expect(result.type).toBe('web');
       expect(client.run).toHaveBeenCalledOnce();
     });
@@ -158,5 +166,40 @@ describe('executeCrawler', () => {
         'Code execution failed',
       );
     });
+  });
+});
+
+describe('validateCodeRunnerResult', () => {
+  it('accepts valid web result', () => {
+    const result = validateCodeRunnerResult({ type: 'web', mode: 'run', result: { data: 'ok' } });
+    expect(result.type).toBe('web');
+    expect(result.mode).toBe('run');
+    expect(result.result).toEqual({ data: 'ok' });
+  });
+
+  it('accepts valid result with null', () => {
+    const result = validateCodeRunnerResult({ type: 'data', mode: 'test', result: null });
+    expect(result.type).toBe('data');
+    expect(result.result).toBeNull();
+  });
+
+  it('throws on null input', () => {
+    expect(() => validateCodeRunnerResult(null)).toThrow('Expected object from code-runner');
+  });
+
+  it('throws on non-object input', () => {
+    expect(() => validateCodeRunnerResult('string')).toThrow('Expected object from code-runner');
+  });
+
+  it('throws on invalid type', () => {
+    expect(() => validateCodeRunnerResult({ type: 'unknown', mode: 'run', result: {} })).toThrow("Expected type 'web' or 'data'");
+  });
+
+  it('throws on invalid mode', () => {
+    expect(() => validateCodeRunnerResult({ type: 'web', mode: 'unknown', result: {} })).toThrow("Expected mode 'test' or 'run'");
+  });
+
+  it('throws on missing result field', () => {
+    expect(() => validateCodeRunnerResult({ type: 'web', mode: 'run' })).toThrow('Missing result field');
   });
 });

@@ -13,8 +13,9 @@
   "packageManager": "pnpm@10.26.1",
   "dependencies": {
     "@audio-underview/logger": "workspace:*",
+    "@audio-underview/supabase-connector": "workspace:*",
     "@audio-underview/worker-tools": "workspace:*",
-    "@audio-underview/supabase-connector": "workspace:*"
+    "safe-regex2": "^5.1.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "catalog:worker",
