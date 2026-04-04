@@ -3,6 +3,10 @@ export interface CrawlerExecuteResult {
   result: unknown;
 }
 
+interface CrawlerManagerRPC {
+  executeCrawler(crawlerID: string, input: unknown): Promise<CrawlerExecuteResult>;
+}
+
 export interface CrawlerExecutionClient {
   execute(crawlerID: string, input: unknown): Promise<CrawlerExecuteResult>;
 }
@@ -15,6 +19,6 @@ export class ServiceBindingCrawlerExecutionClient implements CrawlerExecutionCli
   }
 
   async execute(crawlerID: string, input: unknown): Promise<CrawlerExecuteResult> {
-    return (this.binding as any).executeCrawler(crawlerID, input);
+    return (this.binding as unknown as CrawlerManagerRPC).executeCrawler(crawlerID, input);
   }
 }

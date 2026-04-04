@@ -59,6 +59,11 @@ export async function executeScheduler(
     for (const stage of stages) {
       // Fan-out check
       if (stage.fan_out_field) {
+        if (currentInput != null && typeof currentInput !== 'object') {
+          throw new Error(
+            `Stage ${stage.stage_order}: fan_out_field "${stage.fan_out_field}" requires object input, got ${typeof currentInput}`,
+          );
+        }
         const inputObject = currentInput as Record<string, unknown> | null;
         const fanOutItems = inputObject?.[stage.fan_out_field];
 
