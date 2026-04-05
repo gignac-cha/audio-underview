@@ -46,7 +46,7 @@ export interface CrawlerExecuteResult {
 }
 
 export function validateCrawlerExecuteResult(value: unknown): CrawlerExecuteResult {
-  if (value == null || typeof value !== 'object') {
+  if (value === null || value === undefined || typeof value !== 'object') {
     throw new Error('Invalid CrawlerExecuteResult: expected object');
   }
   const record = value as Record<string, unknown>;

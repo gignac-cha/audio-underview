@@ -30,12 +30,12 @@ export interface FanOutResult {
 }
 
 export function resolveDefaultInput(inputSchema: unknown): Record<string, unknown> {
-  if (inputSchema == null || typeof inputSchema !== 'object' || Array.isArray(inputSchema)) {
+  if (inputSchema === null || inputSchema === undefined || typeof inputSchema !== 'object' || Array.isArray(inputSchema)) {
     throw new Error(`Invalid input_schema: expected object, got ${typeof inputSchema}`);
   }
   const defaults: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(inputSchema)) {
-    if (value != null && typeof value === 'object' && 'default' in value) {
+    if (value !== null && value !== undefined && typeof value === 'object' && 'default' in value) {
       defaults[key] = (value as Record<string, unknown>).default;
     }
   }

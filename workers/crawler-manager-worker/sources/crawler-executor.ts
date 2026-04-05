@@ -11,7 +11,7 @@ function resolveURL(
   crawler: CrawlerRow,
 ): string | null {
   // 1. input.url if present
-  if (input != null && typeof input === 'object' && 'url' in input) {
+  if (input !== null && input !== undefined && typeof input === 'object' && 'url' in input) {
     const url = (input as Record<string, unknown>).url;
     if (typeof url === 'string' && url.length > 0) {
       return url;
@@ -20,7 +20,7 @@ function resolveURL(
 
   // 2. input_schema url default
   const inputSchema = crawler.input_schema;
-  if (inputSchema.url != null && typeof inputSchema.url === 'object' && 'default' in inputSchema.url) {
+  if (inputSchema.url !== null && inputSchema.url !== undefined && typeof inputSchema.url === 'object' && 'default' in inputSchema.url) {
     const defaultURL = (inputSchema.url as Record<string, unknown>).default;
     if (typeof defaultURL === 'string' && defaultURL.length > 0) {
       return defaultURL;

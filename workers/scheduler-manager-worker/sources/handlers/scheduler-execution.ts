@@ -16,7 +16,7 @@ import { verifySchedulerOwnership } from './tools.ts';
 
 export function resolveHTTPStatus(status: string, error: string | null | undefined): number {
   if (status === 'completed' || status === 'partially_failed') return 200;
-  if (status !== 'failed' || error == null) return 200;
+  if (status !== 'failed' || error === null || error === undefined) return 200;
 
   if (error.includes('timed out')) return 408;
   if (error.includes('Invalid input_schema') || error.includes('fan_out_field')) return 422;
