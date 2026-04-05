@@ -29,6 +29,7 @@ interface DataRunRequestBody {
 type RunRequestBody = WebRunRequestBody | DataRunRequestBody;
 
 const FETCH_TIMEOUT_MILLISECONDS = 10_000;
+const MAX_RESPONSE_BYTES = 10 * 1024 * 1024; // 10MB
 
 const logger = createWorkerLogger({
   defaultContext: {
@@ -134,6 +135,13 @@ async function handleRun(
       const signal = AbortSignal.timeout(FETCH_TIMEOUT_MILLISECONDS);
       logger.info('Fetching target URL', { url: targetURL.toString() }, { function: 'handleRun' });
       const fetchResponse = await fetch(targetURL.toString(), { signal });
+
+      const contentLength = fetchResponse.headers.get('Content-Length');
+      if (contentLength !== null && Number(contentLength) > MAX_RESPONSE_BYTES) {
+        logger.warn('Response too large', { url: targetURL.toString(), contentLength }, { function: 'handleRun' });
+        return errorResponse('response_too_large', `Response exceeds maximum size of ${MAX_RESPONSE_BYTES} bytes`, 413, context);
+      }
+
       responseText = await fetchResponse.text();
       logger.info('Target URL fetched', {
         status: fetchResponse.status,

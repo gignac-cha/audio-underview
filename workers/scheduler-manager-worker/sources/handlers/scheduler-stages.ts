@@ -5,6 +5,7 @@ import {
 } from '@audio-underview/worker-tools';
 import {
   createSupabaseClient,
+  getCrawlerPermission,
   createSchedulerStage,
   listSchedulerStages,
   getSchedulerStage,
@@ -15,12 +16,15 @@ import {
 import type { Environment } from '../index.ts';
 import { verifySchedulerOwnership, UUID_PATTERN } from './tools.ts';
 
+type FanOutStrategy = 'compact' | 'preserve';
+
 interface CreateStageRequestBody {
   crawler_id: string;
   stage_order: number;
   input_schema: Record<string, unknown>;
   output_schema?: Record<string, unknown>;
   fan_out_field?: string;
+  fan_out_strategy?: FanOutStrategy;
 }
 
 interface UpdateStageRequestBody {
@@ -28,6 +32,7 @@ interface UpdateStageRequestBody {
   input_schema?: Record<string, unknown>;
   output_schema?: Record<string, unknown>;
   fan_out_field?: string | null;
+  fan_out_strategy?: FanOutStrategy;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -64,6 +69,11 @@ export async function handleCreateStage(
     return errorResponse('invalid_request', "Field 'crawler_id' is required and must be a valid UUID", 400, context);
   }
 
+  const crawlerPermission = await getCrawlerPermission(supabaseClient, body.crawler_id, userUUID);
+  if (crawlerPermission === undefined) {
+    return errorResponse('forbidden', 'You do not have permission to use this crawler', 403, context);
+  }
+
   if (typeof body.stage_order !== 'number' || !Number.isInteger(body.stage_order) || body.stage_order < 0) {
     return errorResponse('invalid_request', "Field 'stage_order' is required and must be a non-negative integer", 400, context);
   }
@@ -82,6 +92,12 @@ export async function handleCreateStage(
     }
   }
 
+  if (body.fan_out_strategy !== undefined) {
+    if (body.fan_out_strategy !== 'compact' && body.fan_out_strategy !== 'preserve') {
+      return errorResponse('invalid_request', "Field 'fan_out_strategy' must be 'compact' or 'preserve'", 400, context);
+    }
+  }
+
   try {
     const stage = await createSchedulerStage(supabaseClient, {
       scheduler_id: schedulerID,
@@ -90,6 +106,7 @@ export async function handleCreateStage(
       input_schema: body.input_schema,
       output_schema: body.output_schema,
       fan_out_field: body.fan_out_field,
+      fan_out_strategy: body.fan_out_strategy,
     });
 
     return jsonResponse(stage, 201, context);
@@ -177,6 +194,11 @@ export async function handleUpdateStage(
     if (typeof body.crawler_id !== 'string' || !UUID_PATTERN.test(body.crawler_id)) {
       return errorResponse('invalid_request', "Field 'crawler_id' must be a valid UUID", 400, context);
     }
+
+    const crawlerPermission = await getCrawlerPermission(supabaseClient, body.crawler_id, userUUID);
+    if (crawlerPermission === undefined) {
+      return errorResponse('forbidden', 'You do not have permission to use this crawler', 403, context);
+    }
   }
 
   if (body.input_schema !== undefined && !isPlainObject(body.input_schema)) {
@@ -193,7 +215,13 @@ export async function handleUpdateStage(
     }
   }
 
-  if (body.crawler_id === undefined && body.input_schema === undefined && body.output_schema === undefined && body.fan_out_field === undefined) {
+  if (body.fan_out_strategy !== undefined) {
+    if (body.fan_out_strategy !== 'compact' && body.fan_out_strategy !== 'preserve') {
+      return errorResponse('invalid_request', "Field 'fan_out_strategy' must be 'compact' or 'preserve'", 400, context);
+    }
+  }
+
+  if (body.crawler_id === undefined && body.input_schema === undefined && body.output_schema === undefined && body.fan_out_field === undefined && body.fan_out_strategy === undefined) {
     return errorResponse('invalid_request', 'At least one field must be provided for update', 400, context);
   }
 
@@ -202,6 +230,7 @@ export async function handleUpdateStage(
   if (body.input_schema !== undefined) updatePayload.input_schema = body.input_schema;
   if (body.output_schema !== undefined) updatePayload.output_schema = body.output_schema;
   if (body.fan_out_field !== undefined) updatePayload.fan_out_field = body.fan_out_field;
+  if (body.fan_out_strategy !== undefined) updatePayload.fan_out_strategy = body.fan_out_strategy;
 
   try {
     const stage = await updateSchedulerStage(supabaseClient, stageID, schedulerID, updatePayload);

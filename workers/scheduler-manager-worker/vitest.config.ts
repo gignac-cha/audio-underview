@@ -17,7 +17,7 @@ export default defineWorkersConfig({
             {
               name: 'audio-underview-crawler-manager-worker',
               modules: true,
-              script: 'export default { async fetch() { return new Response("{}"); } }',
+              script: 'export default { async fetch() { return Response.json({ success: true, result: null }); } }',
             },
           ],
         },

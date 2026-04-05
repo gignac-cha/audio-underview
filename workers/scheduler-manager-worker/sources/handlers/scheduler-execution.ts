@@ -3,6 +3,7 @@ import {
   jsonResponse,
 } from '@audio-underview/worker-tools';
 import {
+  type SchedulerRunStatus,
   createSupabaseClient,
   createSchedulerRun,
   getSchedulerRun,
@@ -23,7 +24,7 @@ export function resolveHTTPStatus(status: string, error: string | null | undefin
   if (error.includes('CodeRunner error') || error.includes('Invalid CrawlerExecuteResult')) return 502;
   if (error.includes('Supabase') || error.includes('database')) return 503;
 
-  return 200;
+  return 500;
 }
 
 const logger = createWorkerLogger({
@@ -94,7 +95,7 @@ export async function handleExecuteScheduler(
         status: 'failed',
         completed_at: new Date().toISOString(),
         error: message,
-      }).catch((updateError: unknown) => {
+      }, { onlyIfStatus: ['pending', 'running'] satisfies SchedulerRunStatus[] }).catch((updateError: unknown) => {
         logger.error('Failed to update run status after timeout', updateError, {
           function: 'handleExecuteScheduler',
           metadata: { schedulerID, runID: run.id },

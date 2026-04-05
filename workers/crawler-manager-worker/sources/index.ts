@@ -16,6 +16,7 @@ import {
   getCrawlerByID,
   updateCrawler,
   deleteCrawler,
+  createCrawlerPermission,
 } from '@audio-underview/supabase-connector';
 import { handleTokenExchange } from './token-exchange.ts';
 import { HTTPCodeRunnerClient } from './code-runner-client.ts';
@@ -169,6 +170,12 @@ async function handleCreateCrawler(
     code: body.code,
     input_schema: body.input_schema,
     output_schema: body.output_schema,
+  });
+
+  await createCrawlerPermission(supabaseClient, {
+    crawler_id: crawler.id,
+    user_uuid: userUUID,
+    level: 'owner',
   });
 
   return jsonResponse(crawler, 201, context);

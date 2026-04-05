@@ -6,6 +6,7 @@ export type {
   AccountRow,
   CrawlerRow,
   SchedulerRow,
+  FanOutStrategy,
   SchedulerStageRow,
   SchedulerRunRow,
   SchedulerStageRunRow,
@@ -24,6 +25,8 @@ export type {
   SocialLoginInput,
   SocialLoginResult,
   LinkAccountResult,
+  CrawlerPermissionLevel,
+  CrawlerPermissionRow,
   SupabaseConnectorConfiguration,
   Database,
 } from './database.ts';

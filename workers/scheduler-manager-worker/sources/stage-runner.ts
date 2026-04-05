@@ -47,8 +47,13 @@ export async function executeStage(
   runID: string,
   stage: SchedulerStageRow,
   input: unknown,
+  signal?: AbortSignal,
 ): Promise<StageResult> {
   const { supabaseClient, crawlerExecutionClient, logger } = dependencies;
+
+  if (signal?.aborted) {
+    throw new Error('Stage execution aborted: pipeline timed out');
+  }
 
   const stageRun = await createSchedulerStageRun(supabaseClient, {
     run_id: runID,
@@ -99,6 +104,7 @@ export async function executeFanOut(
   stage: SchedulerStageRow,
   items: unknown[],
   concurrency: number = 1,
+  signal?: AbortSignal,
 ): Promise<FanOutResult> {
   const { crawlerExecutionClient, logger } = dependencies;
 
@@ -110,6 +116,7 @@ export async function executeFanOut(
 
   async function worker(): Promise<void> {
     while (nextIndex < items.length) {
+      if (signal?.aborted) break;
       const index = nextIndex++;
       const item = items[index];
       try {
@@ -138,10 +145,13 @@ export async function executeFanOut(
     status = 'failed';
   }
 
-  const successfulResults = results.filter((result) => result !== FAN_OUT_FAILED);
+  const strategy = stage.fan_out_strategy ?? 'compact';
+  const finalResults = strategy === 'preserve'
+    ? results.map((result) => result === FAN_OUT_FAILED ? null : result)
+    : results.filter((result) => result !== FAN_OUT_FAILED);
 
   return {
-    results: successfulResults,
+    results: finalResults,
     itemsTotal: items.length,
     itemsSucceeded,
     itemsFailed,

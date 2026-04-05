@@ -26,9 +26,10 @@ function mockStage(overrides: Partial<SchedulerStageRow> = {}): SchedulerStageRo
     input_schema: { url: { type: 'string', default: 'https://example.com' } },
     output_schema: {},
     fan_out_field: null,
+    fan_out_strategy: 'compact',
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
-  };
+  } as SchedulerStageRow;
 }
 
 function mockStageRunRow(overrides: Record<string, unknown> = {}) {

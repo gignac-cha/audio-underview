@@ -26,9 +26,10 @@ function mockStage(overrides: Partial<SchedulerStageRow> = {}): SchedulerStageRo
     input_schema: { url: { type: 'string', default: 'https://example.com' } },
     output_schema: {},
     fan_out_field: null,
+    fan_out_strategy: 'compact',
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
-  };
+  } as SchedulerStageRow;
 }
 
 function mockRunRow(overrides: Record<string, unknown> = {}) {
@@ -473,14 +474,21 @@ describe('executeScheduler', () => {
     mockUpdateStageRun({ status: 'failed' });
     // 5. catch: updateSchedulerRun → failed
     mockUpdateSchedulerRun({ status: 'failed' });
-    // finally: updateScheduler → this is what we're testing
-    mockUpdateScheduler();
+    // finally: updateScheduler → capture request body to verify last_run_at
+    let capturedBody: Record<string, unknown> | undefined;
+    fetchMock
+      .get('https://supabase.example.com')
+      .intercept({ path: /^\/rest\/v1\/schedulers/, method: 'PATCH' })
+      .reply(200, (request: { body: string }) => {
+        capturedBody = JSON.parse(request.body as string) as Record<string, unknown>;
+        return { data: JSON.stringify(mockSchedulerRow()) };
+      });
 
     await executeScheduler(dependencies, SCHEDULER_ID, USER_UUID, RUN_ID);
 
-    // The function should not throw; the finally block should have run.
-    // We verify by checking that all interceptors were consumed (no pending interceptors).
-    // The updateScheduler mock being consumed confirms finally block ran.
+    expect(capturedBody).toBeDefined();
+    expect(capturedBody!.last_run_at).toBeDefined();
+    expect(typeof capturedBody!.last_run_at).toBe('string');
   });
 
   it('logs error but does not throw when run status update fails in catch block', async () => {

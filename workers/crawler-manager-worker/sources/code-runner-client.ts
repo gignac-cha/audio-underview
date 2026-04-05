@@ -126,8 +126,16 @@ export class HTTPCodeRunnerClient implements CodeRunnerClient {
       }
 
       if (response.ok) {
-        const result = validateCodeRunnerResult(await response.json());
-        return result;
+        try {
+          const result = validateCodeRunnerResult(await response.json());
+          return result;
+        } catch (error: unknown) {
+          throw new CodeRunnerExecutionError(
+            'invalid_response',
+            error instanceof Error ? error.message : 'Failed to parse code runner response',
+            response.status,
+          );
+        }
       }
 
       if (isRetryableStatusCode(response.status)) {

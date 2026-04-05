@@ -60,8 +60,12 @@ export async function executeCrawler(
               crawlerID: crawler.id,
             }, { function: 'executeCrawler' });
           }
-        } catch {
-          // Invalid regex — skip validation
+        } catch (error: unknown) {
+          logger.warn('Invalid url_pattern regex', {
+            urlPattern: crawler.url_pattern,
+            crawlerID: crawler.id,
+            error: error instanceof Error ? error.message : String(error),
+          }, { function: 'executeCrawler' });
         }
       }
     }

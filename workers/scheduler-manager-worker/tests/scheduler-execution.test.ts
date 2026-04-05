@@ -15,8 +15,8 @@ describe('resolveHTTPStatus', () => {
     expect(resolveHTTPStatus('failed', null)).toBe(200);
   });
 
-  it('returns 200 for failed with unknown error', () => {
-    expect(resolveHTTPStatus('failed', 'Something went wrong')).toBe(200);
+  it('returns 500 for failed with unknown error', () => {
+    expect(resolveHTTPStatus('failed', 'Something went wrong')).toBe(500);
   });
 
   it('returns 408 for pipeline timeout', () => {

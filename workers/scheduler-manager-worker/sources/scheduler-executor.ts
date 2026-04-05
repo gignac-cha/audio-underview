@@ -58,6 +58,8 @@ export async function executeScheduler(
     let hasPartialFailure = false;
 
     for (const stage of stages) {
+      if (signal?.aborted) break;
+
       // Fan-out check
       if (stage.fan_out_field) {
         if (currentInput !== null && currentInput !== undefined && typeof currentInput !== 'object') {
@@ -108,6 +110,8 @@ export async function executeScheduler(
           stageRunnerDependencies,
           stage,
           fanOutItems,
+          1,
+          signal,
         );
 
         await updateSchedulerStageRun(supabaseClient, stageRun.id, runID, {
@@ -138,6 +142,7 @@ export async function executeScheduler(
           runID,
           stage,
           currentInput,
+          signal,
         );
 
         currentInput = stageResult.output;
