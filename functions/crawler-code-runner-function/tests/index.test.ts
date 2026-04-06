@@ -109,7 +109,7 @@ describe('crawler-code-runner-function', () => {
         path: '/run',
         origin: 'https://example.com',
         contentType: 'application/json',
-        body: JSON.stringify({ url: 'https://example.com', code: '(x) => x' }),
+        body: JSON.stringify({ mode: 'test', url: 'https://example.com', code: '(x) => x' }),
       });
       const response = await handler(event);
 
@@ -125,22 +125,55 @@ describe('crawler-code-runner-function', () => {
         path: '/run',
         origin: 'https://example.com',
         contentType: 'application/json',
-        body: JSON.stringify({ type: 'invalid', url: 'https://example.com', code: '(x) => x' }),
+        body: JSON.stringify({ type: 'invalid', mode: 'test', url: 'https://example.com', code: '(x) => x' }),
       });
       const response = await handler(event);
 
       expect(response.statusCode).toBe(400);
       const body = JSON.parse(response.body);
       expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toContain('type');
     });
 
-    it('returns 400 for missing url field', async () => {
+    it('returns 400 for missing mode field', async () => {
       const event = createEvent({
         method: 'POST',
         path: '/run',
         origin: 'https://example.com',
         contentType: 'application/json',
-        body: JSON.stringify({ type: 'run', code: '(x) => x' }),
+        body: JSON.stringify({ type: 'web', url: 'https://example.com', code: '(x) => x' }),
+      });
+      const response = await handler(event);
+
+      expect(response.statusCode).toBe(400);
+      const body = JSON.parse(response.body);
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toContain('mode');
+    });
+
+    it('returns 400 for invalid mode value', async () => {
+      const event = createEvent({
+        method: 'POST',
+        path: '/run',
+        origin: 'https://example.com',
+        contentType: 'application/json',
+        body: JSON.stringify({ type: 'web', mode: 'invalid', url: 'https://example.com', code: '(x) => x' }),
+      });
+      const response = await handler(event);
+
+      expect(response.statusCode).toBe(400);
+      const body = JSON.parse(response.body);
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toContain('mode');
+    });
+
+    it('returns 400 for missing url field when type is web', async () => {
+      const event = createEvent({
+        method: 'POST',
+        path: '/run',
+        origin: 'https://example.com',
+        contentType: 'application/json',
+        body: JSON.stringify({ type: 'web', mode: 'run', code: '(x) => x' }),
       });
       const response = await handler(event);
 
@@ -150,13 +183,29 @@ describe('crawler-code-runner-function', () => {
       expect(body.error_description).toContain('url');
     });
 
+    it('returns 400 for missing data field when type is data', async () => {
+      const event = createEvent({
+        method: 'POST',
+        path: '/run',
+        origin: 'https://example.com',
+        contentType: 'application/json',
+        body: JSON.stringify({ type: 'data', mode: 'run', code: '(x) => x' }),
+      });
+      const response = await handler(event);
+
+      expect(response.statusCode).toBe(400);
+      const body = JSON.parse(response.body);
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toContain('data');
+    });
+
     it('returns 400 for missing code field', async () => {
       const event = createEvent({
         method: 'POST',
         path: '/run',
         origin: 'https://example.com',
         contentType: 'application/json',
-        body: JSON.stringify({ type: 'run', url: 'https://example.com' }),
+        body: JSON.stringify({ type: 'web', mode: 'run', url: 'https://example.com' }),
       });
       const response = await handler(event);
 
@@ -172,7 +221,7 @@ describe('crawler-code-runner-function', () => {
         path: '/run',
         origin: 'https://example.com',
         contentType: 'application/json',
-        body: JSON.stringify({ type: 'run', url: 'not-a-url', code: '(x) => x' }),
+        body: JSON.stringify({ type: 'web', mode: 'run', url: 'not-a-url', code: '(x) => x' }),
       });
       const response = await handler(event);
 
@@ -183,7 +232,7 @@ describe('crawler-code-runner-function', () => {
     });
   });
 
-  describe('POST /run fetch failures', () => {
+  describe('POST /run web type - fetch failures', () => {
     it('returns 502 when target URL fetch fails', async () => {
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')));
 
@@ -193,7 +242,8 @@ describe('crawler-code-runner-function', () => {
         origin: 'https://example.com',
         contentType: 'application/json',
         body: JSON.stringify({
-          type: 'run',
+          type: 'web',
+          mode: 'run',
           url: 'https://target.example.com/data',
           code: '(text) => text',
         }),
@@ -208,7 +258,7 @@ describe('crawler-code-runner-function', () => {
     });
   });
 
-  describe('POST /run execution failures', () => {
+  describe('POST /run web type - execution failures', () => {
     beforeEach(() => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
         status: 200,
@@ -227,7 +277,8 @@ describe('crawler-code-runner-function', () => {
         origin: 'https://example.com',
         contentType: 'application/json',
         body: JSON.stringify({
-          type: 'run',
+          type: 'web',
+          mode: 'run',
           url: 'https://target.example.com/data',
           code: '(text) => { throw new Error("intentional error"); }',
         }),
@@ -247,7 +298,8 @@ describe('crawler-code-runner-function', () => {
         origin: 'https://example.com',
         contentType: 'application/json',
         body: JSON.stringify({
-          type: 'run',
+          type: 'web',
+          mode: 'run',
           url: 'https://target.example.com/data',
           code: '((( invalid syntax',
         }),
@@ -260,12 +312,12 @@ describe('crawler-code-runner-function', () => {
     });
   });
 
-  describe('POST /run successful execution', () => {
+  describe('POST /run web type - successful execution', () => {
     afterEach(() => {
       vi.unstubAllGlobals();
     });
 
-    it('executes code and returns result with type test', async () => {
+    it('executes code and returns result with mode test', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
         status: 200,
         text: () => Promise.resolve('hello world'),
@@ -277,7 +329,8 @@ describe('crawler-code-runner-function', () => {
         origin: 'https://example.com',
         contentType: 'application/json',
         body: JSON.stringify({
-          type: 'test',
+          type: 'web',
+          mode: 'test',
           url: 'https://target.example.com/data',
           code: '(text) => text.toUpperCase()',
         }),
@@ -286,11 +339,12 @@ describe('crawler-code-runner-function', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.type).toBe('test');
+      expect(body.type).toBe('web');
+      expect(body.mode).toBe('test');
       expect(body.result).toBe('HELLO WORLD');
     });
 
-    it('executes code and returns result with type run', async () => {
+    it('executes code and returns result with mode run', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
         status: 200,
         text: () => Promise.resolve('hello world'),
@@ -302,7 +356,8 @@ describe('crawler-code-runner-function', () => {
         origin: 'https://example.com',
         contentType: 'application/json',
         body: JSON.stringify({
-          type: 'run',
+          type: 'web',
+          mode: 'run',
           url: 'https://target.example.com/data',
           code: '(text) => text.length',
         }),
@@ -311,7 +366,8 @@ describe('crawler-code-runner-function', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.type).toBe('run');
+      expect(body.type).toBe('web');
+      expect(body.mode).toBe('run');
       expect(body.result).toBe(11);
     });
 
@@ -327,7 +383,8 @@ describe('crawler-code-runner-function', () => {
         origin: 'https://example.com',
         contentType: 'application/json',
         body: JSON.stringify({
-          type: 'run',
+          type: 'web',
+          mode: 'run',
           url: 'https://target.example.com/page',
           code: '(text) => ({ length: text.length, hasTitle: text.includes("<title>") })',
         }),
@@ -336,7 +393,8 @@ describe('crawler-code-runner-function', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.type).toBe('run');
+      expect(body.type).toBe('web');
+      expect(body.mode).toBe('run');
       expect(body.result.length).toBe(43);
       expect(body.result.hasTitle).toBe(true);
     });
@@ -353,7 +411,8 @@ describe('crawler-code-runner-function', () => {
         origin: 'https://example.com',
         contentType: 'application/json',
         body: JSON.stringify({
-          type: 'run',
+          type: 'web',
+          mode: 'run',
           url: 'https://target.example.com/data',
           code: 'async (text) => text.split(" ")',
         }),
@@ -362,7 +421,8 @@ describe('crawler-code-runner-function', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.type).toBe('run');
+      expect(body.type).toBe('web');
+      expect(body.mode).toBe('run');
       expect(body.result).toEqual(['async', 'test']);
     });
 
@@ -373,7 +433,8 @@ describe('crawler-code-runner-function', () => {
       }));
 
       const rawBody = JSON.stringify({
-        type: 'test',
+        type: 'web',
+        mode: 'test',
         url: 'https://target.example.com/data',
         code: '(text) => text.toUpperCase()',
       });
@@ -389,8 +450,228 @@ describe('crawler-code-runner-function', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.type).toBe('test');
+      expect(body.type).toBe('web');
+      expect(body.mode).toBe('test');
       expect(body.result).toBe('HELLO');
+    });
+
+    it('normalizes undefined result to null', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        status: 200,
+        text: () => Promise.resolve('hello'),
+      }));
+
+      const event = createEvent({
+        method: 'POST',
+        path: '/run',
+        origin: 'https://example.com',
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'web',
+          mode: 'run',
+          url: 'https://target.example.com/data',
+          code: '(text) => undefined',
+        }),
+      });
+      const response = await handler(event);
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.result).toBeNull();
+    });
+  });
+
+  describe('POST /run data type - successful execution', () => {
+    it('executes code against provided data object', async () => {
+      const event = createEvent({
+        method: 'POST',
+        path: '/run',
+        origin: 'https://example.com',
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'data',
+          mode: 'run',
+          data: { items: [1, 2, 3] },
+          code: '(data) => data.items.length',
+        }),
+      });
+      const response = await handler(event);
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.type).toBe('data');
+      expect(body.mode).toBe('run');
+      expect(body.result).toBe(3);
+    });
+
+    it('executes code against provided data array', async () => {
+      const event = createEvent({
+        method: 'POST',
+        path: '/run',
+        origin: 'https://example.com',
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'data',
+          mode: 'test',
+          data: [10, 20, 30],
+          code: '(data) => data.map((x) => x * 2)',
+        }),
+      });
+      const response = await handler(event);
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.type).toBe('data');
+      expect(body.mode).toBe('test');
+      expect(body.result).toEqual([20, 40, 60]);
+    });
+
+    it('executes code against provided string data', async () => {
+      const event = createEvent({
+        method: 'POST',
+        path: '/run',
+        origin: 'https://example.com',
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'data',
+          mode: 'run',
+          data: 'hello world',
+          code: '(data) => data.toUpperCase()',
+        }),
+      });
+      const response = await handler(event);
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.type).toBe('data');
+      expect(body.mode).toBe('run');
+      expect(body.result).toBe('HELLO WORLD');
+    });
+
+    it('executes code against null data', async () => {
+      const event = createEvent({
+        method: 'POST',
+        path: '/run',
+        origin: 'https://example.com',
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'data',
+          mode: 'run',
+          data: null,
+          code: '(data) => data === null ? "was null" : "not null"',
+        }),
+      });
+      const response = await handler(event);
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.type).toBe('data');
+      expect(body.mode).toBe('run');
+      expect(body.result).toBe('was null');
+    });
+
+    it('ensures Array.isArray works for array data in sandbox', async () => {
+      const event = createEvent({
+        method: 'POST',
+        path: '/run',
+        origin: 'https://example.com',
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'data',
+          mode: 'test',
+          data: [1, 2, 3],
+          code: '(data) => Array.isArray(data)',
+        }),
+      });
+      const response = await handler(event);
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.result).toBe(true);
+    });
+
+    it('normalizes undefined result to null for data type', async () => {
+      const event = createEvent({
+        method: 'POST',
+        path: '/run',
+        origin: 'https://example.com',
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'data',
+          mode: 'run',
+          data: 'anything',
+          code: '(data) => undefined',
+        }),
+      });
+      const response = await handler(event);
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.result).toBeNull();
+    });
+
+    it('does not perform SSRF check for data type', async () => {
+      // data type should not trigger any fetch or DNS lookup
+      const event = createEvent({
+        method: 'POST',
+        path: '/run',
+        origin: 'https://example.com',
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'data',
+          mode: 'run',
+          data: { value: 42 },
+          code: '(data) => data.value + 1',
+        }),
+      });
+      const response = await handler(event);
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.result).toBe(43);
+    });
+  });
+
+  describe('POST /run data type - execution failures', () => {
+    it('returns 422 when code execution throws an error', async () => {
+      const event = createEvent({
+        method: 'POST',
+        path: '/run',
+        origin: 'https://example.com',
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'data',
+          mode: 'run',
+          data: { value: 1 },
+          code: '(data) => { throw new Error("data processing error"); }',
+        }),
+      });
+      const response = await handler(event);
+
+      expect(response.statusCode).toBe(422);
+      const body = JSON.parse(response.body);
+      expect(body.error).toBe('execution_failed');
+      expect(body.error_description).toContain('data processing error');
+    });
+
+    it('returns 422 when code is syntactically invalid', async () => {
+      const event = createEvent({
+        method: 'POST',
+        path: '/run',
+        origin: 'https://example.com',
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'data',
+          mode: 'run',
+          data: 'test',
+          code: '((( invalid syntax',
+        }),
+      });
+      const response = await handler(event);
+
+      expect(response.statusCode).toBe(422);
+      const body = JSON.parse(response.body);
+      expect(body.error).toBe('execution_failed');
     });
   });
 

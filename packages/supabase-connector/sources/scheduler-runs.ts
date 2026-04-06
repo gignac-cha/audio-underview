@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { traceDatabaseOperation, SpanStatusCode } from '@audio-underview/axiom-logger/tracers';
 import type {
   Database,
+  SchedulerRunStatus,
   SchedulerRunRow,
   SchedulerRunsInsert,
   SchedulerRunsUpdate,
@@ -79,6 +80,7 @@ export async function updateSchedulerRun(
   id: string,
   schedulerID: string,
   input: SchedulerRunsUpdate,
+  options?: { onlyIfStatus?: readonly SchedulerRunStatus[] },
 ): Promise<SchedulerRunRow | null> {
   return traceDatabaseOperation(
     { serviceName: 'supabase-connector', operation: 'update', table: 'scheduler_runs' },
@@ -86,11 +88,17 @@ export async function updateSchedulerRun(
       span.setAttribute('db.update.id', id);
       span.setAttribute('db.update.scheduler_id', schedulerID);
 
-      const { data, error } = await client
+      let query = client
         .from('scheduler_runs')
         .update(input)
         .eq('id', id)
-        .eq('scheduler_id', schedulerID)
+        .eq('scheduler_id', schedulerID);
+
+      if (options?.onlyIfStatus !== undefined) {
+        query = query.in('status', options.onlyIfStatus);
+      }
+
+      const { data, error } = await query
         .select()
         .single();
 

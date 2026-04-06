@@ -1,5 +1,5 @@
 export interface CodeRunner {
-  execute(data: string): Promise<unknown>;
+  execute(data: unknown): Promise<unknown>;
 }
 
 export const MAX_CODE_LENGTH = 10_000;

@@ -97,7 +97,12 @@ export interface SchedulerRow {
  * (e.g. { url: { type: "string", default: "https://..." } }).
  * output_schema is derived from the crawler's output_schema.
  * fan_out_field names the array field in previous output to fan-out over.
+ * fan_out_strategy controls how failed items are handled:
+ *   'compact' (default) — remove failed items from results
+ *   'preserve' — keep failed items as null, preserving positional alignment
  */
+export type FanOutStrategy = 'compact' | 'preserve';
+
 export interface SchedulerStageRow {
   [key: string]: unknown;
   id: string;
@@ -107,6 +112,7 @@ export interface SchedulerStageRow {
   input_schema: Record<string, unknown>;
   output_schema: Record<string, unknown>;
   fan_out_field: string | null;
+  fan_out_strategy: FanOutStrategy;
   created_at: string;
 }
 
@@ -126,7 +132,7 @@ export interface SchedulerRunRow {
   status: SchedulerRunStatus;
   started_at: string | null;
   completed_at: string | null;
-  result: Record<string, unknown> | null;
+  result: unknown;
   error: string | null;
   created_at: string;
 }
@@ -144,12 +150,30 @@ export interface SchedulerStageRunRow {
   status: SchedulerRunStatus;
   started_at: string | null;
   completed_at: string | null;
-  input: Record<string, unknown> | null;
-  output: Record<string, unknown> | null;
+  input: unknown;
+  output: unknown;
   error: string | null;
   items_total: number | null;
   items_succeeded: number | null;
   items_failed: number | null;
+  created_at: string;
+}
+
+/**
+ * Crawler permission level type
+ */
+export type CrawlerPermissionLevel = 'owner' | 'subscriber';
+
+/**
+ * Crawler permission table row type
+ * Controls who can use a crawler in their scheduler stages.
+ */
+export interface CrawlerPermissionRow {
+  [key: string]: unknown;
+  id: string;
+  crawler_id: string;
+  user_uuid: string;
+  level: CrawlerPermissionLevel;
   created_at: string;
 }
 
@@ -249,6 +273,7 @@ export interface Database {
           input_schema: Record<string, unknown>;
           output_schema?: Record<string, unknown>;
           fan_out_field?: string | null;
+          fan_out_strategy?: FanOutStrategy;
         };
         Update: Partial<Omit<SchedulerStageRow, 'id' | 'scheduler_id' | 'created_at'>>;
         Relationships: [
@@ -277,7 +302,7 @@ export interface Database {
           status?: SchedulerRunStatus;
           started_at?: string | null;
           completed_at?: string | null;
-          result?: Record<string, unknown> | null;
+          result?: unknown;
           error?: string | null;
         };
         Update: Partial<Omit<SchedulerRunRow, 'id' | 'scheduler_id' | 'created_at'>>;
@@ -302,8 +327,8 @@ export interface Database {
           status?: SchedulerRunStatus;
           started_at?: string | null;
           completed_at?: string | null;
-          input?: Record<string, unknown> | null;
-          output?: Record<string, unknown> | null;
+          input?: unknown;
+          output?: unknown;
           error?: string | null;
           items_total?: number | null;
           items_succeeded?: number | null;
@@ -327,6 +352,33 @@ export interface Database {
           },
         ];
       };
+      crawler_permissions: {
+        Row: CrawlerPermissionRow;
+        Insert: {
+          [key: string]: unknown;
+          id?: string;
+          crawler_id: string;
+          user_uuid: string;
+          level: CrawlerPermissionLevel;
+        };
+        Update: Partial<Omit<CrawlerPermissionRow, 'id' | 'created_at'>>;
+        Relationships: [
+          {
+            foreignKeyName: 'crawler_permissions_crawler_id_fkey';
+            columns: ['crawler_id'];
+            isOneToOne: false;
+            referencedRelation: 'crawlers';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'crawler_permissions_user_uuid_fkey';
+            columns: ['user_uuid'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['uuid'];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -342,6 +394,7 @@ export interface Database {
       provider_type: ProviderType;
       crawler_type: CrawlerType;
       scheduler_run_status: SchedulerRunStatus;
+      crawler_permission_level: CrawlerPermissionLevel;
     };
     CompositeTypes: Record<string, never>;
   };

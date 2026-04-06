@@ -8,6 +8,8 @@ ALLOWED_ORIGINS = "http://localhost:5173,https://audio-underview.pages.dev"
 # Secrets (set via wrangler secret put):
 # SUPABASE_URL
 # SUPABASE_SECRET_KEY
+# JWT_SECRET
+# CODE_RUNNER_FUNCTION_URL
 
 [observability.logs]
 enabled = true

@@ -1,3 +1,5 @@
+import { WorkerEntrypoint } from 'cloudflare:workers';
+import { isSafeURLPattern } from './safe-url-pattern.ts';
 import { createWorkerLogger } from '@audio-underview/logger';
 import {
   type ResponseContext,
@@ -11,16 +13,24 @@ import {
   createCrawler,
   listCrawlersByUser,
   getCrawler,
+  getCrawlerByID,
   updateCrawler,
   deleteCrawler,
+  createCrawlerPermission,
 } from '@audio-underview/supabase-connector';
 import { handleTokenExchange } from './token-exchange.ts';
+import { HTTPCodeRunnerClient } from './code-runner-client.ts';
+import { executeCrawler } from './crawler-executor.ts';
+import type { CrawlerExecuteResult } from './crawler-executor.ts';
+
+export type { CrawlerExecuteResult };
 
 interface Environment {
   ALLOWED_ORIGINS: string;
   SUPABASE_URL: string;
   SUPABASE_SECRET_KEY: string;
   JWT_SECRET: string;
+  CODE_RUNNER_FUNCTION_URL: string;
 }
 
 interface CreateCrawlerRequestBody {
@@ -51,10 +61,6 @@ const HELP = {
   ],
 };
 
-function hasNestedQuantifiers(pattern: string): boolean {
-  // Detect patterns like (a+)+, (.*)*, (a{2,})+, etc.
-  return /(\([^)]*[+*][^)]*\))[+*]|\(\?:[^)]*[+*][^)]*\)[+*]/.test(pattern);
-}
 
 async function validateCrawlerBody(
   request: Request,
@@ -115,7 +121,7 @@ async function validateCrawlerBody(
       return errorResponse('invalid_request', `Field 'url_pattern' must not exceed ${MAX_URL_PATTERN_LENGTH} characters`, 400, context);
     }
 
-    if (hasNestedQuantifiers(body.url_pattern)) {
+    if (!isSafeURLPattern(body.url_pattern)) {
       return errorResponse('invalid_request', "Field 'url_pattern' contains potentially unsafe regex pattern", 400, context);
     }
 
@@ -164,6 +170,12 @@ async function handleCreateCrawler(
     code: body.code,
     input_schema: body.input_schema,
     output_schema: body.output_schema,
+  });
+
+  await createCrawlerPermission(supabaseClient, {
+    crawler_id: crawler.id,
+    user_uuid: userUUID,
+    level: 'owner',
   });
 
   return jsonResponse(crawler, 201, context);
@@ -293,8 +305,9 @@ function parseCrawlerID(pathname: string): string | null {
   return id;
 }
 
-export default {
-  async fetch(request: Request, environment: Environment): Promise<Response> {
+export default class CrawlerManagerWorker extends WorkerEntrypoint<Environment> {
+  async fetch(request: Request): Promise<Response> {
+    const environment = this.env;
     const url = new URL(request.url);
     const origin = request.headers.get('Origin') ?? '';
 
@@ -404,5 +417,27 @@ export default {
       logger.error('Unhandled worker error', error, { function: 'fetch' });
       return errorResponse('server_error', 'An unexpected error occurred', 500, context);
     }
-  },
-};
+  }
+
+  // Service Binding RPC — called by scheduler-manager-worker only.
+  // No user ownership check: binding declaration itself is the access control.
+  async executeCrawler(crawlerID: string, input: unknown): Promise<CrawlerExecuteResult> {
+    const rpcLogger = logger.createChild({
+      function: 'executeCrawler',
+      metadata: { crawlerID },
+    });
+
+    const supabaseClient = createSupabaseClient({
+      supabaseURL: this.env.SUPABASE_URL,
+      supabaseSecretKey: this.env.SUPABASE_SECRET_KEY,
+    });
+
+    const crawler = await getCrawlerByID(supabaseClient, crawlerID);
+    if (!crawler) {
+      throw new Error(`Crawler ${crawlerID} not found`);
+    }
+
+    const codeRunnerClient = new HTTPCodeRunnerClient(this.env.CODE_RUNNER_FUNCTION_URL);
+    return executeCrawler(codeRunnerClient, crawler, input, rpcLogger);
+  }
+}

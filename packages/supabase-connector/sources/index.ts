@@ -7,6 +7,7 @@ export type {
   AccountRow,
   CrawlerRow,
   SchedulerRow,
+  FanOutStrategy,
   SchedulerStageRow,
   SchedulerRunRow,
   SchedulerStageRunRow,
@@ -25,6 +26,8 @@ export type {
   SocialLoginInput,
   SocialLoginResult,
   LinkAccountResult,
+  CrawlerPermissionLevel,
+  CrawlerPermissionRow,
   SupabaseConnectorConfiguration,
   Database,
 } from './types/index.ts';
@@ -52,9 +55,17 @@ export {
   createCrawler,
   listCrawlersByUser,
   getCrawler,
+  getCrawlerByID,
   updateCrawler,
   deleteCrawler,
 } from './crawlers.ts';
+
+// Crawler permission operations
+export {
+  createCrawlerPermission,
+  getCrawlerPermission,
+  deleteCrawlerPermission,
+} from './crawler-permissions.ts';
 
 // Scheduler operations
 export type { PaginatedSchedulers } from './schedulers.ts';
@@ -84,3 +95,10 @@ export {
   updateSchedulerRun,
   listSchedulerRuns,
 } from './scheduler-runs.ts';
+
+// Scheduler stage run operations
+export {
+  createSchedulerStageRun,
+  updateSchedulerStageRun,
+  listSchedulerStageRunsByRun,
+} from './scheduler-stage-runs.ts';

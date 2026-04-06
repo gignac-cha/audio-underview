@@ -47,6 +47,7 @@ function mockStageResponse(overrides: Record<string, unknown> = {}) {
     input_schema: { url: { type: 'string', default: 'https://example.com' } },
     output_schema: {},
     fan_out_field: null,
+    fan_out_strategy: 'compact',
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
   };
@@ -87,6 +88,19 @@ function mockSupabaseSchedulerGet(data: unknown = mockSchedulerResponse()) {
     .get('https://supabase.example.com')
     .intercept({ path: /^\/rest\/v1\/schedulers/, method: 'GET' })
     .reply(200, JSON.stringify(data));
+}
+
+function mockCrawlerPermission() {
+  fetchMock
+    .get('https://supabase.example.com')
+    .intercept({ path: /^\/rest\/v1\/crawler_permissions/, method: 'GET' })
+    .reply(200, JSON.stringify({
+      id: '00000000-0000-0000-0000-000000000099',
+      crawler_id: MOCK_CRAWLER_ID,
+      user_uuid: MOCK_USER_UUID,
+      level: 'owner',
+      created_at: '2026-01-01T00:00:00Z',
+    }));
 }
 
 function mockSupabaseSchedulerNotFound() {
@@ -402,6 +416,8 @@ describe('scheduler-manager-worker', () => {
     it('creates a stage and returns 201', async () => {
       // Mock scheduler ownership check
       mockSupabaseSchedulerGet();
+      // Mock crawler permission check
+      mockCrawlerPermission();
       // Mock stage creation
       fetchMock
         .get('https://supabase.example.com')

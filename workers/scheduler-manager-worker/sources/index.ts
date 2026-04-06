@@ -27,6 +27,7 @@ import {
   handleListRuns,
   handleGetRun,
 } from './handlers/scheduler-runs.ts';
+import { handleExecuteScheduler } from './handlers/scheduler-execution.ts';
 import { UUID_PATTERN } from './handlers/tools.ts';
 
 export interface Environment {
@@ -34,6 +35,7 @@ export interface Environment {
   SUPABASE_URL: string;
   SUPABASE_SECRET_KEY: string;
   JWT_SECRET: string;
+  CRAWLER_MANAGER: Service;
 }
 
 const logger = createWorkerLogger({
@@ -60,12 +62,14 @@ const HELP = {
     { method: 'PUT', path: '/schedulers/:id/stages/reorder', description: 'Reorder stages' },
     { method: 'GET', path: '/schedulers/:id/runs', description: 'List runs for a scheduler' },
     { method: 'GET', path: '/schedulers/:id/runs/:runID', description: 'Get a run by ID' },
+    { method: 'POST', path: '/schedulers/:id/execute', description: 'Execute a scheduler pipeline' },
   ],
 };
 
 interface ParsedRoute {
   type: 'schedulers_collection'
     | 'scheduler_single'
+    | 'scheduler_execute'
     | 'stages_collection'
     | 'stage_single'
     | 'stages_reorder'
@@ -89,6 +93,14 @@ function parseRoute(pathname: string): ParsedRoute {
     const id = schedulerMatch[1];
     if (!UUID_PATTERN.test(id)) return { type: null };
     return { type: 'scheduler_single', schedulerID: id };
+  }
+
+  // /schedulers/:id/execute
+  const executeMatch = pathname.match(/^\/schedulers\/([0-9a-f-]+)\/execute$/i);
+  if (executeMatch) {
+    const id = executeMatch[1];
+    if (!UUID_PATTERN.test(id)) return { type: null };
+    return { type: 'scheduler_execute', schedulerID: id };
   }
 
   // /schedulers/:id/stages/reorder
@@ -234,6 +246,15 @@ export default {
             }
             const response = errorResponse('method_not_allowed', 'Method not allowed', 405, context);
             response.headers.set('Allow', 'GET, PUT, DELETE');
+            return response;
+          }
+
+          case 'scheduler_execute': {
+            if (request.method === 'POST') {
+              return await handleExecuteScheduler(environment, context, route.schedulerID!, userUUID);
+            }
+            const response = errorResponse('method_not_allowed', 'Method not allowed', 405, context);
+            response.headers.set('Allow', 'POST');
             return response;
           }
 

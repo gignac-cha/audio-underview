@@ -39,3 +39,22 @@ export interface OAuthWorkerOptions<Environment extends BaseEnvironment> {
   logger: Logger;
   handlers: OAuthWorkerHandlers<Environment>;
 }
+
+export interface CrawlerExecuteResult {
+  type: 'web' | 'data';
+  result: unknown;
+}
+
+export function validateCrawlerExecuteResult(value: unknown): CrawlerExecuteResult {
+  if (value === null || value === undefined || typeof value !== 'object') {
+    throw new Error('Invalid CrawlerExecuteResult: expected object');
+  }
+  const record = value as Record<string, unknown>;
+  if (record.type !== 'web' && record.type !== 'data') {
+    throw new Error(`Invalid CrawlerExecuteResult: expected type 'web' or 'data', got '${String(record.type)}'`);
+  }
+  if (!('result' in record)) {
+    throw new Error('Invalid CrawlerExecuteResult: missing result field');
+  }
+  return { type: record.type, result: record.result };
+}
