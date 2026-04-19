@@ -191,9 +191,9 @@ function renderJSON(value: unknown, indent: number = 0): ReactNode {
 type Status = 'idle' | 'running' | 'success' | 'error';
 
 interface JSONResultPanelProperties {
-  result: { type: string; result: unknown } | null;
+  result: { type: string; result: unknown } | undefined;
   status: Status;
-  error?: Error | null;
+  error?: Error;
 }
 
 export function JSONResultPanel({ result, status, error }: JSONResultPanelProperties) {

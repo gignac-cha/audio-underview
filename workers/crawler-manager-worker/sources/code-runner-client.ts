@@ -5,7 +5,7 @@ export interface CodeRunnerResult {
 }
 
 export function validateCodeRunnerResult(value: unknown): CodeRunnerResult {
-  if (value == null || typeof value !== 'object') {
+  if (typeof value !== 'object' || value === null) {
     throw new CodeRunnerExecutionError('invalid_response', 'Expected object from code-runner', 0);
   }
   const record = value as Record<string, unknown>;

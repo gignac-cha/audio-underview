@@ -76,7 +76,7 @@ describe('getScheduler', () => {
     });
 
     const result = await getScheduler(client, 'scheduler-1', 'uuid-1');
-    expect(result).toBeNull();
+    expect(result).toBeUndefined();
   });
 });
 
@@ -95,7 +95,7 @@ describe('updateScheduler', () => {
     });
 
     const result = await updateScheduler(client, 'scheduler-1', 'uuid-1', { name: 'Updated' });
-    expect(result).toBeNull();
+    expect(result).toBeUndefined();
   });
 });
 

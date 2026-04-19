@@ -96,14 +96,14 @@ async function validateCrawlerBody(
 
   // For data crawlers, input_schema is required
   if (crawlerType === 'data') {
-    if (body.input_schema == null || typeof body.input_schema !== 'object' || Array.isArray(body.input_schema)) {
+    if (typeof body.input_schema !== 'object' || body.input_schema === null || Array.isArray(body.input_schema)) {
       return errorResponse('invalid_request', "Field 'input_schema' is required for data crawlers and must be a JSON object", 400, context);
     }
   }
 
   // Validate output_schema if provided
   if (body.output_schema !== undefined) {
-    if (typeof body.output_schema !== 'object' || body.output_schema == null || Array.isArray(body.output_schema)) {
+    if (typeof body.output_schema !== 'object' || body.output_schema === null || Array.isArray(body.output_schema)) {
       return errorResponse('invalid_request', "Field 'output_schema' must be a JSON object", 400, context);
     }
   }
@@ -116,7 +116,7 @@ async function validateCrawlerBody(
     return errorResponse('invalid_request', `Field 'name' must not exceed ${MAX_NAME_LENGTH} characters`, 400, context);
   }
 
-  if (body.url_pattern != null && typeof body.url_pattern === 'string') {
+  if (typeof body.url_pattern === 'string') {
     if (body.url_pattern.length > MAX_URL_PATTERN_LENGTH) {
       return errorResponse('invalid_request', `Field 'url_pattern' must not exceed ${MAX_URL_PATTERN_LENGTH} characters`, 400, context);
     }
@@ -296,11 +296,11 @@ async function handleDeleteCrawler(
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function parseCrawlerID(pathname: string): string | null {
+function parseCrawlerID(pathname: string): string | undefined {
   const match = pathname.match(/^\/crawlers\/([0-9a-f-]+)$/i);
-  const id = match?.[1] ?? null;
+  const id = match?.[1];
   if (id && !UUID_PATTERN.test(id)) {
-    return null;
+    return undefined;
   }
   return id;
 }

@@ -170,10 +170,10 @@ interface RunHistorySectionProperties {
 
 export function RunHistorySection({ schedulerID }: RunHistorySectionProperties) {
   const { runs, isLoading, error, hasNextPage, fetchNextPage, isFetchingNextPage } = useListRuns(schedulerID);
-  const [expandedRunID, setExpandedRunID] = useState<string | null>(null);
+  const [expandedRunID, setExpandedRunID] = useState<string>();
 
   const toggleExpand = (run: SchedulerRunRow) => {
-    setExpandedRunID(expandedRunID === run.id ? null : run.id);
+    setExpandedRunID(expandedRunID === run.id ? undefined : run.id);
   };
 
   if (isLoading) return null;
@@ -223,13 +223,13 @@ export function RunHistorySection({ schedulerID }: RunHistorySectionProperties) 
                         <ExpandedContent>{run.error}</ExpandedContent>
                       </>
                     )}
-                    {run.result != null && (
+                    {run.result !== undefined && (
                       <>
                         <ExpandedLabel>Result</ExpandedLabel>
                         <ExpandedContent>{JSON.stringify(run.result, null, 2)}</ExpandedContent>
                       </>
                     )}
-                    {!run.error && run.result == null && (
+                    {!run.error && run.result === undefined && (
                       <ExpandedContent>No additional details.</ExpandedContent>
                     )}
                   </ExpandedRow>

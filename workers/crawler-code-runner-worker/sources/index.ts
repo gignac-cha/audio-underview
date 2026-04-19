@@ -58,7 +58,7 @@ const HELP = {
 };
 
 function validateRunRequestBody(raw: unknown): RunRequestBody | string {
-  if (raw == null || typeof raw !== 'object') {
+  if (typeof raw !== 'object' || raw === null) {
     return 'Request body must be a JSON object';
   }
   const object = raw as Record<string, unknown>;
@@ -165,11 +165,6 @@ async function handleRun(
       return errorResponse('execution_failed', 'Code execution failed', 422, context);
     }
 
-    // Normalize undefined to null to prevent JSON.stringify field drop
-    if (result === undefined) {
-      result = null;
-    }
-
     return jsonResponse({ type: parsed.type, mode: parsed.mode, result }, 200, context);
   }
 
@@ -181,11 +176,6 @@ async function handleRun(
   } catch (executionError) {
     logger.error('Code execution failed', executionError, { function: 'handleRun' });
     return errorResponse('execution_failed', 'Code execution failed', 422, context);
-  }
-
-  // Normalize undefined to null to prevent JSON.stringify field drop
-  if (result === undefined) {
-    result = null;
   }
 
   return jsonResponse({ type: parsed.type, mode: parsed.mode, result }, 200, context);

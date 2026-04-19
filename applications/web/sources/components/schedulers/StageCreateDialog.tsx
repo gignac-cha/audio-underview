@@ -264,7 +264,7 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
   const isSubmitting = status === 'pending';
 
   const selectedCrawler = useMemo(
-    () => crawlers.find((crawler) => crawler.id === selectedCrawlerID) ?? null,
+    () => crawlers.find((crawler) => crawler.id === selectedCrawlerID),
     [crawlers, selectedCrawlerID],
   );
 

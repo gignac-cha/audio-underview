@@ -30,12 +30,12 @@ export function jwtDecode<T = Record<string, unknown>>(token: string): T {
 /**
  * Get JWT expiration time
  */
-export function getJWTExpiration(token: string): number | null {
+export function getJWTExpiration(token: string): number | undefined {
   try {
     const decoded = jwtDecode<{ exp?: number }>(token);
-    return decoded.exp ? decoded.exp * 1000 : null; // Convert to milliseconds
+    return decoded.exp ? decoded.exp * 1000 : undefined; // Convert to milliseconds
   } catch {
-    return null;
+    return undefined;
   }
 }
 
@@ -44,7 +44,7 @@ export function getJWTExpiration(token: string): number | null {
  */
 export function isJWTExpired(token: string): boolean {
   const expiration = getJWTExpiration(token);
-  if (expiration === null) {
+  if (expiration === undefined) {
     return false; // No expiration claim, assume valid
   }
   return expiration <= Date.now();

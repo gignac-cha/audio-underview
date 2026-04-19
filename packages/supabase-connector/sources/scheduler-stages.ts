@@ -98,7 +98,7 @@ export async function getSchedulerStage(
   client: SupabaseClientType,
   id: string,
   schedulerID: string,
-): Promise<SchedulerStageRow | null> {
+): Promise<SchedulerStageRow | undefined> {
   return traceDatabaseOperation(
     { serviceName: 'supabase-connector', operation: 'select', table: 'scheduler_stages' },
     async (span) => {
@@ -115,7 +115,7 @@ export async function getSchedulerStage(
       if (error) {
         if (error.code === 'PGRST116') {
           span.setAttribute('db.rows_affected', 0);
-          return null;
+          return undefined;
         }
         span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
         throw new Error(`Failed to get scheduler stage: ${error.message}`);
@@ -132,7 +132,7 @@ export async function updateSchedulerStage(
   id: string,
   schedulerID: string,
   input: SchedulerStagesUpdate,
-): Promise<SchedulerStageRow | null> {
+): Promise<SchedulerStageRow | undefined> {
   return traceDatabaseOperation(
     { serviceName: 'supabase-connector', operation: 'update', table: 'scheduler_stages' },
     async (span) => {
@@ -150,7 +150,7 @@ export async function updateSchedulerStage(
       if (error) {
         if (error.code === 'PGRST116') {
           span.setAttribute('db.rows_affected', 0);
-          return null;
+          return undefined;
         }
         span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
         throw new Error(`Failed to update scheduler stage: ${error.message}`);

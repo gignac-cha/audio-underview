@@ -56,7 +56,7 @@ describe('getSchedulerRun', () => {
     });
 
     const result = await getSchedulerRun(client, 'run-1', 'scheduler-1');
-    expect(result).toBeNull();
+    expect(result).toBeUndefined();
   });
 });
 
@@ -75,7 +75,7 @@ describe('updateSchedulerRun', () => {
     });
 
     const result = await updateSchedulerRun(client, 'run-1', 'scheduler-1', { status: 'running' });
-    expect(result).toBeNull();
+    expect(result).toBeUndefined();
   });
 });
 

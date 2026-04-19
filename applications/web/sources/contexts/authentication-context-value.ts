@@ -6,7 +6,7 @@ import {
 } from '@audio-underview/sign-provider';
 
 export interface AuthenticationContextValue {
-  user: OAuthUser | null;
+  user: OAuthUser | undefined;
   isAuthenticated: boolean;
   isLoading: boolean;
   enabledProviders: OAuthProviderID[];

@@ -134,7 +134,7 @@ export function useCreateCrawler() {
   return {
     createCrawler: mutation.mutateAsync,
     status: mutation.status,
-    error: mutation.error ?? null,
+    error: mutation.error ?? undefined,
     reset: mutation.reset,
   };
 }
@@ -143,7 +143,7 @@ const DEFAULT_PAGE_LIMIT = 20;
 
 export function useListCrawlers() {
   const authenticationData = loadAuthenticationData();
-  const accessToken = authenticationData?.credential ?? null;
+  const accessToken = authenticationData?.credential ?? undefined;
 
   const query = useInfiniteQuery<ListCrawlersResponse, Error, { pages: ListCrawlersResponse[] }, readonly string[], ListCrawlersParameters>({
     queryKey: CRAWLERS_QUERY_KEY,
@@ -163,7 +163,7 @@ export function useListCrawlers() {
   return {
     crawlers,
     isLoading: query.isLoading,
-    error: query.error ?? null,
+    error: query.error ?? undefined,
     refetch: query.refetch,
     hasNextPage: query.hasNextPage,
     fetchNextPage: query.fetchNextPage,
@@ -184,7 +184,7 @@ export function useDeleteCrawler() {
   return {
     deleteCrawler: mutation.mutateAsync,
     status: mutation.status,
-    error: mutation.error ?? null,
+    error: mutation.error ?? undefined,
     reset: mutation.reset,
   };
 }

@@ -96,7 +96,7 @@ describe('getCrawler', () => {
     });
 
     const result = await getCrawler(client, 'crawler-1', 'uuid-1');
-    expect(result).toBeNull();
+    expect(result).toBeUndefined();
   });
 });
 
@@ -115,7 +115,7 @@ describe('updateCrawler', () => {
     });
 
     const result = await updateCrawler(client, 'crawler-1', 'uuid-1', { name: 'Updated' });
-    expect(result).toBeNull();
+    expect(result).toBeUndefined();
   });
 });
 

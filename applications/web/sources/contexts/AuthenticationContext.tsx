@@ -50,7 +50,7 @@ function AuthenticationProviderInner({
 }: AuthenticationProviderInnerProps) {
   const queryClient = useQueryClient();
 
-  const [user, setUser] = useState<OAuthUser | null>(() => {
+  const [user, setUser] = useState<OAuthUser | undefined>(() => {
     const storedData = localStorage.getItem(storageKey);
     if (storedData) {
       try {
@@ -64,7 +64,7 @@ function AuthenticationProviderInner({
         localStorage.removeItem(storageKey);
       }
     }
-    return null;
+    return undefined;
   });
   const [isLoading] = useState(false);
 
@@ -167,7 +167,7 @@ function AuthenticationProviderInner({
 
     localStorage.removeItem(storageKey);
     queryClient.clear();
-    setUser(null);
+    setUser(undefined);
 
     authenticationLogger.info('User logged out successfully', undefined, { function: 'logout' });
   }, [user, storageKey, queryClient]);

@@ -40,13 +40,13 @@ describe('getJWTExpiration', () => {
     expect(getJWTExpiration(token)).toBe(exp * 1000);
   });
 
-  test('returns null when exp is missing', () => {
+  test('returns undefined when exp is missing', () => {
     const token = createTestJWT({ sub: '123' });
-    expect(getJWTExpiration(token)).toBeNull();
+    expect(getJWTExpiration(token)).toBeUndefined();
   });
 
-  test('returns null for invalid token', () => {
-    expect(getJWTExpiration('invalid')).toBeNull();
+  test('returns undefined for invalid token', () => {
+    expect(getJWTExpiration('invalid')).toBeUndefined();
   });
 });
 

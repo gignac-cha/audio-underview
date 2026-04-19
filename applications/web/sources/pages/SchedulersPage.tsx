@@ -327,7 +327,7 @@ export function SchedulersPage() {
   const { showToast } = useToast();
   const { schedulers, isLoading, error, refetch, hasNextPage, fetchNextPage, isFetchingNextPage } = useListSchedulers();
   const { deleteScheduler, status: deleteStatus } = useDeleteScheduler();
-  const [confirmTarget, setConfirmTarget] = useState<{ id: string; name: string } | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<{ id: string; name: string }>();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
   const handleDelete = (event: React.MouseEvent, id: string, name: string) => {
@@ -342,11 +342,11 @@ export function SchedulersPage() {
     try {
       await deleteScheduler(id);
       showToast('Deleted', `Scheduler "${name}" has been deleted.`, 'success');
-      setConfirmTarget(null);
+      setConfirmTarget(undefined);
     } catch (deleteError) {
       const message = deleteError instanceof Error ? deleteError.message : 'Failed to delete scheduler';
       showToast('Error', message, 'error');
-      setConfirmTarget(null);
+      setConfirmTarget(undefined);
     }
   };
 
@@ -444,14 +444,14 @@ export function SchedulersPage() {
 
       {confirmTarget && (
         <>
-          <ConfirmOverlay onClick={() => setConfirmTarget(null)} />
+          <ConfirmOverlay onClick={() => setConfirmTarget(undefined)} />
           <ConfirmModal
             role="dialog"
             aria-modal="true"
             aria-labelledby="confirm-dialog-title"
             aria-describedby="confirm-dialog-description"
             onKeyDown={(event) => {
-              if (event.key === 'Escape') setConfirmTarget(null);
+              if (event.key === 'Escape') setConfirmTarget(undefined);
             }}
           >
             <ConfirmTitle id="confirm-dialog-title">Delete Scheduler</ConfirmTitle>
@@ -460,7 +460,7 @@ export function SchedulersPage() {
               and run history. This action cannot be undone.
             </ConfirmMessage>
             <ConfirmButtonRow>
-              <ConfirmCancelButton onClick={() => setConfirmTarget(null)} autoFocus>
+              <ConfirmCancelButton onClick={() => setConfirmTarget(undefined)} autoFocus>
                 Cancel
               </ConfirmCancelButton>
               <ConfirmDeleteButton onClick={handleConfirmDelete} disabled={deleteStatus === 'pending'}>

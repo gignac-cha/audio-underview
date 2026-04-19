@@ -98,12 +98,12 @@ export async function listCrawlersByUser(
  *
  * @param client - Supabase client
  * @param id - Crawler ID
- * @returns Crawler row if found, null otherwise
+ * @returns Crawler row if found, undefined otherwise
  */
 export async function getCrawlerByID(
   client: SupabaseClientType,
   id: string,
-): Promise<CrawlerRow | null> {
+): Promise<CrawlerRow | undefined> {
   return traceDatabaseOperation(
     { serviceName: 'supabase-connector', operation: 'select', table: 'crawlers' },
     async (span) => {
@@ -118,7 +118,7 @@ export async function getCrawlerByID(
       if (error) {
         if (error.code === 'PGRST116') {
           span.setAttribute('db.rows_affected', 0);
-          return null;
+          return undefined;
         }
         span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
         throw new Error(`Failed to get crawler by ID: ${error.message}`);
@@ -136,13 +136,13 @@ export async function getCrawlerByID(
  * @param client - Supabase client
  * @param id - Crawler ID
  * @param userUUID - User UUID (must own the crawler)
- * @returns Crawler row if found and owned by the user, null otherwise
+ * @returns Crawler row if found and owned by the user, undefined otherwise
  */
 export async function getCrawler(
   client: SupabaseClientType,
   id: string,
   userUUID: string
-): Promise<CrawlerRow | null> {
+): Promise<CrawlerRow | undefined> {
   return traceDatabaseOperation(
     { serviceName: 'supabase-connector', operation: 'select', table: 'crawlers' },
     async (span) => {
@@ -159,7 +159,7 @@ export async function getCrawler(
       if (error) {
         if (error.code === 'PGRST116') {
           span.setAttribute('db.rows_affected', 0);
-          return null;
+          return undefined;
         }
         span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
         throw new Error(`Failed to get crawler: ${error.message}`);
@@ -185,7 +185,7 @@ export async function updateCrawler(
   id: string,
   userUUID: string,
   input: CrawlersUpdate
-): Promise<CrawlerRow | null> {
+): Promise<CrawlerRow | undefined> {
   return traceDatabaseOperation(
     { serviceName: 'supabase-connector', operation: 'update', table: 'crawlers' },
     async (span) => {
@@ -203,7 +203,7 @@ export async function updateCrawler(
       if (error) {
         if (error.code === 'PGRST116') {
           span.setAttribute('db.rows_affected', 0);
-          return null;
+          return undefined;
         }
         span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
         throw new Error(`Failed to update crawler: ${error.message}`);

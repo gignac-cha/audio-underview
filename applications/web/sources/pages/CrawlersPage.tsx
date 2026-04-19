@@ -310,7 +310,7 @@ export function CrawlersPage() {
   const { showToast } = useToast();
   const { crawlers, isLoading, error, refetch, hasNextPage, fetchNextPage, isFetchingNextPage } = useListCrawlers();
   const { deleteCrawler, status: deleteStatus } = useDeleteCrawler();
-  const [confirmTarget, setConfirmTarget] = useState<{ id: string; name: string } | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<{ id: string; name: string }>();
 
   const handleDelete = (id: string, name: string) => {
     setConfirmTarget({ id, name });
@@ -323,11 +323,11 @@ export function CrawlersPage() {
     try {
       await deleteCrawler(id);
       showToast('Deleted', `Crawler "${name}" has been deleted.`, 'success');
-      setConfirmTarget(null);
+      setConfirmTarget(undefined);
     } catch (deleteError) {
       const message = deleteError instanceof Error ? deleteError.message : 'Failed to delete crawler';
       showToast('Error', message, 'error');
-      setConfirmTarget(null);
+      setConfirmTarget(undefined);
     }
   };
 
@@ -409,7 +409,7 @@ export function CrawlersPage() {
       {confirmTarget && (
         <>
           <ConfirmOverlay
-            onClick={() => setConfirmTarget(null)}
+            onClick={() => setConfirmTarget(undefined)}
           />
           <ConfirmModal
             role="dialog"
@@ -417,7 +417,7 @@ export function CrawlersPage() {
             aria-labelledby="confirm-dialog-title"
             aria-describedby="confirm-dialog-description"
             onKeyDown={(event) => {
-              if (event.key === 'Escape') setConfirmTarget(null);
+              if (event.key === 'Escape') setConfirmTarget(undefined);
             }}
           >
             <ConfirmTitle id="confirm-dialog-title">Delete Crawler</ConfirmTitle>
@@ -425,7 +425,7 @@ export function CrawlersPage() {
               Are you sure you want to delete &ldquo;{confirmTarget.name}&rdquo;? This action cannot be undone.
             </ConfirmMessage>
             <ConfirmButtonRow>
-              <ConfirmCancelButton onClick={() => setConfirmTarget(null)} autoFocus>
+              <ConfirmCancelButton onClick={() => setConfirmTarget(undefined)} autoFocus>
                 Cancel
               </ConfirmCancelButton>
               <ConfirmDeleteButton

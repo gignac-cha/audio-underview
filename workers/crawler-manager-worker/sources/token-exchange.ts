@@ -37,14 +37,14 @@ const TOKEN_EXPIRY_SECONDS = 86400; // 24 hours
 async function resolveProviderUser(
   accessToken: string,
   provider: 'google' | 'github',
-): Promise<ProviderUserInformation | null> {
+): Promise<ProviderUserInformation | undefined> {
   if (provider === 'google') {
     return resolveGoogleUser(accessToken);
   }
   return resolveGitHubUser(accessToken);
 }
 
-async function resolveGoogleUser(accessToken: string): Promise<ProviderUserInformation | null> {
+async function resolveGoogleUser(accessToken: string): Promise<ProviderUserInformation | undefined> {
   try {
     const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -52,21 +52,21 @@ async function resolveGoogleUser(accessToken: string): Promise<ProviderUserInfor
     });
 
     if (!response.ok) {
-      return null;
+      return undefined;
     }
 
     const userInformation = await response.json() as GoogleUserInformation;
     if (!userInformation.sub) {
-      return null;
+      return undefined;
     }
 
     return { provider: 'google', identifier: userInformation.sub };
   } catch {
-    return null;
+    return undefined;
   }
 }
 
-async function resolveGitHubUser(accessToken: string): Promise<ProviderUserInformation | null> {
+async function resolveGitHubUser(accessToken: string): Promise<ProviderUserInformation | undefined> {
   try {
     const response = await fetch('https://api.github.com/user', {
       headers: {
@@ -78,17 +78,17 @@ async function resolveGitHubUser(accessToken: string): Promise<ProviderUserInfor
     });
 
     if (!response.ok) {
-      return null;
+      return undefined;
     }
 
     const userInformation = await response.json() as GitHubUserInformation;
     if (typeof userInformation.id !== 'number' || !Number.isFinite(userInformation.id)) {
-      return null;
+      return undefined;
     }
 
     return { provider: 'github', identifier: String(userInformation.id) };
   } catch {
-    return null;
+    return undefined;
   }
 }
 

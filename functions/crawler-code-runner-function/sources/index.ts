@@ -149,17 +149,12 @@ async function executeInSandbox(code: string, argument: unknown, logger: Logger)
       clearTimeout(timer);
     }
 
-    // Normalize undefined to null to prevent JSON.stringify field drop
-    if (result === undefined) {
-      result = null;
-    }
-
     return { result };
   } catch (executionError) {
     logger.error('Code execution failed', executionError, { function: 'executeInSandbox' });
     if (
-      executionError != null
-      && typeof executionError === 'object'
+      typeof executionError === 'object'
+      && executionError !== null
       && 'code' in executionError
       && executionError.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT'
     ) {
@@ -202,7 +197,7 @@ const HELP = {
 };
 
 function validateRunRequestBody(raw: unknown): RunRequestBody | string {
-  if (raw == null || typeof raw !== 'object') {
+  if (typeof raw !== 'object' || raw === null) {
     return 'Request body must be a JSON object';
   }
   const object = raw as Record<string, unknown>;

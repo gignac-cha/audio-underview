@@ -86,7 +86,7 @@ describe('getSchedulerStage', () => {
     });
 
     const result = await getSchedulerStage(client, 'stage-1', 'scheduler-1');
-    expect(result).toBeNull();
+    expect(result).toBeUndefined();
   });
 });
 
@@ -105,7 +105,7 @@ describe('updateSchedulerStage', () => {
     });
 
     const result = await updateSchedulerStage(client, 'stage-1', 'scheduler-1', { fan_out_field: 'urls' });
-    expect(result).toBeNull();
+    expect(result).toBeUndefined();
   });
 });
 

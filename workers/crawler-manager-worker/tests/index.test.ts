@@ -50,10 +50,21 @@ function mockCrawlerResponse(overrides: Record<string, unknown> = {}) {
 }
 
 function mockSupabaseCrawlerCreate(overrides: Record<string, unknown> = {}) {
+  const crawlerResponse = mockCrawlerResponse(overrides);
   fetchMock
     .get('https://supabase.example.com')
     .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'POST' })
-    .reply(201, JSON.stringify(mockCrawlerResponse(overrides)));
+    .reply(201, JSON.stringify(crawlerResponse));
+  fetchMock
+    .get('https://supabase.example.com')
+    .intercept({ path: /^\/rest\/v1\/crawler_permissions/, method: 'POST' })
+    .reply(201, JSON.stringify({
+      id: crypto.randomUUID(),
+      crawler_id: crawlerResponse.id,
+      user_uuid: crawlerResponse.user_uuid,
+      level: 'owner',
+      created_at: new Date().toISOString(),
+    }));
 }
 
 function mockSupabaseCrawlerList(data: unknown[] = [mockCrawlerResponse()], total: number = 1) {

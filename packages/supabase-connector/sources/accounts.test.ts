@@ -96,7 +96,7 @@ describe('findAccount', () => {
     });
 
     const result = await findAccount(client, { provider: 'google', identifier: 'id-1' });
-    expect(result).toBeNull();
+    expect(result).toBeUndefined();
   });
 
   test('throws on other errors', async () => {
@@ -123,7 +123,7 @@ describe('findUser', () => {
     });
 
     const result = await findUser(client, 'uuid-1');
-    expect(result).toBeNull();
+    expect(result).toBeUndefined();
   });
 
   test('throws on other errors', async () => {

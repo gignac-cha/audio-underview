@@ -153,14 +153,14 @@ export function useCreateScheduler() {
   return {
     createScheduler: mutation.mutateAsync,
     status: mutation.status,
-    error: mutation.error ?? null,
+    error: mutation.error ?? undefined,
     reset: mutation.reset,
   };
 }
 
 export function useListSchedulers() {
   const authenticationData = loadAuthenticationData();
-  const accessToken = authenticationData?.credential ?? null;
+  const accessToken = authenticationData?.credential ?? undefined;
 
   const query = useInfiniteQuery<
     PaginatedResponse<SchedulerRow>,
@@ -192,7 +192,7 @@ export function useListSchedulers() {
   return {
     schedulers,
     isLoading: query.isLoading,
-    error: query.error ?? null,
+    error: query.error ?? undefined,
     refetch: query.refetch,
     hasNextPage: query.hasNextPage,
     fetchNextPage: query.fetchNextPage,
@@ -202,7 +202,7 @@ export function useListSchedulers() {
 
 export function useGetScheduler(id: string | undefined) {
   const authenticationData = loadAuthenticationData();
-  const accessToken = authenticationData?.credential ?? null;
+  const accessToken = authenticationData?.credential ?? undefined;
 
   const query = useQuery<SchedulerRow, Error>({
     queryKey: schedulerDetailKey(id ?? ''),
@@ -213,9 +213,9 @@ export function useGetScheduler(id: string | undefined) {
   });
 
   return {
-    scheduler: query.data ?? null,
+    scheduler: query.data ?? undefined,
     isLoading: query.isLoading,
-    error: query.error ?? null,
+    error: query.error ?? undefined,
     refetch: query.refetch,
   };
 }
@@ -239,7 +239,7 @@ export function useUpdateScheduler() {
   return {
     updateScheduler: mutation.mutateAsync,
     status: mutation.status,
-    error: mutation.error ?? null,
+    error: mutation.error ?? undefined,
     reset: mutation.reset,
   };
 }
@@ -259,7 +259,7 @@ export function useDeleteScheduler() {
   return {
     deleteScheduler: mutation.mutateAsync,
     status: mutation.status,
-    error: mutation.error ?? null,
+    error: mutation.error ?? undefined,
     reset: mutation.reset,
   };
 }
@@ -268,7 +268,7 @@ export function useDeleteScheduler() {
 
 export function useListStages(schedulerID: string | undefined) {
   const authenticationData = loadAuthenticationData();
-  const accessToken = authenticationData?.credential ?? null;
+  const accessToken = authenticationData?.credential ?? undefined;
 
   const query = useQuery<{ data: SchedulerStageRow[] }, Error>({
     queryKey: stagesKey(schedulerID ?? ''),
@@ -281,7 +281,7 @@ export function useListStages(schedulerID: string | undefined) {
   return {
     stages: query.data?.data ?? [],
     isLoading: query.isLoading,
-    error: query.error ?? null,
+    error: query.error ?? undefined,
     refetch: query.refetch,
   };
 }
@@ -304,7 +304,7 @@ export function useCreateStage() {
   return {
     createStage: mutation.mutateAsync,
     status: mutation.status,
-    error: mutation.error ?? null,
+    error: mutation.error ?? undefined,
     reset: mutation.reset,
   };
 }
@@ -327,7 +327,7 @@ export function useUpdateStage() {
   return {
     updateStage: mutation.mutateAsync,
     status: mutation.status,
-    error: mutation.error ?? null,
+    error: mutation.error ?? undefined,
     reset: mutation.reset,
   };
 }
@@ -347,7 +347,7 @@ export function useDeleteStage() {
   return {
     deleteStage: mutation.mutateAsync,
     status: mutation.status,
-    error: mutation.error ?? null,
+    error: mutation.error ?? undefined,
     reset: mutation.reset,
   };
 }
@@ -370,7 +370,7 @@ export function useReorderStages() {
   return {
     reorderStages: mutation.mutateAsync,
     status: mutation.status,
-    error: mutation.error ?? null,
+    error: mutation.error ?? undefined,
     reset: mutation.reset,
   };
 }
@@ -379,7 +379,7 @@ export function useReorderStages() {
 
 export function useListRuns(schedulerID: string | undefined) {
   const authenticationData = loadAuthenticationData();
-  const accessToken = authenticationData?.credential ?? null;
+  const accessToken = authenticationData?.credential ?? undefined;
 
   const query = useInfiniteQuery<
     PaginatedResponse<SchedulerRunRow>,
@@ -413,7 +413,7 @@ export function useListRuns(schedulerID: string | undefined) {
   return {
     runs,
     isLoading: query.isLoading,
-    error: query.error ?? null,
+    error: query.error ?? undefined,
     refetch: query.refetch,
     hasNextPage: query.hasNextPage,
     fetchNextPage: query.fetchNextPage,

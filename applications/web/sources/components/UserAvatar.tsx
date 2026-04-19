@@ -5,7 +5,7 @@ import type { OAuthUser } from '@audio-underview/sign-provider';
 type AvatarSize = 'default' | 'large';
 
 interface UserAvatarProperties {
-  user: OAuthUser | null;
+  user: OAuthUser | undefined;
   size?: AvatarSize;
 }
 

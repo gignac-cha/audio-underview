@@ -82,8 +82,8 @@ export function useCrawlerCodeRunner({ onLog }: UseCrawlerCodeRunnerOptions) {
   return {
     runTest: (url: string, code: string) => mutation.mutate({ url, code }),
     status: mutation.status === 'pending' ? ('running' as const) : mutation.status,
-    result: mutation.data ?? null,
-    error: mutation.error ?? null,
+    result: mutation.data ?? undefined,
+    error: mutation.error ?? undefined,
     reset: mutation.reset,
   };
 }

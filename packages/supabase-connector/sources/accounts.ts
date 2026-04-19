@@ -18,12 +18,12 @@ type SupabaseClientType = SupabaseClient<Database>;
  *
  * @param client - Supabase client
  * @param input - Provider type and identifier
- * @returns Account row if found, null otherwise
+ * @returns Account row if found, undefined otherwise
  */
 export async function findAccount(
   client: SupabaseClientType,
   input: SocialLoginInput
-): Promise<AccountRow | null> {
+): Promise<AccountRow | undefined> {
   return traceDatabaseOperation(
     { serviceName: 'supabase-connector', operation: 'select', table: 'accounts' },
     async (span) => {
@@ -39,7 +39,7 @@ export async function findAccount(
       if (error) {
         if (error.code === 'PGRST116') {
           span.setAttribute('db.rows_affected', 0);
-          return null;
+          return undefined;
         }
         span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
         throw new Error(`Failed to find account: ${error.message}`);
@@ -56,12 +56,12 @@ export async function findAccount(
  *
  * @param client - Supabase client
  * @param userUUID - User UUID
- * @returns User row if found, null otherwise
+ * @returns User row if found, undefined otherwise
  */
 export async function findUser(
   client: SupabaseClientType,
   userUUID: string
-): Promise<UserRow | null> {
+): Promise<UserRow | undefined> {
   return traceDatabaseOperation(
     { serviceName: 'supabase-connector', operation: 'select', table: 'users' },
     async (span) => {
@@ -76,7 +76,7 @@ export async function findUser(
       if (error) {
         if (error.code === 'PGRST116') {
           span.setAttribute('db.rows_affected', 0);
-          return null;
+          return undefined;
         }
         span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
         throw new Error(`Failed to find user: ${error.message}`);
