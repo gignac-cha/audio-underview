@@ -85,9 +85,15 @@ const CrawlerCard = styled.div`
   border: 1px solid var(--border-subtle);
   border-radius: 10px;
   transition: var(--transition-fast);
+  cursor: pointer;
 
   &:hover {
     border-color: var(--border-focus);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
   }
 `;
 
@@ -312,7 +318,8 @@ export function CrawlersPage() {
   const { deleteCrawler, status: deleteStatus } = useDeleteCrawler();
   const [confirmTarget, setConfirmTarget] = useState<{ id: string; name: string }>();
 
-  const handleDelete = (id: string, name: string) => {
+  const handleDelete = (event: React.MouseEvent<HTMLButtonElement>, id: string, name: string) => {
+    event.stopPropagation();
     setConfirmTarget({ id, name });
   };
 
@@ -376,16 +383,29 @@ export function CrawlersPage() {
             </TopBar>
             <CrawlerList>
               {crawlers.map((crawler) => (
-                <CrawlerCard key={crawler.id}>
+                <CrawlerCard
+                  key={crawler.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/crawlers/${crawler.id}`)}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      if (event.key === ' ') event.preventDefault();
+                      navigate(`/crawlers/${crawler.id}`);
+                    }
+                  }}
+                >
                   <CrawlerInfo>
                     <CrawlerName>{crawler.name}</CrawlerName>
                     <CrawlerPattern>{crawler.url_pattern}</CrawlerPattern>
                     <CrawlerDate>Created {formatDate(crawler.created_at)}</CrawlerDate>
                   </CrawlerInfo>
                   <DeleteButton
-                    onClick={() => handleDelete(crawler.id, crawler.name)}
+                    onClick={(event) => handleDelete(event, crawler.id, crawler.name)}
                     disabled={deleteStatus === 'pending'}
                     title="Delete crawler"
+                    aria-label={`Delete crawler ${crawler.name}`}
                   >
                     <FontAwesomeIcon icon={faTrash} />
                   </DeleteButton>

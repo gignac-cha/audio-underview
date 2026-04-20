@@ -26,8 +26,8 @@ describe('useCrawlerCodeRunner', () => {
     });
 
     expect(result.current.status).toBe('idle');
-    expect(result.current.result).toBeNull();
-    expect(result.current.error).toBeNull();
+    expect(result.current.result).toBeUndefined();
+    expect(result.current.error).toBeUndefined();
   });
 
   test('logs info entries when starting execution', async () => {
@@ -196,13 +196,13 @@ describe('useCrawlerCodeRunner', () => {
     result.current.runTest('https://example.com', 'return {}');
 
     await vi.waitFor(() => {
-      expect(result.current.result).not.toBeNull();
+      expect(result.current.result).not.toBeUndefined();
     });
 
     result.current.reset();
 
     await vi.waitFor(() => {
-      expect(result.current.result).toBeNull();
+      expect(result.current.result).toBeUndefined();
       expect(result.current.status).toBe('idle');
     });
   });

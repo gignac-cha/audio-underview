@@ -455,7 +455,7 @@ describe('crawler-code-runner-function', () => {
       expect(body.result).toBe('HELLO');
     });
 
-    it('normalizes undefined result to null', async () => {
+    it('omits result field when code returns undefined', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
         status: 200,
         text: () => Promise.resolve('hello'),
@@ -477,7 +477,7 @@ describe('crawler-code-runner-function', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.result).toBeNull();
+      expect(body.result).toBeUndefined();
     });
   });
 
@@ -590,7 +590,7 @@ describe('crawler-code-runner-function', () => {
       expect(body.result).toBe(true);
     });
 
-    it('normalizes undefined result to null for data type', async () => {
+    it('omits result field when code returns undefined for data type', async () => {
       const event = createEvent({
         method: 'POST',
         path: '/run',
@@ -607,7 +607,7 @@ describe('crawler-code-runner-function', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.result).toBeNull();
+      expect(body.result).toBeUndefined();
     });
 
     it('does not perform SSRF check for data type', async () => {
