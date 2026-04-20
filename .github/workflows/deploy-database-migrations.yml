@@ -31,14 +31,13 @@ jobs:
           API="https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_ID}/database/migrations"
           AUTH="Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}"
 
-          applied=$(curl -sf -H "${AUTH}" "${API}" | jq -r '.[].version' | sort -u)
+          applied=$(curl -sf -H "${AUTH}" "${API}" | jq -r '.[].name' | sort -u)
 
           for file in packages/supabase-connector/migrations/*.sql; do
             filename=$(basename "${file}" .sql)
-            version="${filename%%_*}"
             name="${filename#*_}"
 
-            if grep -qx "${version}" <<< "${applied}"; then
+            if grep -qx "${name}" <<< "${applied}"; then
               echo "skip   ${filename}"
               continue
             fi
