@@ -61,7 +61,7 @@ describe('AuthenticationContext', () => {
       expect(result.current.isLoading).toBe(false);
     });
 
-    expect(result.current.user).toBeNull();
+    expect(result.current.user).toBeUndefined();
     expect(result.current.isAuthenticated).toBe(false);
   });
 
@@ -105,7 +105,7 @@ describe('AuthenticationContext', () => {
       expect(result.current.isLoading).toBe(false);
     });
 
-    expect(result.current.user).toBeNull();
+    expect(result.current.user).toBeUndefined();
     expect(result.current.isAuthenticated).toBe(false);
     expect(localStorage.getItem(storageKey)).toBeNull();
   });
@@ -122,7 +122,7 @@ describe('AuthenticationContext', () => {
       expect(result.current.isLoading).toBe(false);
     });
 
-    expect(result.current.user).toBeNull();
+    expect(result.current.user).toBeUndefined();
     expect(localStorage.getItem(storageKey)).toBeNull();
   });
 
@@ -173,7 +173,7 @@ describe('AuthenticationContext', () => {
     result.current.logout();
 
     await vi.waitFor(() => {
-      expect(result.current.user).toBeNull();
+      expect(result.current.user).toBeUndefined();
       expect(result.current.isAuthenticated).toBe(false);
     });
     expect(localStorage.getItem(storageKey)).toBeNull();

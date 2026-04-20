@@ -30,7 +30,7 @@ describe('useAuthentication', () => {
   });
 
   test('isAuthenticated reflects user presence', async () => {
-    const noUserContext = { ...mockContextValue, user: null, isAuthenticated: false };
+    const noUserContext = { ...mockContextValue, user: undefined, isAuthenticated: false };
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <AuthenticationContext.Provider value={noUserContext}>
         {children}
@@ -39,7 +39,7 @@ describe('useAuthentication', () => {
 
     const { result } = await renderHook(() => useAuthentication(), { wrapper });
     expect(result.current.isAuthenticated).toBe(false);
-    expect(result.current.user).toBeNull();
+    expect(result.current.user).toBeUndefined();
   });
 
   test('provides login and logout functions', async () => {
