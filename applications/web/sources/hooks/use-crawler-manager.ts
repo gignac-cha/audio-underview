@@ -1,4 +1,4 @@
-import { useMutation, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useInfiniteQuery, useQuery, useQueryClient, skipToken } from '@tanstack/react-query';
 import { loadAuthenticationData } from '@audio-underview/sign-provider';
 import type { CrawlerRow } from '@audio-underview/supabase-connector';
 
@@ -21,6 +21,26 @@ interface CreateCrawlerInput {
   url_pattern: string;
   code: string;
 }
+
+interface UpdateCrawlerWebInput {
+  id: string;
+  type: 'web';
+  name: string;
+  url_pattern: string;
+  code: string;
+  output_schema?: Record<string, unknown>;
+}
+
+interface UpdateCrawlerDataInput {
+  id: string;
+  type: 'data';
+  name: string;
+  code: string;
+  input_schema: Record<string, unknown>;
+  output_schema?: Record<string, unknown>;
+}
+
+type UpdateCrawlerInput = UpdateCrawlerWebInput | UpdateCrawlerDataInput;
 
 function getAccessToken(): string {
   const authenticationData = loadAuthenticationData();
@@ -101,6 +121,52 @@ async function listCrawlersRequest(parameters: ListCrawlersParameters): Promise<
   return body as ListCrawlersResponse;
 }
 
+async function getCrawlerRequest(id: string): Promise<CrawlerRow> {
+  const baseURL = getBaseURL();
+  const accessToken = getAccessToken();
+
+  const response = await fetch(`${baseURL}/crawlers/${id}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+
+  const body = await parseResponseJSON(response);
+
+  if (!response.ok) {
+    throwResponseError(body, response.status);
+  }
+
+  return body as CrawlerRow;
+}
+
+async function updateCrawlerRequest(input: UpdateCrawlerInput): Promise<CrawlerRow> {
+  const baseURL = getBaseURL();
+  const accessToken = getAccessToken();
+
+  const { id, ...payload } = input;
+
+  const response = await fetch(`${baseURL}/crawlers/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+
+  const body = await parseResponseJSON(response);
+
+  if (!response.ok) {
+    throwResponseError(body, response.status);
+  }
+
+  return body as CrawlerRow;
+}
+
 async function deleteCrawlerRequest(id: string): Promise<void> {
   const baseURL = getBaseURL();
   const accessToken = getAccessToken();
@@ -120,6 +186,10 @@ async function deleteCrawlerRequest(id: string): Promise<void> {
 }
 
 const CRAWLERS_QUERY_KEY = ['crawlers'] as const;
+
+function crawlerDetailKey(id: string) {
+  return ['crawlers', id] as const;
+}
 
 export function useCreateCrawler() {
   const queryClient = useQueryClient();
@@ -168,6 +238,44 @@ export function useListCrawlers() {
     hasNextPage: query.hasNextPage,
     fetchNextPage: query.fetchNextPage,
     isFetchingNextPage: query.isFetchingNextPage,
+  };
+}
+
+const CRAWLER_DETAIL_DISABLED_KEY = ['crawlers', 'detail', 'disabled'] as const;
+
+export function useGetCrawler(id: string | undefined) {
+  const authenticationData = loadAuthenticationData();
+  const accessToken = authenticationData?.credential ?? undefined;
+
+  const query = useQuery<CrawlerRow, Error>({
+    queryKey: id ? crawlerDetailKey(id) : CRAWLER_DETAIL_DISABLED_KEY,
+    queryFn: accessToken && id ? () => getCrawlerRequest(id) : skipToken,
+  });
+
+  return {
+    crawler: query.data ?? undefined,
+    isLoading: query.isLoading,
+    error: query.error ?? undefined,
+    refetch: query.refetch,
+  };
+}
+
+export function useUpdateCrawler() {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation<CrawlerRow, Error, UpdateCrawlerInput>({
+    mutationFn: updateCrawlerRequest,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: CRAWLERS_QUERY_KEY, exact: true });
+      queryClient.setQueryData(crawlerDetailKey(data.id), data);
+    },
+  });
+
+  return {
+    updateCrawler: mutation.mutateAsync,
+    status: mutation.status,
+    error: mutation.error ?? undefined,
+    reset: mutation.reset,
   };
 }
 

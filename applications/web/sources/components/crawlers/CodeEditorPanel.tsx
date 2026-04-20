@@ -51,10 +51,11 @@ interface CodeEditorPanelProperties {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  showDefaultTemplate?: boolean;
 }
 
-export function CodeEditorPanel({ value, onChange, disabled }: CodeEditorPanelProperties) {
-  const displayValue = value.length > 0 ? value : DEFAULT_CODE;
+export function CodeEditorPanel({ value, onChange, disabled, showDefaultTemplate = true }: CodeEditorPanelProperties) {
+  const displayValue = showDefaultTemplate && value.length === 0 ? DEFAULT_CODE : value;
   const isOverLimit = displayValue.length > MAX_CODE_LENGTH;
 
   return (
