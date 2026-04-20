@@ -404,6 +404,16 @@ export function CrawlerDetailPage() {
     });
   };
 
+  const handleSchemaChange = (field: 'input_schema' | 'output_schema', raw: string) => {
+    setForm((previous) => (previous ? { ...previous, [field]: raw } : previous));
+    setSchemaErrors((previous) => {
+      if (!previous[field] || tryParseSchema(raw) === undefined) return previous;
+      const next = { ...previous };
+      delete next[field];
+      return next;
+    });
+  };
+
   const handleSave = async () => {
     if (!crawler || !form) return;
 
@@ -431,7 +441,8 @@ export function CrawlerDetailPage() {
       return;
     }
 
-    if (crawler.type === 'web' && !form.url_pattern.trim()) {
+    const trimmedURLPattern = form.url_pattern.trim();
+    if (crawler.type === 'web' && !trimmedURLPattern) {
       showToast('Error', 'URL pattern cannot be empty for web crawlers.', 'error');
       return;
     }
@@ -451,14 +462,15 @@ export function CrawlerDetailPage() {
               id: crawler.id,
               type: 'web' as const,
               name: trimmedName,
-              url_pattern: form.url_pattern,
+              url_pattern: trimmedURLPattern,
               code: form.code,
               output_schema: parsedOutputSchema,
             };
 
+      const submittedForm = form;
       const updated = await updateCrawler(payload);
       const next = deriveFormState(updated);
-      setForm(next);
+      setForm((current) => (current === submittedForm ? next : current));
       setPristine(next);
       showToast('Saved', `Crawler "${trimmedName}" has been updated.`, 'success');
     } catch (saveError) {
@@ -484,8 +496,8 @@ export function CrawlerDetailPage() {
         </BackButton>
 
         {isLoading ? (
-          <LoadingContainer>
-            <Spinner />
+          <LoadingContainer role="status" aria-live="polite" aria-label="Loading crawler details">
+            <Spinner aria-hidden="true" />
           </LoadingContainer>
         ) : error ? (
           <ErrorState>
@@ -549,7 +561,7 @@ export function CrawlerDetailPage() {
               </SectionHeader>
               <SchemaArea
                 value={form.input_schema}
-                onChange={(event) => setForm({ ...form, input_schema: event.target.value })}
+                onChange={(event) => handleSchemaChange('input_schema', event.target.value)}
                 onBlur={
                   crawler.type === 'web'
                     ? undefined
@@ -575,7 +587,7 @@ export function CrawlerDetailPage() {
               </SectionHeader>
               <SchemaArea
                 value={form.output_schema}
-                onChange={(event) => setForm({ ...form, output_schema: event.target.value })}
+                onChange={(event) => handleSchemaChange('output_schema', event.target.value)}
                 onBlur={(event) => validateSchemaField('output_schema', event.target.value)}
                 hasError={!!schemaErrors.output_schema}
                 aria-label="Output schema"

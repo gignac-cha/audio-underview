@@ -263,5 +263,16 @@ describe('CrawlerDetailPage', () => {
     await expect.element(page.getByText('Must be a valid JSON object.')).toBeVisible();
     await expect.element(saveButton).toBeDisabled();
     expect(putCount).toBe(0);
+
+    await outputSchema.fill('{"count":"number"}');
+
+    // onChange clears the inline error immediately when value becomes valid — no blur required.
+    await expect.element(page.getByText('Must be a valid JSON object.')).not.toBeInTheDocument();
+    await expect.element(saveButton).toBeEnabled();
+    await saveButton.click();
+
+    await vi.waitFor(() => {
+      expect(putCount).toBe(1);
+    });
   });
 });

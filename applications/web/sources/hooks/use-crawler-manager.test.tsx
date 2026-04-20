@@ -259,10 +259,9 @@ describe('useGetCrawler', () => {
       wrapper: createWrapper(),
     });
 
-    // Give any microtask-deferred fetch a chance to run before asserting.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    expect(result.current.isLoading).toBe(false);
+    await vi.waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
     expect(result.current.crawler).toBeUndefined();
     expect(requestCount).toBe(0);
   });
