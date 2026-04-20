@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -350,15 +350,16 @@ export function CrawlerDetailPage() {
 
   const [form, setForm] = useState<FormState | undefined>(undefined);
   const [pristine, setPristine] = useState<FormState | undefined>(undefined);
+  const [seededForCrawlerID, setSeededForCrawlerID] = useState<string | undefined>(undefined);
   const [schemaErrors, setSchemaErrors] = useState<SchemaErrors>({});
 
-  useEffect(() => {
-    if (crawler && !form) {
-      const initial = deriveFormState(crawler);
-      setForm(initial);
-      setPristine(initial);
-    }
-  }, [crawler, form]);
+  if (crawler && seededForCrawlerID !== crawler.id) {
+    const initial = deriveFormState(crawler);
+    setSeededForCrawlerID(crawler.id);
+    setForm(initial);
+    setPristine(initial);
+    setSchemaErrors({});
+  }
 
   const isDirty = useMemo(() => {
     if (!form || !pristine) return false;
