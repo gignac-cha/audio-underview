@@ -39,9 +39,7 @@ const CharacterCounter = styled('span', {
 `;
 
 const EditorWrapper = styled.div`
-  flex: 1;
-  height: 300px;
-  min-height: 200px;
+  height: 500px;
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   overflow: hidden;
@@ -68,6 +66,7 @@ export function CodeEditorPanel({ value, onChange, disabled, showDefaultTemplate
       </HeaderRow>
       <EditorWrapper>
         <Editor
+          height="100%"
           defaultLanguage="javascript"
           theme="vs-dark"
           value={displayValue}

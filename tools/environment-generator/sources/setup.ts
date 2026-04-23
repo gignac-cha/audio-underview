@@ -5,7 +5,7 @@ const executeCommandPromise = promisify(execFile);
 
 const onePasswordReferencePath =
   process.env.OP_SERVICE_ACCOUNT_REFERENCE ??
-  'op://Personal/Service Account Auth Token - Audio Underview/credential';
+  'op://Personal/Service Account - Audio Underview/credential';
 
 try {
   const { stdout } = await executeCommandPromise('op', ['read', onePasswordReferencePath], {

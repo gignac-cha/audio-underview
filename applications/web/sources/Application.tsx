@@ -5,8 +5,7 @@ import { type OAuthProviderID } from '@audio-underview/sign-provider';
 import { SignInPage } from './pages/SignInPage.tsx';
 import { HomePage } from './pages/HomePage.tsx';
 import { CrawlersPage } from './pages/CrawlersPage.tsx';
-import { CrawlerNewPage } from './pages/CrawlerNewPage.tsx';
-import { CrawlerDetailPage } from './pages/CrawlerDetailPage.tsx';
+import { CrawlerEditorPage } from './pages/CrawlerEditorPage.tsx';
 import { SchedulersPage } from './pages/SchedulersPage.tsx';
 import { SchedulerDetailPage } from './pages/SchedulerDetailPage.tsx';
 import { AuthenticationCallbackPage } from './pages/AuthenticationCallbackPage.tsx';
@@ -64,18 +63,10 @@ function ApplicationRoutes() {
         }
       />
       <Route
-        path="/crawlers/new"
-        element={
-          <ProtectedRoute>
-            <CrawlerNewPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
         path="/crawlers/:id"
         element={
           <ProtectedRoute>
-            <CrawlerDetailPage />
+            <CrawlerEditorPage />
           </ProtectedRoute>
         }
       />
