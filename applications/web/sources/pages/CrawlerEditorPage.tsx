@@ -449,6 +449,10 @@ function isFromFormElement(event: KeyboardEvent) {
 
 export function CrawlerEditorPage() {
   const { id } = useParams<{ id: string }>();
+  return <CrawlerEditorPageContent key={id ?? 'new'} id={id} />;
+}
+
+function CrawlerEditorPageContent({ id }: { id: string | undefined }) {
   const { logout } = useAuthentication();
   const {
     mode,
@@ -784,11 +788,15 @@ export function CrawlerEditorPage() {
                     Test Runner
                     {isDirty && isEditable && <ShortcutHint>· running draft</ShortcutHint>}
                   </SectionTitle>
-                  <GhostButton onClick={() => setIsLogOverlayOpen(true)} aria-label="Open logs">
-                    Logs (
-                    <span aria-live="polite" aria-atomic="true">{executionLogs.length}</span>
-                    )
+                  <GhostButton
+                    onClick={() => setIsLogOverlayOpen(true)}
+                    aria-label={`Open logs (${executionLogs.length})`}
+                  >
+                    Logs ({executionLogs.length})
                   </GhostButton>
+                  <VisuallyHidden role="status" aria-live="polite" aria-atomic="true">
+                    {executionLogs.length} log {executionLogs.length === 1 ? 'entry' : 'entries'}
+                  </VisuallyHidden>
                 </SectionHeader>
                 <TestBar>
                   <URLInputPanel value={testURL} onChange={setTestURL} disabled={isRunning} />

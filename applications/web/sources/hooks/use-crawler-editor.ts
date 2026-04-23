@@ -179,8 +179,8 @@ export function useCrawlerEditor(id: string | undefined) {
       const submittedForm = formState.form;
       const updated = await updateCrawler(payload);
       const next = deriveFormState(updated);
-      formState.markSaved(submittedForm, next);
-      modeState.exitEdit();
+      const applied = formState.markSaved(submittedForm, next);
+      if (applied) modeState.exitEdit();
       showToast('Saved', `Crawler "${trimmedName}" has been updated.`, 'success');
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : 'Failed to save crawler';

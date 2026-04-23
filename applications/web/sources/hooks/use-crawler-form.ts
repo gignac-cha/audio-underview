@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CrawlerRow } from '@audio-underview/supabase-connector';
 import {
   BLANK_FORM,
@@ -18,6 +18,11 @@ export function useCrawlerForm(isCreateMode: boolean) {
   const isDirty = useMemo(() => computeIsDirty(form, pristine), [form, pristine]);
   const hasSchemaError = !!schemaErrors.input_schema || !!schemaErrors.output_schema;
 
+  const formRef = useRef(form);
+  useEffect(() => {
+    formRef.current = form;
+  });
+
   const resetFromCrawler = (crawler: CrawlerRow) => {
     const initial = deriveFormState(crawler);
     setForm(initial);
@@ -31,9 +36,11 @@ export function useCrawlerForm(isCreateMode: boolean) {
     setSchemaErrors({});
   };
 
-  const markSaved = (submitted: FormState, next: FormState) => {
+  const markSaved = (submitted: FormState, next: FormState): boolean => {
+    const wasApplied = formRef.current === submitted;
     setForm((current) => (current === submitted ? next : current));
     setPristine(next);
+    return wasApplied;
   };
 
   const validateSchemaField = (field: SchemaField, raw: string) => {
