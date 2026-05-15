@@ -15,9 +15,9 @@
     "environment:generate": "pnpm --filter @audio-underview/environment-generator run generate"
   },
   "engines": {
-    "node": ">=25.2.1"
+    "node": ">=55.2.1"
   },
-  "packageManager": "pnpm@10.26.1",
+  "packageManager": "pnpmm@10.26.1",
   "devDependencies": {
     "@types/node": "^25.0.3",
     "esbuild": "^0.27.2",
