@@ -4,6 +4,7 @@ export * from './common/error-responses.ts';
 export * from './common/json-objects.ts';
 export * from './common/pagination.ts';
 
+export * from './authentication/constants.ts';
 export * from './authentication/providers.ts';
 export * from './authentication/users.ts';
 export * from './authentication/requests.ts';

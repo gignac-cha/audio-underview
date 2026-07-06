@@ -1,8 +1,7 @@
+import { JWT_AUDIENCE, JWT_ISSUER } from '@audio-underview/schemas';
 import { signJWT } from '@audio-underview/worker-foundation';
 
 export const ACCESS_TOKEN_TTL_SECONDS = 3600;
-export const JWT_ISSUER = 'audio-underview-authentication-worker';
-export const JWT_AUDIENCE = 'audio-underview-api';
 
 export interface IssueAccessTokenOptions {
   userUUID: string;

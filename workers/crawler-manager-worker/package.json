@@ -1,22 +1,28 @@
 {
-  "name": "@audio-underview/authentication-providers",
+  "name": "@audio-underview/crawler-manager-worker",
   "version": "0.0.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
   },
   "packageManager": "pnpm@10.26.1",
   "type": "module",
-  "exports": "./sources/index.ts",
   "private": true,
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
   },
   "dependencies": {
     "@audio-underview/authentication-core": "workspace:*",
+    "@audio-underview/database-connector": "workspace:*",
+    "@audio-underview/logger": "workspace:*",
     "@audio-underview/schemas": "workspace:*",
+    "@audio-underview/worker-foundation": "workspace:*",
+    "safe-regex2": "^5.1.1",
     "zod": "catalog:"
   }
 }

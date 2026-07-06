@@ -70,3 +70,79 @@ export const isValidCronExpression = (expression: string): boolean => {
     return field.split(',').every((item) => isValidCronItem(item, bounds));
   });
 };
+
+const itemMatchesValue = (item: string, value: number, bounds: CronFieldBounds): boolean => {
+  const match = CRON_ITEM_PATTERN.exec(item);
+  if (match === null) {
+    return false;
+  }
+  const [, base, rangePart, stepPart] = match;
+  const step = stepPart === undefined ? 1 : Number(stepPart.slice(1));
+
+  let start: number;
+  let end: number;
+  if (base === '*' || base === undefined) {
+    start = bounds.minimum;
+    end = bounds.maximum;
+  } else {
+    const [startText, endText] = base.split('-');
+    start = Number(startText);
+    end = rangePart !== undefined && endText !== undefined ? Number(endText) : start;
+    // step이 있는 단일 값(`값/step`)은 값부터 최대치까지의 범위로 해석 (표준 cron)
+    if (rangePart === undefined && stepPart !== undefined) {
+      end = bounds.maximum;
+    }
+  }
+
+  return value >= start && value <= end && (value - start) % step === 0;
+};
+
+const fieldMatchesValue = (field: string, value: number, bounds: CronFieldBounds): boolean =>
+  field.split(',').some((item) => itemMatchesValue(item, value, bounds));
+
+/**
+ * cron 표현식이 주어진 시각(UTC)과 일치하는지 — scheduled handler의 분 단위 tick 매칭.
+ * 표준 cron 규칙: 일(day-of-month)과 요일(day-of-week)이 **둘 다 제한**되면 OR로 결합.
+ * 요일 7은 0(일요일)으로 정규화.
+ */
+export const cronExpressionMatchesDate = (expression: string, date: Date): boolean => {
+  if (!isValidCronExpression(expression)) {
+    return false;
+  }
+  const fields = expression.trim().split(/\s+/) as [string, string, string, string, string];
+  const [minuteField, hourField, dayOfMonthField, monthField, dayOfWeekField] = fields;
+
+  const minuteBounds = { minimum: 0, maximum: 59 };
+  const hourBounds = { minimum: 0, maximum: 23 };
+  const dayOfMonthBounds = { minimum: 1, maximum: 31 };
+  const monthBounds = { minimum: 1, maximum: 12 };
+  const dayOfWeekBounds = { minimum: 0, maximum: 7 };
+
+  if (!fieldMatchesValue(minuteField, date.getUTCMinutes(), minuteBounds)) {
+    return false;
+  }
+  if (!fieldMatchesValue(hourField, date.getUTCHours(), hourBounds)) {
+    return false;
+  }
+  if (!fieldMatchesValue(monthField, date.getUTCMonth() + 1, monthBounds)) {
+    return false;
+  }
+
+  const dayOfWeek = date.getUTCDay(); // 0 = 일요일
+  const dayOfWeekMatches =
+    fieldMatchesValue(dayOfWeekField, dayOfWeek, dayOfWeekBounds) ||
+    (dayOfWeek === 0 && fieldMatchesValue(dayOfWeekField, 7, dayOfWeekBounds));
+  const dayOfMonthMatches = fieldMatchesValue(
+    dayOfMonthField,
+    date.getUTCDate(),
+    dayOfMonthBounds,
+  );
+
+  // 표준 cron: 둘 다 '*'가 아니면 OR, 아니면 AND
+  const dayOfMonthRestricted = dayOfMonthField !== '*';
+  const dayOfWeekRestricted = dayOfWeekField !== '*';
+  if (dayOfMonthRestricted && dayOfWeekRestricted) {
+    return dayOfMonthMatches || dayOfWeekMatches;
+  }
+  return dayOfMonthMatches && dayOfWeekMatches;
+};

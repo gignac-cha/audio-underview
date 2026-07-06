@@ -1,21 +1,22 @@
 {
-  "name": "@audio-underview/authentication-providers",
+  "name": "@audio-underview/crawler-code-runner-function",
   "version": "0.0.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build": "node scripts/build.ts"
   },
   "packageManager": "pnpm@10.26.1",
   "type": "module",
-  "exports": "./sources/index.ts",
   "private": true,
   "devDependencies": {
-    "@cloudflare/workers-types": "catalog:",
+    "@types/node": "catalog:",
+    "esbuild": "^0.28.1",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
   "dependencies": {
-    "@audio-underview/authentication-core": "workspace:*",
+    "@audio-underview/logger": "workspace:*",
     "@audio-underview/schemas": "workspace:*",
     "zod": "catalog:"
   }
