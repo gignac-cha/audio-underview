@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@audio-underview/schemas": "workspace:*",
+    "@supabase/supabase-js": "^2.110.0",
     "zod": "catalog:"
   }
 }
