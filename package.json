@@ -1,30 +1,31 @@
 {
   "name": "audio-underview",
   "version": "1.0.0",
-  "private": true,
-  "type": "module",
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
-    "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "lint": "eslint --max-warnings 0 .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "environment:setup": "pnpm --filter @audio-underview/environment-generator run setup",
     "environment:generate": "pnpm --filter @audio-underview/environment-generator run generate"
   },
+  "license": "ISC",
+  "packageManager": "pnpm@10.26.1",
+  "type": "module",
   "engines": {
     "node": ">=25.2.1"
   },
-  "packageManager": "pnpm@10.26.1",
+  "private": true,
   "devDependencies": {
-    "@types/node": "^25.0.3",
-    "esbuild": "^0.27.2",
-    "eslint": "^9.39.2",
-    "prettier": "^3.7.4",
-    "turbo": "^2.7.0",
-    "typescript": "^5.9.3",
-    "wrangler": "^4.56.0"
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.1.0",
+    "eslint": "^10.6.0",
+    "prettier": "^3.9.4",
+    "turbo": "^2.10.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.62.1"
   }
 }

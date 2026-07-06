@@ -1,5 +1,5 @@
 {
-  "name": "@audio-underview/logger",
+  "name": "@audio-underview/database-connector",
   "version": "0.0.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -12,5 +12,9 @@
   "devDependencies": {
     "typescript": "catalog:",
     "vitest": "catalog:"
+  },
+  "dependencies": {
+    "@audio-underview/schemas": "workspace:*",
+    "zod": "catalog:"
   }
 }

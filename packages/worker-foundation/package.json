@@ -1,5 +1,5 @@
 {
-  "name": "@audio-underview/logger",
+  "name": "@audio-underview/worker-foundation",
   "version": "0.0.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -10,7 +10,13 @@
   "exports": "./sources/index.ts",
   "private": true,
   "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
+  },
+  "dependencies": {
+    "@audio-underview/logger": "workspace:*",
+    "@audio-underview/schemas": "workspace:*",
+    "zod": "catalog:"
   }
 }
