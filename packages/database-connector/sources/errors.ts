@@ -27,7 +27,7 @@ const unwrapCause = (error: unknown): unknown =>
 const asPostgrestError = (error: unknown): PostgrestErrorLike => {
   const unwrapped = unwrapCause(error);
   return typeof unwrapped === 'object' && unwrapped !== null
-    ? (unwrapped as PostgrestErrorLike)
+    ? (unwrapped)
     : {};
 };
 
@@ -66,7 +66,7 @@ export class DatabaseOperationError extends Error {
   constructor(operation: string, entity: string, cause: unknown) {
     const description =
       typeof cause === 'object' && cause !== null && 'message' in cause
-        ? String((cause as { message: unknown }).message)
+        ? String((cause).message)
         : String(cause);
     super(`Failed to ${operation} ${entity}: ${description}`, { cause });
     this.name = 'DatabaseOperationError';

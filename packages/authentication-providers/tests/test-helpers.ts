@@ -29,7 +29,7 @@ export const createRecordingFetch = (
   respond: (url: URL) => FakeResponse,
 ): { fetchImplementation: typeof fetch; requests: RecordedRequest[] } => {
   const requests: RecordedRequest[] = [];
-  const fetchImplementation = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const fetchImplementation = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     requests.push({
       url,
@@ -38,10 +38,12 @@ export const createRecordingFetch = (
       body: typeof init?.body === 'string' ? init.body : undefined,
     });
     const { status, payload } = respond(url);
-    return new Response(JSON.stringify(payload), {
-      status: status ?? 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return Promise.resolve(
+      new Response(JSON.stringify(payload), {
+        status: status ?? 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
   }) as typeof fetch;
   return { fetchImplementation, requests };
 };

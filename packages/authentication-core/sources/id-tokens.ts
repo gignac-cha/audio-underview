@@ -100,7 +100,7 @@ export const verifyIDToken = async (
   if (!jwksResponse.ok) {
     throw new OAuthFlowError('server_error', 'Failed to fetch provider JWKS');
   }
-  const jwks = (await jwksResponse.json()) as { keys?: JSONWebKey[] };
+  const jwks = await jwksResponse.json<{ keys?: JSONWebKey[] }>();
   const keys = jwks.keys ?? [];
   const candidates = keyID === undefined ? keys : keys.filter((key) => key.kid === keyID);
   if (candidates.length === 0) {

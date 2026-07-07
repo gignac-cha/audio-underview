@@ -81,7 +81,7 @@ describe('ID token verification (JWKS)', () => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
-      )) as typeof fetch;
+      ));
 
   it('verifies a valid RS256 ID token with nonce', async () => {
     const { idToken, jwk } = await createSignedIDToken(claims);

@@ -265,7 +265,7 @@ describe('web execution', () => {
   it('returns 502 when the fetch fails', async () => {
     const response = await invoke(
       createEvent({ type: 'web', mode: 'test', url: 'https://down.example.com', code: '(b) => b' }),
-      { fetchImplementation: (() => Promise.reject(new Error('connection refused'))) as typeof fetch },
+      { fetchImplementation: (() => Promise.reject(new Error('connection refused'))) },
     );
     expect(response.statusCode).toBe(502);
   });

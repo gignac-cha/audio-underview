@@ -29,7 +29,7 @@ export default {
         createServices(environment),
         logger,
         new Date(controller.scheduledTime),
-        (promise) => executionContext.waitUntil(promise),
+        (promise) => { executionContext.waitUntil(promise); },
       );
       if (summary.matched > 0) {
         logger.info('Scheduled tick processed', summary, { function: 'scheduled' });

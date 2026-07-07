@@ -17,7 +17,8 @@ const generateRandomString = (length: number, alphabet: string): string => {
     crypto.getRandomValues(buffer);
     for (const byte of buffer) {
       if (byte < limit) {
-        characters.push(alphabet[byte % alphabet.length] as string);
+        // rejection sampling으로 인덱스가 항상 유효하므로 charAt은 빈 문자열을 반환하지 않는다
+        characters.push(alphabet.charAt(byte % alphabet.length));
         if (characters.length === length) {
           break;
         }

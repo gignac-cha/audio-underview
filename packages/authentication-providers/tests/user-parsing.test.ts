@@ -16,12 +16,12 @@ import {
 const fetchUserWith = async (
   strategy:
     | typeof facebookStrategy
-    | typeof githubStrategy
-    | typeof discordStrategy
-    | typeof kakaoStrategy
-    | typeof naverStrategy
-    | typeof linkedinStrategy
-    | typeof xStrategy,
+     
+     
+     
+     
+     
+     ,
   respond: (url: URL) => FakeResponse,
 ) => {
   const { fetchImplementation, requests } = createRecordingFetch(respond);

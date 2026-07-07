@@ -162,7 +162,7 @@ export const createExecutorHarness = (stages: SchedulerStageRow[]) => {
     stages: { list: () => Promise.resolve(stages) },
     runs: {
       update: (_id, _schedulerID, input) => {
-        runUpdates.push(input as Record<string, unknown>);
+        runUpdates.push(input);
         return Promise.resolve({ ...mockRun, ...(input as object) });
       },
     },
@@ -178,7 +178,7 @@ export const createExecutorHarness = (stages: SchedulerStageRow[]) => {
     },
     schedulers: {
       update: (_id, _user, input) => {
-        schedulerUpdates.push(input as Record<string, unknown>);
+        schedulerUpdates.push(input);
         return Promise.resolve(mockScheduler);
       },
     },

@@ -49,7 +49,7 @@ describe('signJWT / verifyJWT', () => {
   });
 
   it('rejects a payload without a string sub', async () => {
-    const token = await signJWT(createPayload({ sub: 123 } as never), SECRET);
+    const token = await signJWT(createPayload({ sub: 123 }), SECRET);
     expect(await verifyJWT(token, SECRET)).toBeNull();
   });
 

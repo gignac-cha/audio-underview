@@ -82,7 +82,15 @@ describe('executeCrawler', () => {
     const recorder = createRunRecorder();
     const warnSpy = vi.fn();
     const logger = new Logger({
-      transports: [{ write: (record) => record.level === 'warn' && warnSpy(record.message) }],
+      transports: [
+        {
+          write: (record) => {
+            if (record.level === 'warn') {
+              warnSpy(record.message);
+            }
+          },
+        },
+      ],
       minimumLevel: 'warn',
     });
     const services = createFakeServices({

@@ -67,7 +67,10 @@ export const executeInSandbox = async (
     sandbox.__inputText = argument;
     expression = `(${code})(__inputText)`;
   } else {
-    sandbox.__inputJSON = JSON.stringify(argument) ?? 'null';
+    // JSON.stringify의 반환 타입은 string이지만 런타임에는 undefined(함수/undefined 인자)를
+    // 반환할 수 있어 'null'로 보정한다 — 타입과 런타임의 알려진 괴리
+    const serialized = JSON.stringify(argument) as string | undefined;
+    sandbox.__inputJSON = serialized ?? 'null';
     expression = `(${code})(JSON.parse(__inputJSON))`;
   }
 

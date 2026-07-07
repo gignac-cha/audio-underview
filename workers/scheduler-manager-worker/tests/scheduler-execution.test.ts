@@ -92,7 +92,7 @@ describe('POST /schedulers/:schedulerID/execute', () => {
       runs: {
         create: () => Promise.resolve(mockRun),
         update: (_id, _schedulerID, input) => {
-          updates.push(input as Record<string, unknown>);
+          updates.push(input);
           return Promise.resolve(finalRun);
         },
         get: () => Promise.resolve(finalRun),

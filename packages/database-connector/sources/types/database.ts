@@ -1,3 +1,9 @@
+/*
+ * supabase-js의 `Database` 제네릭은 테이블 Row/Insert/Update가 인덱스 제약을
+ * 만족해야 추론이 동작한다. `interface`로 바꾸면 암묵적 인덱스 시그니처가 없어
+ * 전 쿼리가 `never`로 fallback되므로, 이 파일은 반드시 `type` alias를 쓴다.
+ */
+/* eslint-disable @typescript-eslint/consistent-type-definitions */
 import type {
   Crawler,
   CrawlerPermission,

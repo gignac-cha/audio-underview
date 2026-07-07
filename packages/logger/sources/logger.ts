@@ -72,7 +72,9 @@ export class Logger {
    * 버퍼링 transport들의 플러시를 기다린다.
    */
   async flush(): Promise<void> {
-    await Promise.all(this.#transports.map((transport) => transport.flush?.()));
+    await Promise.all(
+      this.#transports.map((transport) => transport.flush?.() ?? Promise.resolve()),
+    );
   }
 
   #write(

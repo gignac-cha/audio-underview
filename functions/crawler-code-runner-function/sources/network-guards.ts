@@ -51,7 +51,7 @@ const isBlockedIPv6 = (address: string): boolean => {
   }
   // IPv4-mapped IPv6 (::ffff:127.0.0.1 등)
   const mappedMatch = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(normalized);
-  if (mappedMatch !== null && mappedMatch[1] !== undefined) {
+  if (mappedMatch?.[1] !== undefined) {
     return isBlockedIPv4(mappedMatch[1]);
   }
   return false;

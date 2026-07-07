@@ -81,7 +81,7 @@ export const handleExecuteScheduler = async (
   const abortController = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<'timeout'>((resolve) => {
-    timer = setTimeout(() => resolve('timeout'), timeout);
+    timer = setTimeout(() => { resolve('timeout'); }, timeout);
   });
 
   const raceResult = await Promise.race([

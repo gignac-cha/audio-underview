@@ -21,7 +21,7 @@ export const verifyBearerToken = (
   authorizationHeader: string | undefined,
   secret: string,
 ): { userUUID: string } | undefined => {
-  if (authorizationHeader === undefined || !authorizationHeader.startsWith('Bearer ')) {
+  if (!authorizationHeader?.startsWith('Bearer ')) {
     return undefined;
   }
   const token = authorizationHeader.slice('Bearer '.length);
@@ -33,11 +33,10 @@ export const verifyBearerToken = (
 
   const expected = createHmac('sha256', secret).update(`${headerPart}.${payloadPart}`).digest();
   const provided = base64URLDecode(signaturePart);
-  if (
-    provided === undefined ||
-    provided.length !== expected.length ||
-    !timingSafeEqual(provided, expected)
-  ) {
+  if (provided === undefined) {
+    return undefined;
+  }
+  if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
     return undefined;
   }
 

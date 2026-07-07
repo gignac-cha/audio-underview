@@ -88,7 +88,7 @@ describe('executeStage', () => {
       stageRuns: {
         create: () => Promise.resolve(mockStageRun),
         update: (_id, _runID, input) => {
-          writes.push(input as Record<string, unknown>);
+          writes.push(input);
           return Promise.resolve(mockStageRun);
         },
       },

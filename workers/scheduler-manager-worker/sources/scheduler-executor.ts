@@ -126,7 +126,10 @@ export const executeScheduler = async (
       return;
     }
 
-    const firstStage = stages[0] as SchedulerStageRow;
+    const firstStage = stages[0];
+    if (firstStage === undefined) {
+      return;
+    }
     let currentInput: unknown = resolveDefaultInput(firstStage.input_schema);
     let hasPartialFailure = false;
 

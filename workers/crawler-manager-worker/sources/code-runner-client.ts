@@ -51,7 +51,7 @@ const parseErrorBody = async (
   response: Response,
 ): Promise<{ error: string; errorDescription: string }> => {
   try {
-    const payload = (await response.json()) as Record<string, unknown>;
+    const payload = await response.json<Record<string, unknown>>();
     return {
       error: typeof payload.error === 'string' ? payload.error : 'execution_error',
       errorDescription:

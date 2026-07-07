@@ -66,7 +66,9 @@ export const handleSocialLogin = async (
     throw new DatabaseOperationError('handle social login for', 'account', error);
   }
 
-  const row = data[0];
+  // supabase-js의 rpc 반환 타입 추론을 우회해 함수 Returns 계약을 명시한다
+  const rows = data as { user_uuid: string; is_new_user: boolean; is_new_account: boolean }[];
+  const row = rows[0];
   if (row === undefined) {
     throw new DatabaseOperationError('handle social login for', 'account', 'empty RPC result');
   }

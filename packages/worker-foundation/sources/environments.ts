@@ -26,5 +26,5 @@ export const parseEnvironment = <Schema extends z.ZodType>(
       missing.length > 0 ? `invalid environment variables: ${missing}` : 'invalid environment',
     );
   }
-  return result.data as z.infer<Schema>;
+  return result.data;
 };

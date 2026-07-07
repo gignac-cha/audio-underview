@@ -64,7 +64,7 @@ describe('Logger', () => {
     const { transport, records } = createCapturingTransport();
     const logger = new Logger({ transports: [throwing, transport] });
 
-    expect(() => logger.info('m')).not.toThrow();
+    expect(() => { logger.info('m'); }).not.toThrow();
     expect(records).toHaveLength(1);
   });
 });

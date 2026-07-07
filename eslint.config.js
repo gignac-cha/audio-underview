@@ -38,10 +38,16 @@ export default defineConfig(
     extends: [typescriptESLint.configs.disableTypeChecked],
   },
   {
+    // 테스트에서 mock/JSON 응답을 다룰 때의 타입 마찰은 허용한다
     files: ['**/tests/**', '**/*.test.ts', '**/*.test.tsx'],
     rules: {
       '@typescript-eslint/no-non-null-assertion': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-unnecessary-type-assertion': 'off',
     },
   },
 );
