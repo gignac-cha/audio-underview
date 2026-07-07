@@ -10,7 +10,7 @@ catalogs:
       specifier: 4.20260702.1
       version: 4.20260702.1
     '@types/node':
-      specifier: 26.1.0
+      specifier: ^26.1.0
       version: 26.1.0
     typescript:
       specifier: 6.0.3
@@ -19,7 +19,7 @@ catalogs:
       specifier: 4.1.10
       version: 4.1.10
     wrangler:
-      specifier: 4.107.0
+      specifier: ^4.107.0
       version: 4.107.0
     zod:
       specifier: 4.4.3
