@@ -20,7 +20,7 @@ try {
   process.stdout.write(stdout.trim());
 } catch (error) {
   const typedError = error as NodeJS.ErrnoException;
-  const message = typedError.message ?? '';
+  const message = typedError.message;
 
   if (typedError.code === 'ENOENT') {
     console.error('1Password CLI (op) is not installed. Install it from https://1password.com/downloads/command-line/');

@@ -1,0 +1,70 @@
+.body {
+  padding: 14px;
+  min-height: 120px;
+}
+
+.hint {
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+.running {
+  display: flex;
+  justify-content: center;
+  padding: 24px 0;
+}
+
+.error {
+  color: var(--color-error);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tree {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.nested {
+  padding-left: 16px;
+}
+
+.row {
+  white-space: nowrap;
+}
+
+.key {
+  color: var(--accent);
+}
+
+.string {
+  color: var(--color-success);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.number {
+  color: var(--color-info);
+}
+
+.boolean {
+  color: var(--color-warning);
+}
+
+.null {
+  color: var(--text-faint);
+}
+
+.punctuation {
+  color: var(--text-secondary);
+}
+
+.faint {
+  color: var(--text-faint);
+}

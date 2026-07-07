@@ -1,0 +1,13 @@
+.centered {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+}
+
+.error {
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+}
