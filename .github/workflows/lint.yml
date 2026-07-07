@@ -1,20 +1,17 @@
-name: "Test: Packages"
+name: "Lint"
 
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'packages/**'
-      - '.github/workflows/test-packages.yml'
 
 concurrency:
-  group: test-packages-${{ github.event.pull_request.number }}
+  group: lint-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
-    name: Run package unit tests
+    name: ESLint (root flat config)
     permissions:
       contents: read
 
@@ -34,8 +31,5 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck
-        run: pnpm -r --filter './packages/*' run typecheck
-
-      - name: Run package tests
-        run: pnpm -r --filter './packages/*' run test
+      - name: Lint
+        run: pnpm run lint

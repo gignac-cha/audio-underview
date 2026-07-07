@@ -554,3 +554,10 @@ test-results.xml
 # Storybook
 storybook-static/
 
+# 로컬 secret 파일 (environment-generator 생성물 — 절대 커밋 금지)
+.env.workers
+.env.deploy
+# 단, 템플릿은 추적한다
+!.env.example
+!.env.workers.example
+

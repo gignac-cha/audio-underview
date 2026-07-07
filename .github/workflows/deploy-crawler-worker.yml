@@ -1,17 +1,16 @@
-name: "Deploy: Scheduler Worker"
+name: "Deploy: Crawler Worker"
 
-# scheduler-manager-worker 배포.
-# worker secret(SUPABASE_URL, SUPABASE_SECRET_KEY, JWT_SECRET)은
+# crawler-manager-worker 배포.
+# worker secret(SUPABASE_URL, SUPABASE_SECRET_KEY, JWT_SECRET, CODE_RUNNER_FUNCTION_URL)은
 # 레거시와 동일하게 CI 밖에서 수동 관리 (`wrangler secret put`, 소스: <root>/.env.workers).
-# cron 자동 실행은 wrangler.toml의 SCHEDULED_EXECUTION_ENABLED로 게이트 (ADR-6).
 
 on:
   workflow_dispatch:
 
 jobs:
-  deploy-scheduler-manager:
+  deploy-crawler-manager:
     runs-on: ubuntu-latest
-    name: Deploy Scheduler Manager Worker
+    name: Deploy Crawler Manager Worker
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -33,5 +32,5 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: workers/scheduler-manager-worker
+          workingDirectory: workers/crawler-manager-worker
           command: deploy

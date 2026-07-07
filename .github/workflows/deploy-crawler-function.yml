@@ -1,20 +1,15 @@
-name: "Deploy: Crawler Functions"
+name: "Deploy: Crawler Function"
+
+# crawler-code-runner-function (AWS Lambda) 배포.
+# 레거시 deploy-crawler-functions.yml 대체 — 배포 비활성이던 CF worker 경로 삭제 (ADR-2).
+# 재작성에서 Bearer JWT 검증이 추가되어 Lambda 환경변수에 JWT_SECRET이 필요하다
+# (workers와 동일한 secret — GitHub secret JWT_SECRET 재사용).
 
 on:
   workflow_dispatch:
-    inputs:
-      crawler_code_runner:
-        description: 'Deploy Crawler Code Runner Function'
-        type: boolean
-        default: false
-      deploy_all:
-        description: 'Deploy ALL crawler functions (overrides individual selections)'
-        type: boolean
-        default: false
 
 jobs:
   deploy-crawler-code-runner:
-    if: ${{ inputs.crawler_code_runner || inputs.deploy_all }}
     runs-on: ubuntu-latest
     name: Deploy Crawler Code Runner Function
     steps:
@@ -34,8 +29,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build function
-        working-directory: functions/crawler-code-runner-function
-        run: node build.ts
+        run: pnpm --filter @audio-underview/crawler-code-runner-function build
 
       - name: Package function
         working-directory: functions/crawler-code-runner-function/outputs
@@ -68,7 +62,7 @@ jobs:
             --memory-size 256 \
             --role ${{ secrets.AWS_LAMBDA_EXECUTION_ROLE_ARN }} \
             --zip-file fileb://functions/crawler-code-runner-function/outputs/function.zip \
-            --environment '{"Variables":{"ALLOWED_ORIGINS":"${{ vars.ALLOWED_ORIGINS }}"}}'
+            --environment '{"Variables":{"ALLOWED_ORIGINS":"${{ vars.ALLOWED_ORIGINS }}","JWT_SECRET":"${{ secrets.JWT_SECRET }}"}}'
 
       - name: Update function code
         if: steps.check-function.outputs.exists == 'true'
@@ -92,4 +86,4 @@ jobs:
             --handler index.handler \
             --timeout 30 \
             --memory-size 256 \
-            --environment '{"Variables":{"ALLOWED_ORIGINS":"${{ vars.ALLOWED_ORIGINS }}"}}'
+            --environment '{"Variables":{"ALLOWED_ORIGINS":"${{ vars.ALLOWED_ORIGINS }}","JWT_SECRET":"${{ secrets.JWT_SECRET }}"}}'

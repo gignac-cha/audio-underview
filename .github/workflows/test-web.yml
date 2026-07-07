@@ -15,10 +15,9 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    name: Run web component tests
+    name: Run web unit tests
     permissions:
       contents: read
-      checks: write
 
     steps:
       - name: Checkout code
@@ -39,18 +38,10 @@ jobs:
       - name: Typecheck
         run: pnpm --filter @audio-underview/web typecheck
 
+      # ESLint flat config는 root 단일 구성 (documents/architecture.md §8)
       - name: Lint
-        run: pnpm --filter @audio-underview/web lint
+        run: pnpm exec eslint --max-warnings 0 applications/web
 
-      - name: Install Playwright Chromium
-        run: pnpm --filter @audio-underview/web exec playwright install --with-deps chromium
-
+      # web 테스트는 jsdom 기반 — 브라우저 설치 불필요
       - name: Run web tests
-        run: pnpm --filter @audio-underview/web exec vitest run --reporter=default --reporter=junit --outputFile.junit=test-results.xml
-
-      - name: Test report
-        uses: mikepenz/action-junit-report@v5
-        if: success() || failure()
-        with:
-          check_name: Web Test Results
-          report_paths: 'applications/web/test-results.xml'
+        run: pnpm --filter @audio-underview/web test

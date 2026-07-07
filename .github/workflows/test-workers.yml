@@ -6,6 +6,7 @@ on:
     paths:
       - 'workers/**'
       - 'packages/**'
+      - '.github/workflows/test-workers.yml'
 
 concurrency:
   group: test-workers-${{ github.event.pull_request.number }}
@@ -14,10 +15,9 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    name: Run all worker unit tests
+    name: Run worker unit tests
     permissions:
       contents: read
-      checks: write
 
     steps:
       - name: Checkout code
@@ -39,11 +39,4 @@ jobs:
         run: pnpm -r --filter './workers/*' run typecheck
 
       - name: Run worker tests
-        run: pnpm --filter './workers/*' exec vitest run --reporter=default --reporter=junit --outputFile.junit=test-results.xml
-
-      - name: Test report
-        uses: mikepenz/action-junit-report@v5
-        if: success() || failure()
-        with:
-          check_name: Worker Test Results
-          report_paths: 'workers/*/test-results.xml'
+        run: pnpm -r --filter './workers/*' run test
