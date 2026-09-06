@@ -17,7 +17,6 @@ jobs:
     name: Run package unit tests
     permissions:
       contents: read
-      checks: write
 
     steps:
       - name: Checkout code
@@ -40,10 +39,3 @@ jobs:
 
       - name: Run package tests
         run: pnpm -r --filter './packages/*' run test
-
-      - name: Test report
-        uses: mikepenz/action-junit-report@v5
-        if: success() || failure()
-        with:
-          check_name: Package Test Results
-          report_paths: 'packages/*/test-results.xml'

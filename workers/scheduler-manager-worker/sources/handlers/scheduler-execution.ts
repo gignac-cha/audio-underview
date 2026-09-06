@@ -1,122 +1,122 @@
 import {
-  type ResponseContext,
-  jsonResponse,
-} from '@audio-underview/worker-tools';
+  ACTIVE_RUN_UNIQUE_INDEX,
+  isUniqueViolation,
+  type SchedulerRunRow,
+} from '@audio-underview/database-connector';
+import type { SchedulerRunStatus } from '@audio-underview/schemas';
 import {
-  type SchedulerRunStatus,
-  createSupabaseClient,
-  createSchedulerRun,
-  getSchedulerRun,
-  updateSchedulerRun,
-} from '@audio-underview/supabase-connector';
-import { createWorkerLogger } from '@audio-underview/logger';
-import type { Environment } from '../index.ts';
-import { ServiceBindingCrawlerExecutionClient } from '../crawler-execution-client.ts';
+  errorResponse,
+  jsonResponse,
+  type RequestContext,
+} from '@audio-underview/worker-foundation';
+import type { WorkerEnvironment } from '../environment.ts';
 import { executeScheduler } from '../scheduler-executor.ts';
-import { verifySchedulerOwnership } from './tools.ts';
+import type { SchedulerManagerServices } from '../services.ts';
 
-export function resolveHTTPStatus(status: string, error: string | null | undefined): number {
-  if (status === 'completed' || status === 'partially_failed') return 200;
-  if (status !== 'failed' || error === null || error === undefined) return 200;
+export const PIPELINE_TIMEOUT_MILLISECONDS = 300_000; // 5분
 
-  if (error.includes('timed out')) return 408;
-  if (error.includes('Invalid input_schema') || error.includes('fan_out_field')) return 422;
-  if (error.includes('CodeRunner error') || error.includes('Invalid CrawlerExecuteResult')) return 502;
-  if (error.includes('Supabase') || error.includes('database')) return 503;
-
+/**
+ * run 상태/에러 메시지 → HTTP status (스펙 §4.5 — 테스트로 고정된 매핑).
+ * error 문자열은 DB에 영속된 값이므로 문자열 매칭이 계약의 일부다.
+ */
+export const resolveHTTPStatus = (status: SchedulerRunStatus, error: string | null): number => {
+  if (status !== 'failed' || error === null) {
+    return 200;
+  }
+  if (error.includes('timed out')) {
+    return 408;
+  }
+  if (error.includes('Invalid input_schema') || error.includes('fan_out_field')) {
+    return 422;
+  }
+  if (error.includes('CodeRunner error') || error.includes('Invalid CrawlerExecuteResult')) {
+    return 502;
+  }
+  if (error.includes('Supabase') || error.includes('database')) {
+    return 503;
+  }
   return 500;
-}
+};
 
-const logger = createWorkerLogger({
-  defaultContext: {
-    module: 'scheduler-execution-handler',
-  },
+const toExecuteResponse = (run: SchedulerRunRow): Record<string, unknown> => ({
+  run_id: run.id,
+  status: run.status,
+  result: run.result ?? null,
+  error: run.error,
+  started_at: run.started_at,
+  completed_at: run.completed_at,
 });
 
-export async function handleExecuteScheduler(
-  environment: Environment,
-  context: ResponseContext,
-  schedulerID: string,
-  userUUID: string,
-): Promise<Response> {
-  const supabaseClient = createSupabaseClient({
-    supabaseURL: environment.SUPABASE_URL,
-    supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
-  });
+export interface ExecutionHandlerOptions {
+  /** 테스트 주입용 — 기본 5분 */
+  pipelineTimeoutMilliseconds?: number;
+}
 
-  const ownershipError = await verifySchedulerOwnership(supabaseClient, schedulerID, userUUID, context);
-  if (ownershipError) return ownershipError;
+/** `POST /schedulers/:schedulerID/execute` — 동기 실행 (스펙 §4.5) */
+export const handleExecuteScheduler = async (
+  context: RequestContext<WorkerEnvironment>,
+  services: SchedulerManagerServices,
+  options: ExecutionHandlerOptions = {},
+): Promise<Response> => {
+  const schedulerID = context.parameters.schedulerID ?? '';
+  const userUUID = context.userUUID ?? '';
+  const timeout = options.pipelineTimeoutMilliseconds ?? PIPELINE_TIMEOUT_MILLISECONDS;
 
-  // Atomic concurrent run guard via DB unique partial index
-  // (scheduler_runs_one_active_per_scheduler: only one pending/running run per scheduler)
-  let run;
+  const scheduler = await services.schedulers.get(schedulerID, userUUID);
+  if (scheduler === undefined) {
+    return errorResponse('not_found', 'Scheduler not found', 404, context.responseContext);
+  }
+
+  let run: SchedulerRunRow;
   try {
-    run = await createSchedulerRun(supabaseClient, {
-      scheduler_id: schedulerID,
-      status: 'pending',
-    });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('scheduler_runs_one_active_per_scheduler')) {
-      return jsonResponse({
-        error: 'conflict',
-        error_description: 'A run is already in progress',
-      }, 409, context);
+    run = await services.runs.create({ scheduler_id: schedulerID, status: 'pending' });
+  } catch (error) {
+    // scheduler당 active run 1개 제약 (partial unique index — 스펙 §4.5.2)
+    if (isUniqueViolation(error, ACTIVE_RUN_UNIQUE_INDEX)) {
+      return errorResponse('conflict', 'A run is already in progress', 409, context.responseContext);
     }
     throw error;
   }
 
-  const crawlerExecutionClient = new ServiceBindingCrawlerExecutionClient(environment.CRAWLER_MANAGER);
-
-  // Pipeline timeout: 5 minutes. Prevents run stuck in 'running' on client disconnect or hang.
-  // AbortController signals executeScheduler to stop updating run status after timeout.
-  const PIPELINE_TIMEOUT_MILLISECONDS = 300_000;
   const abortController = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => { resolve('timeout'); }, timeout);
+  });
 
-  try {
-    await Promise.race([
-      executeScheduler(
-        { supabaseClient, crawlerExecutionClient, logger },
-        schedulerID,
-        userUUID,
-        run.id,
-        abortController.signal,
-      ),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Pipeline execution timed out after 5 minutes')), PIPELINE_TIMEOUT_MILLISECONDS),
-      ),
-    ]);
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-
-    if (message.includes('timed out')) {
-      abortController.abort();
-      await updateSchedulerRun(supabaseClient, run.id, schedulerID, {
-        status: 'failed',
-        completed_at: new Date().toISOString(),
-        error: message,
-      }, { onlyIfStatus: ['pending', 'running'] satisfies SchedulerRunStatus[] }).catch((updateError: unknown) => {
-        logger.error('Failed to update run status after timeout', updateError, {
-          function: 'handleExecuteScheduler',
-          metadata: { schedulerID, runID: run.id },
-        });
-      });
-    }
+  const raceResult = await Promise.race([
+    executeScheduler(
+      { services, logger: context.logger },
+      schedulerID,
+      userUUID,
+      run.id,
+      abortController.signal,
+    ).then(() => 'completed' as const),
+    timeoutPromise,
+  ]);
+  if (timer !== undefined) {
+    clearTimeout(timer);
   }
 
-  // Fetch final run state
-  const completedRun = await getSchedulerRun(supabaseClient, run.id, schedulerID);
-  const finalRun = completedRun ?? run;
+  if (raceResult === 'timeout') {
+    abortController.abort();
+    // executor가 이미 종료 상태를 썼다면 덮어쓰지 않는다 (onlyIfStatus guard)
+    await services.runs.update(
+      run.id,
+      schedulerID,
+      {
+        status: 'failed',
+        completed_at: new Date().toISOString(),
+        error: 'Pipeline execution timed out after 5 minutes',
+      },
+      { onlyIfStatus: ['pending', 'running'] },
+    );
+  }
 
-  const responseBody = {
-    run_id: finalRun.id,
-    status: finalRun.status,
-    result: finalRun.result,
-    error: finalRun.error,
-    started_at: finalRun.started_at,
-    completed_at: finalRun.completed_at,
-  };
-
-  const httpStatus = resolveHTTPStatus(finalRun.status, finalRun.error);
-  return jsonResponse(responseBody, httpStatus, context);
-}
+  const finalRun = (await services.runs.get(run.id, schedulerID)) ?? run;
+  return jsonResponse(
+    toExecuteResponse(finalRun),
+    resolveHTTPStatus(finalRun.status, finalRun.error),
+    context.responseContext,
+  );
+};

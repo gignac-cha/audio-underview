@@ -1,16 +1,7 @@
 {
+  "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "declaration": true,
-    "declarationMap": true,
-    "noEmit": true,
-    "allowImportingTsExtensions": true
+    "lib": ["ES2023", "DOM"]
   },
-  "include": ["sources/**/*.ts"],
-  "exclude": ["sources/**/*.test.ts"]
+  "include": ["sources", "tests"]
 }

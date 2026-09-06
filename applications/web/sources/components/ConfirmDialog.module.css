@@ -1,0 +1,54 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--layer-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background-color: var(--background-backdrop);
+  backdrop-filter: blur(2px);
+  animation: fade var(--transition-fast);
+}
+
+.dialog {
+  width: 100%;
+  max-width: 420px;
+  padding: 22px;
+  border-radius: var(--radius-large);
+  background-color: var(--background-panel);
+  border: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-overlay);
+  animation: rise var(--transition-medium);
+}
+
+.title {
+  font-size: 17px;
+  margin-bottom: 8px;
+}
+
+.description {
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  line-height: 1.55;
+  margin-bottom: 20px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}

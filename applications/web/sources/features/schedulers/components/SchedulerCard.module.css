@@ -1,0 +1,65 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  padding: 16px;
+  border-radius: var(--radius-large);
+  background-color: var(--background-panel);
+  border: 1px solid var(--border-hairline);
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    transform var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-raised);
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.delete {
+  display: inline-flex;
+  padding: 5px;
+  border-radius: var(--radius-small);
+  color: var(--text-faint);
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.delete:hover {
+  color: var(--color-error);
+  background-color: var(--color-error-soft);
+}
+
+.name {
+  font-size: 15.5px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.cron {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.meta {
+  margin-top: auto;
+  font-size: 12px;
+  color: var(--text-faint);
+}

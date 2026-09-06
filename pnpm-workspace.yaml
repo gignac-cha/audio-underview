@@ -5,10 +5,10 @@ packages:
   - functions/*
   - tools/*
 
-catalogs:
-  worker:
-    '@cloudflare/vitest-pool-workers': 0.12.10
-    '@cloudflare/workers-types': 4.20260207.0
-    '@vitest/runner': 3.2.4
-    '@vitest/snapshot': 3.2.4
-    vitest: 3.2.4
+catalog:
+  '@cloudflare/workers-types': 4.20260702.1
+  '@types/node': ^26.1.0
+  typescript: 6.0.3
+  vitest: 4.1.10
+  wrangler: ^4.107.0
+  zod: 4.4.3

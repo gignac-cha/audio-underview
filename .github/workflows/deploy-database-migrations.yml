@@ -1,11 +1,15 @@
 name: "Deploy: Database Migrations"
 
+# Supabase Management API로 미적용 migration만 순서대로 적용 (idempotent).
+# migration 경로만 레거시(packages/supabase-connector)에서
+# packages/database-connector로 변경 — 적용 로직은 동일.
+
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - 'packages/supabase-connector/migrations/**'
+      - 'packages/database-connector/migrations/**'
 
 concurrency:
   group: deploy-database-migrations
@@ -33,7 +37,7 @@ jobs:
 
           applied=$(curl -sf -H "${AUTH}" "${API}" | jq -r '.[].name' | sort -u)
 
-          for file in packages/supabase-connector/migrations/*.sql; do
+          for file in packages/database-connector/migrations/*.sql; do
             filename=$(basename "${file}" .sql)
             name="${filename#*_}"
 

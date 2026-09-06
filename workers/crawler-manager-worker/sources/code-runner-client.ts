@@ -1,34 +1,18 @@
-export interface CodeRunnerResult {
-  type: 'web' | 'data';
-  mode: 'test' | 'run';
-  result: unknown;
-}
+import {
+  codeRunnerResultSchema,
+  type CodeRunnerResult,
+  type RunCodeRequestBody,
+} from '@audio-underview/schemas';
 
-export function validateCodeRunnerResult(value: unknown): CodeRunnerResult {
-  if (typeof value !== 'object' || value === null) {
-    throw new CodeRunnerExecutionError('invalid_response', 'Expected object from code-runner', 0);
-  }
-  const record = value as Record<string, unknown>;
-  if (record.type !== 'web' && record.type !== 'data') {
-    throw new CodeRunnerExecutionError('invalid_response', `Expected type 'web' or 'data', got '${String(record.type)}'`, 0);
-  }
-  if (record.mode !== 'test' && record.mode !== 'run') {
-    throw new CodeRunnerExecutionError('invalid_response', `Expected mode 'test' or 'run', got '${String(record.mode)}'`, 0);
-  }
-  if (!('result' in record)) {
-    throw new CodeRunnerExecutionError('invalid_response', 'Missing result field', 0);
-  }
-  return { type: record.type, mode: record.mode, result: record.result };
-}
-
-export interface CodeRunnerClient {
-  run(
-    type: 'web' | 'data',
-    url: string | undefined,
-    data: unknown | undefined,
-    code: string,
-  ): Promise<CodeRunnerResult>;
-}
+/**
+ * code-runner HTTP client — 재시도 계약 (스펙 §3.5):
+ * - 요청당 timeout 30초
+ * - 네트워크 에러/5xx만 재시도 (최대 2회, backoff 1s → 2s)
+ * - 4xx는 사용자 코드 문제로 간주해 즉시 실패
+ *
+ * 레거시 quirk 수정: 에러 body의 필드는 `error` (기존 client는 존재하지 않는
+ * `error_code`를 읽어 항상 fallback이 됐다 — 스펙 §8.2).
+ */
 
 export class CodeRunnerExecutionError extends Error {
   readonly errorCode: string;
@@ -44,135 +28,116 @@ export class CodeRunnerExecutionError extends Error {
   }
 }
 
-const MAX_RETRY_ATTEMPTS = 2;
-const INITIAL_BACKOFF_MILLISECONDS = 1_000;
-const REQUEST_TIMEOUT_MILLISECONDS = 30_000;
-
-interface CodeRunnerRequestBody {
-  type: 'web' | 'data';
-  mode: 'run';
-  url?: string;
-  data?: unknown;
-  code: string;
+export interface CodeRunnerClient {
+  run(request: RunCodeRequestBody, bearerToken: string): Promise<CodeRunnerResult>;
 }
 
-interface CodeRunnerErrorResponse {
-  error_code?: string;
-  error_description?: string;
+export interface HTTPCodeRunnerClientOptions {
+  baseURL: string;
+  fetchImplementation?: typeof fetch;
+  requestTimeoutMilliseconds?: number;
+  maximumRetries?: number;
+  /** 테스트 주입용 backoff sleep */
+  delay?: (milliseconds: number) => Promise<void>;
 }
 
-function isRetryableStatusCode(statusCode: number): boolean {
-  return statusCode >= 500 && statusCode < 600;
-}
+const DEFAULT_REQUEST_TIMEOUT_MILLISECONDS = 30_000;
+const DEFAULT_MAXIMUM_RETRIES = 2;
 
-function buildRequestBody(
-  type: 'web' | 'data',
-  url: string | undefined,
-  data: unknown | undefined,
-  code: string,
-): CodeRunnerRequestBody {
-  if (type === 'web') {
-    return { type: 'web', mode: 'run', url, code };
+const defaultDelay = (milliseconds: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+const parseErrorBody = async (
+  response: Response,
+): Promise<{ error: string; errorDescription: string }> => {
+  try {
+    const payload = await response.json<Record<string, unknown>>();
+    return {
+      error: typeof payload.error === 'string' ? payload.error : 'execution_error',
+      errorDescription:
+        typeof payload.error_description === 'string'
+          ? payload.error_description
+          : `HTTP ${response.status}`,
+    };
+  } catch {
+    return { error: 'execution_error', errorDescription: `HTTP ${response.status}` };
   }
-  return { type: 'data', mode: 'run', data, code };
-}
+};
 
-async function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
+export const createHTTPCodeRunnerClient = (
+  options: HTTPCodeRunnerClientOptions,
+): CodeRunnerClient => {
+  const fetchImplementation = options.fetchImplementation ?? fetch;
+  const requestTimeout = options.requestTimeoutMilliseconds ?? DEFAULT_REQUEST_TIMEOUT_MILLISECONDS;
+  const maximumRetries = options.maximumRetries ?? DEFAULT_MAXIMUM_RETRIES;
+  const delay = options.delay ?? defaultDelay;
+  const runURL = `${options.baseURL.replace(/\/$/, '')}/run`;
 
-export class HTTPCodeRunnerClient implements CodeRunnerClient {
-  private readonly baseURL: string;
+  return {
+    async run(request, bearerToken) {
+      let lastError: CodeRunnerExecutionError | undefined;
 
-  constructor(baseURL: string) {
-    this.baseURL = baseURL.replace(/\/+$/, '');
-  }
+      for (let attempt = 0; attempt <= maximumRetries; attempt += 1) {
+        if (attempt > 0) {
+          await delay(1000 * 2 ** (attempt - 1));
+        }
 
-  async run(
-    type: 'web' | 'data',
-    url: string | undefined,
-    data: unknown | undefined,
-    code: string,
-  ): Promise<CodeRunnerResult> {
-    const requestBody = buildRequestBody(type, url, data, code);
-    const endpoint = `${this.baseURL}/run`;
-
-    let lastError: unknown;
-
-    for (let attempt = 0; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
-      if (attempt > 0) {
-        const backoffMilliseconds = INITIAL_BACKOFF_MILLISECONDS * Math.pow(2, attempt - 1);
-        await delay(backoffMilliseconds);
-      }
-
-      let response: Response;
-      try {
-        response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody),
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MILLISECONDS),
-        });
-      } catch (error: unknown) {
-        lastError = error;
-        if (attempt < MAX_RETRY_ATTEMPTS) {
+        let response: Response;
+        try {
+          response = await fetchImplementation(runURL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${bearerToken}`,
+            },
+            body: JSON.stringify(request),
+            signal: AbortSignal.timeout(requestTimeout),
+          });
+        } catch (error) {
+          // 네트워크 에러/timeout → 재시도 대상
+          lastError = new CodeRunnerExecutionError(
+            'network_error',
+            error instanceof Error ? error.message : 'Network request failed',
+            0,
+          );
           continue;
         }
-        throw new CodeRunnerExecutionError(
-          'network_error',
-          error instanceof Error ? error.message : 'Unknown network error',
-          0,
-        );
-      }
 
-      if (response.ok) {
+        if (response.status >= 500) {
+          const { error, errorDescription } = await parseErrorBody(response);
+          lastError = new CodeRunnerExecutionError(error, errorDescription, response.status);
+          continue;
+        }
+
+        if (!response.ok) {
+          // 4xx — 사용자 코드/요청 문제, 즉시 실패
+          const { error, errorDescription } = await parseErrorBody(response);
+          throw new CodeRunnerExecutionError(error, errorDescription, response.status);
+        }
+
+        let payload: unknown;
         try {
-          const result = validateCodeRunnerResult(await response.json());
-          return result;
-        } catch (error: unknown) {
+          payload = await response.json();
+        } catch {
           throw new CodeRunnerExecutionError(
             'invalid_response',
-            error instanceof Error ? error.message : 'Failed to parse code runner response',
+            'Code runner returned a non-JSON response',
             response.status,
           );
         }
-      }
 
-      if (isRetryableStatusCode(response.status)) {
-        lastError = new CodeRunnerExecutionError(
-          'server_error',
-          `Server returned ${response.status}`,
-          response.status,
-        );
-        if (attempt < MAX_RETRY_ATTEMPTS) {
-          continue;
+        const parsed = codeRunnerResultSchema.safeParse(payload);
+        if (!parsed.success) {
+          throw new CodeRunnerExecutionError(
+            'invalid_response',
+            'Code runner returned an unexpected response shape',
+            response.status,
+          );
         }
-        throw lastError;
+        return parsed.data;
       }
 
-      // 4xx errors fail immediately (user code error) — no retry
-      let errorCode = 'execution_error';
-      let errorDescription = `Code runner returned HTTP ${response.status}`;
-
-      try {
-        const errorBody = (await response.json()) as CodeRunnerErrorResponse;
-        errorCode = errorBody.error_code ?? errorCode;
-        errorDescription = errorBody.error_description ?? errorDescription;
-      } catch {
-        // Response body is not valid JSON; use defaults
-      }
-
-      throw new CodeRunnerExecutionError(errorCode, errorDescription, response.status);
-    }
-
-    // Exhausted all retry attempts — throw the last captured error
-    if (lastError instanceof CodeRunnerExecutionError) {
-      throw lastError;
-    }
-    throw new CodeRunnerExecutionError(
-      'network_error',
-      lastError instanceof Error ? lastError.message : 'Unknown error after retries',
-      0,
-    );
-  }
-}
+      throw lastError ?? new CodeRunnerExecutionError('network_error', 'Request failed', 0);
+    },
+  };
+};

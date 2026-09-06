@@ -1,17 +1,13 @@
+# crawler CRUD + 실행 RPC (Service Binding: scheduler-manager가 호출)
+#
+# Secrets (wrangler secret put):
+#   SUPABASE_URL, SUPABASE_SECRET_KEY, JWT_SECRET, CODE_RUNNER_FUNCTION_URL
 name = "audio-underview-crawler-manager-worker"
 main = "sources/index.ts"
-compatibility_date = "2025-11-25"
+compatibility_date = "2026-07-01"
+
+[observability]
+enabled = true
 
 [vars]
 ALLOWED_ORIGINS = "http://localhost:5173,https://audio-underview.pages.dev"
-
-# Secrets (set via wrangler secret put):
-# SUPABASE_URL
-# SUPABASE_SECRET_KEY
-# JWT_SECRET
-# CODE_RUNNER_FUNCTION_URL
-
-[observability.logs]
-enabled = true
-head_sampling_rate = 1
-invocation_logs = true

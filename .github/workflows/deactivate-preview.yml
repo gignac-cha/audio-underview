@@ -1,4 +1,6 @@
-name: "Deactivate: Web Preview"
+name: "Deactivate: Preview"
+
+# PR이 닫히면 해당 preview 배포를 비활성화한다.
 
 on:
   pull_request:
@@ -8,13 +10,13 @@ on:
 jobs:
   deactivate:
     runs-on: ubuntu-latest
-    name: Deactivate preview environment
+    name: Deactivate preview deployment
     permissions:
       deployments: write
     steps:
-      - name: Deactivate preview deployments
+      - name: Deactivate preview environment
         uses: strumwolf/delete-deployment-environment@v3
         with:
-          environment: preview
           token: ${{ secrets.GITHUB_TOKEN }}
+          environment: preview
           onlyDeactivateDeployments: true

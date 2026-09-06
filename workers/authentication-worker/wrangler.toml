@@ -1,0 +1,34 @@
+# 단일 OAuth worker — 10개 provider를 /providers/:provider/* 로 서비스 (ADR-1)
+#
+# ⚠️ 운영 마이그레이션: 각 provider 개발자 콘솔의 redirect URI를
+#    https://audio-underview-authentication-worker.<account>.workers.dev/providers/{provider}/callback
+#    으로 재등록해야 한다.
+#
+# Secrets (wrangler secret put):
+#   JWT_SECRET, SUPABASE_URL, SUPABASE_SECRET_KEY,
+#   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+#   APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY,
+#   MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET,
+#   FACEBOOK_CLIENT_ID, FACEBOOK_CLIENT_SECRET,
+#   GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET,
+#   DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET,
+#   KAKAO_CLIENT_ID, KAKAO_CLIENT_SECRET(optional),
+#   NAVER_CLIENT_ID, NAVER_CLIENT_SECRET,
+#   LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET,
+#   X_CLIENT_ID, X_CLIENT_SECRET
+name = "audio-underview-authentication-worker"
+main = "sources/index.ts"
+compatibility_date = "2026-07-01"
+
+[observability]
+enabled = true
+
+[vars]
+ALLOWED_ORIGINS = "http://localhost:5173,https://audio-underview.pages.dev"
+FRONTEND_URL = "https://audio-underview.pages.dev"
+MICROSOFT_TENANT = "common"
+
+# 레거시 OAuth worker 8개가 공유하던 기존 namespace 재사용
+[[kv_namespaces]]
+binding = "OAUTH_STATE"
+id = "6a8c4022e9984b0fb81957ed410ad9b0"

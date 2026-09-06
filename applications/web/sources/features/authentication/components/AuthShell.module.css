@@ -1,0 +1,71 @@
+.page {
+  position: relative;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 24px;
+}
+
+.themeToggle {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+}
+
+.card {
+  width: 100%;
+  max-width: 380px;
+  padding: 32px 28px;
+  border-radius: var(--radius-large);
+  background-color: var(--background-panel);
+  border: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-raised);
+  text-align: center;
+  animation: rise var(--transition-medium);
+}
+
+.mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  border-radius: var(--radius-large);
+  background-color: var(--background-code);
+  color: var(--accent);
+  margin-bottom: 18px;
+}
+
+.title {
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  margin-top: 6px;
+  margin-bottom: 24px;
+}
+
+.content {
+  text-align: left;
+}
+
+.brand {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}

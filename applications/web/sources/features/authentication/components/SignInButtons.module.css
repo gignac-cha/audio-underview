@@ -1,0 +1,50 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 14px;
+  border-radius: var(--radius-medium);
+  border: 1px solid var(--border-hairline);
+  background-color: var(--background-raised);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 520;
+  transition:
+    border-color var(--transition-fast),
+    transform var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.button:hover {
+  border-color: var(--border-strong);
+  background-color: var(--background-inset);
+}
+
+.button:active {
+  transform: translateY(1px);
+}
+
+.monogram {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.label {
+  flex: 1;
+  text-align: left;
+}

@@ -1,0 +1,97 @@
+.pageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.headingIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-medium);
+  background-color: var(--accent-soft);
+  color: var(--accent);
+}
+
+.title {
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.centered {
+  display: flex;
+  justify-content: center;
+  padding: 72px 0;
+}
+
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 64px 24px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-large);
+  background-color: var(--background-panel);
+}
+
+.stateIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background-color: var(--background-inset);
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+
+.stateIcon[data-tone='error'] {
+  background-color: var(--color-error-soft);
+  color: var(--color-error);
+}
+
+.stateTitle {
+  font-size: 15px;
+  font-weight: 560;
+  color: var(--text-primary);
+}
+
+.stateDescription {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 380px;
+  margin-bottom: 10px;
+  overflow-wrap: break-word;
+}
+
+.loadMore {
+  display: flex;
+  justify-content: center;
+  margin-top: 24px;
+}
+
+.inlineState {
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 16px 0;
+}

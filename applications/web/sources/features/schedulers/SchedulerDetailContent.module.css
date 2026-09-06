@@ -1,0 +1,41 @@
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.topBar {
+  display: flex;
+}
+
+.grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.centered {
+  display: flex;
+  justify-content: center;
+  padding: 40px 0;
+}
+
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  padding: 60px 24px;
+}
+
+.stateTitle {
+  font-size: 15px;
+  font-weight: 560;
+}
+
+.stateDescription {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}

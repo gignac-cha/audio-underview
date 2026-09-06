@@ -1,112 +1,30 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
-import { AuthenticationProvider } from './contexts/AuthenticationContext.tsx';
-import { useAuthentication } from './hooks/use-authentication.ts';
-import { type OAuthProviderID } from '@audio-underview/sign-provider';
-import { SignInPage } from './pages/SignInPage.tsx';
-import { HomePage } from './pages/HomePage.tsx';
-import { CrawlersPage } from './pages/CrawlersPage.tsx';
-import { CrawlerEditorPage } from './pages/CrawlerEditorPage.tsx';
-import { SchedulersPage } from './pages/SchedulersPage.tsx';
-import { SchedulerDetailPage } from './pages/SchedulerDetailPage.tsx';
-import { AuthenticationCallbackPage } from './pages/AuthenticationCallbackPage.tsx';
+import type { ReactNode } from 'react';
+import { Navigate, createBrowserRouter, type RouteObject } from 'react-router';
 import { ProtectedRoute } from './components/ProtectedRoute.tsx';
+import { AuthenticationCallbackPage } from './pages/AuthenticationCallbackPage.tsx';
+import { CrawlerEditorPage } from './pages/CrawlerEditorPage.tsx';
+import { CrawlersPage } from './pages/CrawlersPage.tsx';
+import { HomePage } from './pages/HomePage.tsx';
+import { RootRedirect } from './pages/RootRedirect.tsx';
+import { SchedulerDetailPage } from './pages/SchedulerDetailPage.tsx';
+import { SchedulersPage } from './pages/SchedulersPage.tsx';
+import { SignInPage } from './pages/SignInPage.tsx';
 
-const ENABLED_PROVIDERS: OAuthProviderID[] = [
-  'google',
-  'apple',
-  'microsoft',
-  'facebook',
-  'github',
-  'discord',
-  'kakao',
-  'naver',
+const protectedRoute = (element: ReactNode): ReactNode => (
+  <ProtectedRoute>{element}</ProtectedRoute>
+);
+
+/** 앱 라우트 정의 (data router — dirty guard blocker 지원). 테스트도 이 배열을 재사용. */
+export const applicationRoutes: RouteObject[] = [
+  { path: '/', element: <RootRedirect /> },
+  { path: '/sign/in', element: <SignInPage /> },
+  { path: '/authentication/callback', element: <AuthenticationCallbackPage /> },
+  { path: '/home', element: protectedRoute(<HomePage />) },
+  { path: '/crawlers', element: protectedRoute(<CrawlersPage />) },
+  { path: '/crawlers/:id', element: protectedRoute(<CrawlerEditorPage />) },
+  { path: '/schedulers', element: protectedRoute(<SchedulersPage />) },
+  { path: '/schedulers/:id', element: protectedRoute(<SchedulerDetailPage />) },
+  { path: '*', element: <Navigate to="/" replace /> },
 ];
 
-function RootRedirect() {
-  const { isAuthenticated, isLoading } = useAuthentication();
-
-  if (isLoading) {
-    return (
-      <div className="loading-container">
-        <p>Loading...</p>
-      </div>
-    );
-  }
-
-  if (isAuthenticated) {
-    return <Navigate to="/home" replace />;
-  }
-
-  return <Navigate to="/sign/in" replace />;
-}
-
-function ApplicationRoutes() {
-  return (
-    <Routes>
-      <Route path="/" element={<RootRedirect />} />
-      <Route path="/sign/in" element={<SignInPage />} />
-      <Route path="/authentication/callback" element={<AuthenticationCallbackPage />} />
-      <Route
-        path="/home"
-        element={
-          <ProtectedRoute>
-            <HomePage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/crawlers"
-        element={
-          <ProtectedRoute>
-            <CrawlersPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/crawlers/:id"
-        element={
-          <ProtectedRoute>
-            <CrawlerEditorPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/schedulers"
-        element={
-          <ProtectedRoute>
-            <SchedulersPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/schedulers/:id"
-        element={
-          <ProtectedRoute>
-            <SchedulerDetailPage />
-          </ProtectedRoute>
-        }
-      />
-    </Routes>
-  );
-}
-
-interface ApplicationProps {
-  googleClientID: string;
-  googleWorkerURL?: string;
-  githubWorkerURL?: string;
-}
-
-export function Application({ googleClientID, googleWorkerURL, githubWorkerURL }: ApplicationProps) {
-  return (
-    <BrowserRouter>
-      <AuthenticationProvider
-        googleClientID={googleClientID}
-        googleWorkerURL={googleWorkerURL}
-        githubWorkerURL={githubWorkerURL}
-        enabledProviders={ENABLED_PROVIDERS}
-      >
-        <ApplicationRoutes />
-      </AuthenticationProvider>
-    </BrowserRouter>
-  );
-}
+export const createApplicationRouter = () => createBrowserRouter(applicationRoutes);

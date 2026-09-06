@@ -1,362 +1,200 @@
-import { createServerLogger, Logger } from '@audio-underview/logger';
+import { runCodeRequestBodySchema } from '@audio-underview/schemas';
+import { verifyBearerToken } from './authentication.ts';
 import {
+  emptyResponse,
+  errorResponse,
+  jsonResponse,
+  parseAllowedOrigins,
   type LambdaEvent,
   type LambdaResponse,
   type ResponseContext,
-  createCORSHeaders,
-  jsonResponse,
-  errorResponse,
-} from '@audio-underview/function-tools';
-import { createContext, Script } from 'node:vm';
-import { lookup } from 'node:dns/promises';
+} from './lambda.ts';
+import {
+  TargetResolutionError,
+  validateTargetURL,
+  type LookupImplementation,
+} from './network-guards.ts';
+import { executeInSandbox, SandboxTimeoutError } from './sandbox.ts';
 
-interface WebRunRequestBody {
-  type: 'web';
-  mode: 'test' | 'run';
-  url: string;
-  code: string;
-}
-
-interface DataRunRequestBody {
-  type: 'data';
-  mode: 'test' | 'run';
-  data: unknown;
-  code: string;
-}
-
-type RunRequestBody = WebRunRequestBody | DataRunRequestBody;
-
-class SandboxTimeoutError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'SandboxTimeoutError';
-  }
-}
-
-class SandboxExecutionError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'SandboxExecutionError';
-  }
-}
-
+/** 대상 페이지 fetch timeout (host 측 — 스펙 §5.1) */
 const FETCH_TIMEOUT_MILLISECONDS = 10_000;
-const CODE_EXECUTION_TIMEOUT_MILLISECONDS = 5_000;
-const MAX_CODE_LENGTH = 10_000;
+/** 응답 크기 상한 — worker 구현의 10MB 제한을 초집합으로 흡수 (스펙 §5.4) */
+const MAXIMUM_RESPONSE_BYTES = 10 * 1024 * 1024;
 
-const BLOCKED_IP_RANGES = [
-  /^127\./, // loopback IPv4
-  /^10\./, // RFC1918 Class A
-  /^172\.(1[6-9]|2\d|3[01])\./, // RFC1918 Class B
-  /^192\.168\./, // RFC1918 Class C
-  /^169\.254\./, // link-local
-  /^0\./, // current network
-  /^::1$/, // loopback IPv6
-  /^fe80:/i, // link-local IPv6
-  /^fc00:/i, // unique local IPv6
-  /^fd[0-9a-f]{2}:/i, // unique local IPv6
-  /^::ffff:127\./i, // IPv4-mapped loopback
-  /^::ffff:10\./i, // IPv4-mapped RFC1918
-  /^::ffff:172\.(1[6-9]|2\d|3[01])\./i, // IPv4-mapped RFC1918
-  /^::ffff:192\.168\./i, // IPv4-mapped RFC1918
-  /^::ffff:169\.254\./i, // IPv4-mapped link-local
-];
-
-function isBlockedIP(ip: string): boolean {
-  return BLOCKED_IP_RANGES.some((range) => range.test(ip));
+export interface HandlerDependencies {
+  fetchImplementation?: typeof fetch;
+  lookupImplementation?: LookupImplementation;
+  environment?: Record<string, string | undefined>;
 }
 
-async function validateTargetURL(targetURL: URL, context: ResponseContext): Promise<LambdaResponse | null> {
-  const { logger } = context;
+const readHeader = (event: LambdaEvent, name: string): string | undefined =>
+  event.headers?.[name] ?? event.headers?.[name.toLowerCase()];
 
-  if (targetURL.protocol !== 'http:' && targetURL.protocol !== 'https:') {
-    logger.error('Rejected non-HTTP protocol', { protocol: targetURL.protocol, url: targetURL.toString() }, { function: 'validateTargetURL' });
-    return errorResponse('invalid_request', `Protocol '${targetURL.protocol}' is not allowed. Only http: and https: are permitted`, 400, context);
-  }
-
-  try {
-    const result = await lookup(targetURL.hostname, { all: true });
-    const addresses = Array.isArray(result) ? result : [result];
-    for (const entry of addresses) {
-      if (isBlockedIP(entry.address)) {
-        logger.error('Rejected blocked IP', { hostname: targetURL.hostname, ip: entry.address, url: targetURL.toString() }, { function: 'validateTargetURL' });
-        return errorResponse('invalid_request', `The resolved address for '${targetURL.hostname}' is not allowed`, 400, context);
-      }
-    }
-  } catch (dnsError) {
-    logger.error('DNS lookup failed', dnsError, { function: 'validateTargetURL' });
-    return errorResponse('fetch_failed', `DNS lookup failed for '${targetURL.hostname}'`, 502, context);
-  }
-
-  return null;
-}
-
-async function executeInSandbox(code: string, argument: unknown, logger: Logger): Promise<{ result: unknown }> {
-  const sandbox = createContext({
-    Array,
-    Boolean,
-    Date,
-    Error,
-    JSON,
-    Map,
-    Math,
-    Number,
-    Object,
-    Promise,
-    RegExp,
-    Set,
-    String,
-    TypeError,
-    RangeError,
-    URL,
-    URLSearchParams,
-    parseInt,
-    parseFloat,
-    isNaN,
-    isFinite,
-    encodeURIComponent,
-    decodeURIComponent,
-    encodeURI,
-    decodeURI,
-    undefined,
-    NaN,
-    Infinity,
-  });
-
-  // For non-string arguments, re-create inside sandbox context via JSON.parse.
-  // This ensures Array.isArray, instanceof etc. work correctly inside the sandbox.
-  let sandboxArgument: unknown = argument;
-  if (typeof argument !== 'string') {
-    sandbox.__rawInput__ = JSON.stringify(argument);
-    new Script('globalThis.__input__ = JSON.parse(globalThis.__rawInput__)').runInContext(sandbox);
-    sandboxArgument = sandbox.__input__;
-    delete sandbox.__rawInput__;
-    delete sandbox.__input__;
-  }
-
-  try {
-    const script = new Script(`(${code})`);
-    const userFunction = script.runInContext(sandbox, { timeout: CODE_EXECUTION_TIMEOUT_MILLISECONDS });
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const asyncTimeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error('Async execution timed out')), CODE_EXECUTION_TIMEOUT_MILLISECONDS);
-      timer.unref();
-    });
-    let result: unknown;
-    try {
-      result = await Promise.race([userFunction(sandboxArgument), asyncTimeout]);
-    } finally {
-      clearTimeout(timer);
-    }
-
-    return { result };
-  } catch (executionError) {
-    logger.error('Code execution failed', executionError, { function: 'executeInSandbox' });
-    if (
-      typeof executionError === 'object'
-      && executionError !== null
-      && 'code' in executionError
-      && executionError.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT'
-    ) {
-      throw new SandboxTimeoutError(`Code execution timed out after ${CODE_EXECUTION_TIMEOUT_MILLISECONDS}ms`);
-    }
-    const message = executionError instanceof Error
-      ? executionError.message
-      : 'Unknown execution error';
-    if (message === 'Async execution timed out') {
-      throw new SandboxTimeoutError(`Code execution timed out after ${CODE_EXECUTION_TIMEOUT_MILLISECONDS}ms`);
-    }
-    throw new SandboxExecutionError(message);
-  }
-}
-
-const logger = createServerLogger({
-  defaultContext: {
-    module: 'crawler-code-runner-function',
-  },
-});
-
-const HELP = {
-  name: 'crawler-code-runner-function',
-  endpoints: [
-    { method: 'GET', path: '/', description: 'Show this help' },
-    { method: 'GET', path: '/help', description: 'Show this help' },
-    {
-      method: 'POST',
-      path: '/run',
-      description: 'Run code against a fetched URL response (web) or provided data (data)',
-      body: {
-        type: "'web' | 'data'",
-        mode: "'test' | 'run'",
-        url: "string - The URL to fetch (required for type 'web')",
-        data: "unknown - The data to process (required for type 'data')",
-        code: 'string - JavaScript function source to execute against the input',
-      },
-    },
-  ],
+const decodeBody = (event: LambdaEvent): string => {
+  const body = event.body ?? '';
+  return event.isBase64Encoded === true ? Buffer.from(body, 'base64').toString('utf-8') : body;
 };
 
-function validateRunRequestBody(raw: unknown): RunRequestBody | string {
-  if (typeof raw !== 'object' || raw === null) {
-    return 'Request body must be a JSON object';
-  }
-  const object = raw as Record<string, unknown>;
-
-  if (object.type !== 'web' && object.type !== 'data') {
-    return "Field 'type' must be 'web' or 'data'";
-  }
-
-  if (object.mode !== 'test' && object.mode !== 'run') {
-    return "Field 'mode' must be 'test' or 'run'";
-  }
-
-  if (typeof object.code !== 'string') {
-    return "Field 'code' is required and must be a string";
-  }
-
-  if (object.type === 'web') {
-    if (typeof object.url !== 'string') {
-      return "Field 'url' is required and must be a string when type is 'web'";
-    }
-    return {
-      type: 'web',
-      mode: object.mode as 'test' | 'run',
-      url: object.url as string,
-      code: object.code as string,
-    };
-  }
-
-  // type === 'data'
-  if (!('data' in object)) {
-    return "Field 'data' is required when type is 'data'";
-  }
-  return {
-    type: 'data',
-    mode: object.mode as 'test' | 'run',
-    data: object.data,
-    code: object.code as string,
-  };
-}
-
-async function handleRun(body: string | undefined, context: ResponseContext): Promise<LambdaResponse> {
-  let raw: unknown;
+const fetchTargetBody = async (
+  url: URL,
+  fetchImplementation: typeof fetch,
+  context: ResponseContext,
+): Promise<{ success: true; text: string } | { success: false; response: LambdaResponse }> => {
+  let response: Response;
   try {
-    raw = JSON.parse(body ?? '');
-  } catch {
-    return errorResponse('invalid_request', 'Request body must be valid JSON', 400, context);
-  }
-
-  const validated = validateRunRequestBody(raw);
-  if (typeof validated === 'string') {
-    return errorResponse('invalid_request', validated, 400, context);
-  }
-
-  const parsed = validated;
-
-  if (parsed.code.length > MAX_CODE_LENGTH) {
-    return errorResponse('invalid_request', `Field 'code' exceeds maximum length of ${MAX_CODE_LENGTH} characters`, 400, context);
-  }
-
-  if (parsed.type === 'web') {
-    let targetURL: URL;
-    try {
-      targetURL = new URL(parsed.url);
-    } catch {
-      return errorResponse('invalid_request', "Field 'url' must be a valid URL", 400, context);
-    }
-
-    const ssrfError = await validateTargetURL(targetURL, context);
-    if (ssrfError) {
-      return ssrfError;
-    }
-
-    let responseText: string;
-    try {
-      const signal = AbortSignal.timeout(FETCH_TIMEOUT_MILLISECONDS);
-      logger.info('Fetching target URL', { url: targetURL.toString() }, { function: 'handleRun' });
-      const fetchResponse = await fetch(targetURL.toString(), { signal });
-      responseText = await fetchResponse.text();
-      logger.info('Target URL fetched', {
-        status: fetchResponse.status,
-        contentLength: responseText.length,
-      }, { function: 'handleRun' });
-    } catch (fetchError) {
-      if (fetchError instanceof DOMException && fetchError.name === 'TimeoutError') {
-        logger.error('Fetch timed out', { url: targetURL.toString(), timeoutMilliseconds: FETCH_TIMEOUT_MILLISECONDS }, { function: 'handleRun' });
-        return errorResponse('fetch_timeout', `Fetch timed out after ${FETCH_TIMEOUT_MILLISECONDS}ms`, 504, context);
-      }
-      logger.error('Failed to fetch target URL', { error: fetchError, url: targetURL.toString() }, { function: 'handleRun' });
-      return errorResponse('fetch_failed', 'Failed to fetch the target URL', 502, context);
-    }
-
-    try {
-      const { result } = await executeInSandbox(parsed.code, responseText, logger);
-      return jsonResponse({ type: parsed.type, mode: parsed.mode, result }, 200, context);
-    } catch (executionError) {
-      if (executionError instanceof SandboxTimeoutError) {
-        return errorResponse('execution_timeout', executionError.message, 422, context);
-      }
-      if (executionError instanceof SandboxExecutionError) {
-        return errorResponse('execution_failed', executionError.message, 422, context);
-      }
-      return errorResponse('execution_failed', 'Unknown execution error', 422, context);
-    }
-  }
-
-  // type === 'data'
-  try {
-    const { result } = await executeInSandbox(parsed.code, parsed.data, logger);
-    return jsonResponse({ type: parsed.type, mode: parsed.mode, result }, 200, context);
-  } catch (executionError) {
-    if (executionError instanceof SandboxTimeoutError) {
-      return errorResponse('execution_timeout', executionError.message, 422, context);
-    }
-    if (executionError instanceof SandboxExecutionError) {
-      return errorResponse('execution_failed', executionError.message, 422, context);
-    }
-    return errorResponse('execution_failed', 'Unknown execution error', 422, context);
-  }
-}
-
-export async function handler(event: LambdaEvent): Promise<LambdaResponse> {
-  const method = event.requestContext.http.method;
-  const path = event.requestContext.http.path;
-  const origin = event.headers?.origin ?? event.headers?.Origin ?? '';
-  const allowedOrigins = process.env.ALLOWED_ORIGINS ?? '';
-
-  logger.info('Request received', { method, path, origin }, { function: 'handler' });
-
-  if (method === 'OPTIONS') {
-    return {
-      statusCode: 204,
-      headers: createCORSHeaders(origin, allowedOrigins, logger),
-      body: '',
-    };
-  }
-
-  if (method === 'HEAD') {
-    const headers = createCORSHeaders(origin, allowedOrigins, logger);
-    headers['Content-Type'] = 'application/json';
-    return { statusCode: 200, headers, body: '' };
-  }
-
-  const context: ResponseContext = { origin, allowedOrigins, logger };
-
-  try {
-    if (method === 'GET' && (path === '/' || path === '/help')) {
-      return jsonResponse(HELP, 200, context);
-    }
-
-    if (method === 'POST' && path === '/run') {
-      const body = event.isBase64Encoded
-        ? Buffer.from(event.body ?? '', 'base64').toString('utf-8')
-        : event.body;
-      return await handleRun(body, context);
-    }
-
-    return errorResponse('not_found', 'Endpoint not found', 404, context);
+    response = await fetchImplementation(url.toString(), {
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MILLISECONDS),
+      redirect: 'follow',
+    });
   } catch (error) {
-    logger.error('Unhandled function error', error, { function: 'handler' });
-    return errorResponse('server_error', 'An unexpected error occurred', 500, context);
+    const isTimeout =
+      typeof error === 'object' && error !== null && (error as Error).name === 'TimeoutError';
+    return {
+      success: false,
+      response: isTimeout
+        ? errorResponse('fetch_timeout', 'Fetching the target URL timed out', 504, context)
+        : errorResponse('fetch_failed', 'Failed to fetch the target URL', 502, context),
+    };
   }
-}
+
+  const contentLength = Number(response.headers.get('Content-Length') ?? '0');
+  if (contentLength > MAXIMUM_RESPONSE_BYTES) {
+    return {
+      success: false,
+      response: errorResponse('response_too_large', 'Target response is too large', 413, context),
+    };
+  }
+
+  // HTTP status와 무관하게 body 텍스트를 사용자 코드에 전달한다 (레거시 계약 — 스펙 §5.1)
+  const text = await response.text();
+  if (Buffer.byteLength(text, 'utf-8') > MAXIMUM_RESPONSE_BYTES) {
+    return {
+      success: false,
+      response: errorResponse('response_too_large', 'Target response is too large', 413, context),
+    };
+  }
+  return { success: true, text };
+};
+
+export const createHandler = (dependencies: HandlerDependencies = {}) => {
+  const fetchImplementation = dependencies.fetchImplementation ?? fetch;
+  const environment = dependencies.environment ?? process.env;
+
+  return async (event: LambdaEvent): Promise<LambdaResponse> => {
+    const context: ResponseContext = {
+      origin: readHeader(event, 'Origin') ?? '',
+      allowedOrigins: parseAllowedOrigins(environment.ALLOWED_ORIGINS),
+    };
+
+    try {
+      const { method, path } = event.requestContext.http;
+
+      if (method === 'OPTIONS') {
+        return emptyResponse(204, context);
+      }
+      if (path !== '/run') {
+        return errorResponse('not_found', 'Endpoint not found', 404, context);
+      }
+      if (method !== 'POST') {
+        return errorResponse('method_not_allowed', 'Method not allowed', 405, context, {
+          Allow: 'POST',
+        });
+      }
+
+      // Bearer JWT 필수 (레거시 무인증 개선 — 스펙 §10.5)
+      const jwtSecret = environment.JWT_SECRET;
+      if (jwtSecret === undefined || jwtSecret.length === 0) {
+        return errorResponse('server_error', 'Server configuration error', 500, context);
+      }
+      const authenticated = verifyBearerToken(readHeader(event, 'Authorization'), jwtSecret);
+      if (authenticated === undefined) {
+        return errorResponse('unauthorized', 'Valid authentication is required', 401, context);
+      }
+
+      let parsedBody: unknown;
+      try {
+        parsedBody = JSON.parse(decodeBody(event));
+      } catch {
+        return errorResponse(
+          'invalid_request',
+          'Request body must be valid JSON',
+          400,
+          context,
+        );
+      }
+
+      // 'data' 키 존재 검사 — 값이 null이어도 키만 있으면 통과 (레거시 계약)
+      if (
+        typeof parsedBody === 'object' &&
+        parsedBody !== null &&
+        (parsedBody as Record<string, unknown>).type === 'data' &&
+        !('data' in parsedBody)
+      ) {
+        return errorResponse(
+          'invalid_request',
+          "Field 'data' is required for data type",
+          400,
+          context,
+        );
+      }
+
+      const parsed = runCodeRequestBodySchema.safeParse(parsedBody);
+      if (!parsed.success) {
+        return errorResponse(
+          'invalid_request',
+          parsed.error.issues[0]?.message ?? 'Invalid request body',
+          400,
+          context,
+        );
+      }
+      const request = parsed.data;
+
+      let argument: unknown;
+      if (request.type === 'web') {
+        const url = new URL(request.url);
+        try {
+          await validateTargetURL(url, dependencies.lookupImplementation);
+        } catch (error) {
+          if (error instanceof TargetResolutionError) {
+            return errorResponse('fetch_failed', error.message, 502, context);
+          }
+          return errorResponse(
+            'invalid_request',
+            error instanceof Error ? error.message : 'Target URL is not allowed',
+            400,
+            context,
+          );
+        }
+        const fetched = await fetchTargetBody(url, fetchImplementation, context);
+        if (!fetched.success) {
+          return fetched.response;
+        }
+        argument = fetched.text;
+      } else {
+        argument = request.data;
+      }
+
+      let result: unknown;
+      try {
+        result = await executeInSandbox(request.code, argument);
+      } catch (error) {
+        if (error instanceof SandboxTimeoutError) {
+          return errorResponse('execution_timeout', error.message, 422, context);
+        }
+        // 원본 에러 메시지 노출 — 에디터 디버깅 편의 (레거시 function 동작 유지)
+        return errorResponse(
+          'execution_failed',
+          error instanceof Error ? error.message : 'Code execution failed',
+          422,
+          context,
+        );
+      }
+
+      return jsonResponse({ type: request.type, mode: request.mode, result }, 200, context);
+    } catch {
+      return errorResponse('server_error', 'An unexpected error occurred', 500, context);
+    }
+  };
+};
+
+export const handler = createHandler();

@@ -1,21 +1,16 @@
 {
   "name": "@audio-underview/logger",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "main": "./sources/index.ts",
-  "types": "./sources/index.ts",
-  "exports": {
-    ".": {
-      "types": "./sources/index.ts",
-      "import": "./sources/index.ts"
-    }
-  },
+  "version": "0.0.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
+  "packageManager": "pnpm@10.26.1",
+  "type": "module",
+  "exports": "./sources/index.ts",
+  "private": true,
   "devDependencies": {
-    "vitest": "^4.0.18"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

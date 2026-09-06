@@ -1,117 +1,54 @@
-import styled from '@emotion/styled';
-import { keyframes } from '@emotion/react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSignOutAlt } from '@fortawesome/free-solid-svg-icons';
-import { useAuthentication } from '../hooks/use-authentication.ts';
-import { UserAvatar } from '../components/UserAvatar.tsx';
-import { NavigationLinks } from '../components/NavigationLinks.tsx';
-import { Header, LogoutButton, UserSection } from '../components/PageHeader.tsx';
+import { useNavigate } from 'react-router';
+import { Icon, type IconName } from '../components/Icon.tsx';
+import { PageShell } from '../components/PageShell.tsx';
+import { useAuthentication } from '../features/authentication/use-authentication.ts';
+import styles from './HomePage.module.css';
 
-const fadeIn = keyframes`
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-`;
+const TILES: { to: string; icon: IconName; title: string; description: string }[] = [
+  {
+    to: '/crawlers',
+    icon: 'crawler',
+    title: 'Crawlers',
+    description: 'Author and test extraction scripts for web pages and structured data.',
+  },
+  {
+    to: '/schedulers',
+    icon: 'scheduler',
+    title: 'Schedulers',
+    description: 'Chain crawlers into pipelines and run them on a cron schedule.',
+  },
+];
 
-const PageContainer = styled.div`
-  min-height: 100vh;
-  background: var(--bg-deep);
-`;
-
-const Main = styled.main`
-  display: flex;
-  justify-content: center;
-  padding: 4rem 1.5rem;
-  animation: ${fadeIn} 0.4s ease-out;
-`;
-
-const WelcomeCard = styled.div`
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: 16px;
-  padding: 2.5rem;
-  text-align: center;
-  max-width: 480px;
-  width: 100%;
-  box-shadow: var(--shadow-sm);
-
-  h1 {
-    font-size: 1.75rem;
-    font-weight: 700;
-    margin: 0 0 0.5rem 0;
-    color: var(--text-primary);
-  }
-
-  > p {
-    font-size: 1rem;
-    color: var(--text-secondary);
-    margin: 0 0 2rem 0;
-  }
-`;
-
-const UserInfo = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 1.25rem;
-  padding: 1.25rem;
-  background: var(--bg-deep);
-  border-radius: 12px;
-  border: 1px solid var(--border-subtle);
-`;
-
-const UserDetails = styled.div`
-  text-align: left;
-`;
-
-const UserName = styled.p`
-  margin: 0 0 0.25rem 0;
-  font-weight: 600;
-  color: var(--text-primary);
-  font-size: 1rem;
-`;
-
-const UserEmail = styled.p`
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-`;
-
-export function HomePage() {
-  const { user, logout } = useAuthentication();
+export const HomePage = () => {
+  const { user } = useAuthentication();
+  const navigate = useNavigate();
+  const firstName = user?.name.split(' ')[0] ?? 'there';
 
   return (
-    <PageContainer>
-      <Header>
-        <NavigationLinks />
-
-        <UserSection>
-          <UserAvatar user={user} />
-
-          <LogoutButton onClick={logout}>
-            <FontAwesomeIcon icon={faSignOutAlt} />
-            <span>Sign Out</span>
-          </LogoutButton>
-        </UserSection>
-      </Header>
-
-      <Main>
-        <WelcomeCard>
-          <h1>Welcome, {user?.name}!</h1>
-          <p>You are successfully signed in.</p>
-
-          <UserInfo>
-            <UserAvatar user={user} size="large" />
-
-            <UserDetails>
-              <UserName>{user?.name}</UserName>
-              <UserEmail>{user?.email}</UserEmail>
-            </UserDetails>
-          </UserInfo>
-        </WelcomeCard>
-      </Main>
-    </PageContainer>
+    <PageShell>
+      <div className={styles.hero}>
+        <p className="micro-label">Console</p>
+        <h1 className={styles.greeting}>Welcome back, {firstName}.</h1>
+        <p className={styles.subtitle}>Pick up where you left off.</p>
+      </div>
+      <div className={styles.tiles}>
+        {TILES.map((tile) => (
+          <button
+            key={tile.to}
+            type="button"
+            className={styles.tile}
+            onClick={() => {
+              void navigate(tile.to);
+            }}
+          >
+            <span className={styles.tileIcon}>
+              <Icon name={tile.icon} size={22} />
+            </span>
+            <span className={styles.tileTitle}>{tile.title}</span>
+            <span className={styles.tileDescription}>{tile.description}</span>
+          </button>
+        ))}
+      </div>
+    </PageShell>
   );
-}
+};

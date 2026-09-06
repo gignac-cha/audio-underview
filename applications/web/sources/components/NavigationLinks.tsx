@@ -1,65 +1,24 @@
-import styled from '@emotion/styled';
+import clsx from 'clsx';
 import { NavLink } from 'react-router';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faHouse, faSpider, faClock } from '@fortawesome/free-solid-svg-icons';
+import { Icon, type IconName } from './Icon.tsx';
+import styles from './Header.module.css';
 
-const Container = styled.nav`
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
+const LINKS: { to: string; label: string; icon: IconName }[] = [
+  { to: '/crawlers', label: 'Crawlers', icon: 'crawler' },
+  { to: '/schedulers', label: 'Schedulers', icon: 'scheduler' },
+];
 
-  a {
-    border-bottom: none;
-
-    &:hover {
-      border-bottom: none;
-    }
-  }
-`;
-
-const Link = styled(NavLink)`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.375rem 0.75rem;
-  border-radius: 6px;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-  transition: var(--transition-fast);
-
-  &:hover {
-    color: var(--text-primary);
-    background: var(--bg-surface);
-  }
-
-  &.active {
-    color: var(--text-primary);
-    background: var(--accent-muted);
-  }
-
-  span {
-    @media (max-width: 639px) {
-      display: none;
-    }
-  }
-`;
-
-export function NavigationLinks() {
-  return (
-    <Container>
-      <Link to="/home" end aria-label="Home">
-        <FontAwesomeIcon icon={faHouse} aria-hidden={true} />
-        <span>Home</span>
-      </Link>
-      <Link to="/crawlers" aria-label="Crawlers">
-        <FontAwesomeIcon icon={faSpider} aria-hidden={true} />
-        <span>Crawlers</span>
-      </Link>
-      <Link to="/schedulers" aria-label="Schedulers">
-        <FontAwesomeIcon icon={faClock} aria-hidden={true} />
-        <span>Schedulers</span>
-      </Link>
-    </Container>
-  );
-}
+export const NavigationLinks = () => (
+  <nav className={styles.nav} aria-label="Primary">
+    {LINKS.map((link) => (
+      <NavLink
+        key={link.to}
+        to={link.to}
+        className={({ isActive }) => clsx(styles.navLink, isActive && styles.navLinkActive)}
+      >
+        <Icon name={link.icon} size={16} />
+        {link.label}
+      </NavLink>
+    ))}
+  </nav>
+);

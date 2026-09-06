@@ -1,697 +1,303 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { createHmac } from 'node:crypto';
+import { JWT_AUDIENCE, JWT_ISSUER } from '@audio-underview/schemas';
+import { createHandler, type HandlerDependencies } from '../sources/index.ts';
+import type { LambdaEvent } from '../sources/lambda.ts';
 
-vi.mock('node:dns/promises', () => ({
-  lookup: vi.fn().mockResolvedValue([{ address: '93.184.216.34', family: 4 }]),
-}));
+const JWT_SECRET = 'function-test-secret';
+const USER_UUID = '00000000-0000-4000-8000-000000000009';
 
-// Must import handler after vi.mock so the mock is applied
-const { handler } = await import('../sources/index.ts');
+const base64URL = (value: string | Buffer): string =>
+  Buffer.from(value).toString('base64url');
 
-process.env.ALLOWED_ORIGINS = 'https://example.com';
+const createToken = (claims: Record<string, unknown> = {}): string => {
+  const headerPart = base64URL(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const payloadPart = base64URL(
+    JSON.stringify({
+      sub: USER_UUID,
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 60,
+      iss: JWT_ISSUER,
+      aud: JWT_AUDIENCE,
+      ...claims,
+    }),
+  );
+  const signature = createHmac('sha256', JWT_SECRET)
+    .update(`${headerPart}.${payloadPart}`)
+    .digest('base64url');
+  return `${headerPart}.${payloadPart}.${signature}`;
+};
 
-function createEvent(overrides: {
-  method?: string;
-  path?: string;
-  origin?: string;
-  body?: string;
-  contentType?: string;
-  isBase64Encoded?: boolean;
-} = {}) {
+/** 공인 IP로 resolve되는 lookup fake — 네트워크 없는 테스트용 */
+const publicLookup = () => Promise.resolve([{ address: '93.184.216.34', family: 4 }]);
+
+const createEvent = (
+  body: unknown,
+  overrides: Partial<{ method: string; path: string; token: string | null; base64: boolean }> = {},
+): LambdaEvent => {
+  const token = overrides.token === undefined ? createToken() : overrides.token;
+  const rawBody = JSON.stringify(body);
   return {
-    version: '2.0',
     requestContext: {
-      http: {
-        method: overrides.method ?? 'GET',
-        path: overrides.path ?? '/',
-      },
+      http: { method: overrides.method ?? 'POST', path: overrides.path ?? '/run' },
     },
     headers: {
-      origin: overrides.origin ?? 'https://example.com',
-      ...(overrides.contentType ? { 'content-type': overrides.contentType } : {}),
+      'content-type': 'application/json',
+      ...(token !== null && { authorization: `Bearer ${token}` }),
     },
-    body: overrides.body,
-    isBase64Encoded: overrides.isBase64Encoded ?? false,
+    body: overrides.base64 === true ? Buffer.from(rawBody).toString('base64') : rawBody,
+    isBase64Encoded: overrides.base64 === true,
   };
-}
+};
 
-describe('crawler-code-runner-function', () => {
-  describe('OPTIONS preflight', () => {
-    it('returns 204 with CORS headers for allowed origin', async () => {
-      const event = createEvent({ method: 'OPTIONS', origin: 'https://example.com' });
-      const response = await handler(event);
+const invoke = (event: LambdaEvent, dependencies: HandlerDependencies = {}) =>
+  createHandler({
+    environment: { JWT_SECRET, ALLOWED_ORIGINS: 'https://app.example.com' },
+    lookupImplementation: publicLookup,
+    ...dependencies,
+  })(event);
 
-      expect(response.statusCode).toBe(204);
-      expect(response.headers['Access-Control-Allow-Origin']).toBe('https://example.com');
-      expect(response.headers['Access-Control-Allow-Methods']).toContain('POST');
-    });
+const parseBody = (body: string | undefined): Record<string, unknown> =>
+  JSON.parse(body ?? '{}') as Record<string, unknown>;
 
-    it('returns 204 without CORS origin header for unknown origin', async () => {
-      const event = createEvent({ method: 'OPTIONS', origin: 'https://unknown.example.com' });
-      const response = await handler(event);
+describe('routing', () => {
+  it('returns 404 for unknown paths', async () => {
+    const response = await invoke(createEvent({}, { path: '/other' }));
+    expect(response.statusCode).toBe(404);
+  });
 
-      expect(response.statusCode).toBe(204);
-      expect(response.headers['Access-Control-Allow-Origin']).toBeUndefined();
+  it('returns 405 with Allow for non-POST', async () => {
+    const response = await invoke(createEvent({}, { method: 'GET' }));
+    expect(response.statusCode).toBe(405);
+    expect(response.headers.Allow).toBe('POST');
+  });
+
+  it('handles OPTIONS with 204', async () => {
+    const response = await invoke(createEvent({}, { method: 'OPTIONS' }));
+    expect(response.statusCode).toBe(204);
+  });
+});
+
+describe('authentication (신규 — 레거시는 무인증)', () => {
+  it('rejects requests without a token', async () => {
+    const response = await invoke(
+      createEvent({ type: 'data', mode: 'test', data: 1, code: '(x) => x' }, { token: null }),
+    );
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('rejects tokens signed with a different secret', async () => {
+    const response = await invoke(
+      createEvent({ type: 'data', mode: 'test', data: 1, code: '(x) => x' }),
+      { environment: { JWT_SECRET: 'different-secret', ALLOWED_ORIGINS: '' } },
+    );
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('returns 500 when JWT_SECRET is not configured', async () => {
+    const response = await invoke(
+      createEvent({ type: 'data', mode: 'test', data: 1, code: '(x) => x' }),
+      { environment: { ALLOWED_ORIGINS: '' } },
+    );
+    expect(response.statusCode).toBe(500);
+  });
+});
+
+describe('validation', () => {
+  it.each([
+    [{ mode: 'test', code: '() => 1' }, 'type 누락'],
+    [{ type: 'web', mode: 'later', url: 'https://a.com', code: '() => 1' }, '무효 mode'],
+    [{ type: 'web', mode: 'test', code: '() => 1' }, 'web인데 url 없음'],
+    [{ type: 'web', mode: 'test', url: 'not a url', code: '() => 1' }, '무효 URL'],
+    [{ type: 'data', mode: 'test', code: '() => 1' }, 'data인데 data 키 없음'],
+    [{ type: 'data', mode: 'test', data: 1, code: `(x) => ${'y'.repeat(10_001)}` }, 'code 초과'],
+  ])('rejects invalid bodies with 400 (%#: %s)', async (body, _label) => {
+    const response = await invoke(createEvent(body));
+    expect(response.statusCode).toBe(400);
+    expect(parseBody(response.body).error).toBe('invalid_request');
+  });
+
+  it('accepts data: null (키만 있으면 통과)', async () => {
+    const response = await invoke(
+      createEvent({ type: 'data', mode: 'test', data: null, code: '(x) => x === null' }),
+    );
+    expect(response.statusCode).toBe(200);
+    expect(parseBody(response.body).result).toBe(true);
+  });
+});
+
+describe('data execution', () => {
+  it.each([
+    [{ list: [1, 2] }, '(x) => x.list.length', 2],
+    [[1, 2, 3], '(x) => Array.isArray(x)', true], // sandbox 내 Array.isArray 정합성
+    ['text', '(x) => x.toUpperCase()', 'TEXT'],
+    [7, '(x) => x * 6', 42],
+  ])('runs user code against %j', async (data, code, expected) => {
+    const response = await invoke(createEvent({ type: 'data', mode: 'run', data, code }));
+    expect(response.statusCode).toBe(200);
+    expect(parseBody(response.body)).toMatchObject({ type: 'data', mode: 'run', result: expected });
+  });
+
+  it('supports async user code', async () => {
+    const response = await invoke(
+      createEvent({
+        type: 'data',
+        mode: 'test',
+        data: 5,
+        code: 'async (x) => { const doubled = await Promise.resolve(x * 2); return doubled; }',
+      }),
+    );
+    expect(parseBody(response.body).result).toBe(10);
+  });
+
+  it('omits the result key when user code returns undefined (계약)', async () => {
+    const response = await invoke(
+      createEvent({ type: 'data', mode: 'test', data: 1, code: '() => undefined' }),
+    );
+    expect(response.statusCode).toBe(200);
+    expect('result' in parseBody(response.body)).toBe(false);
+  });
+
+  it('blocks sandbox access to fetch/process/require', async () => {
+    const response = await invoke(
+      createEvent({
+        type: 'data',
+        mode: 'test',
+        data: null,
+        code: '() => [typeof fetch, typeof process, typeof require]',
+      }),
+    );
+    expect(parseBody(response.body).result).toEqual(['undefined', 'undefined', 'undefined']);
+  });
+
+  it('returns 422 execution_failed with the original message for user errors', async () => {
+    const response = await invoke(
+      createEvent({ type: 'data', mode: 'test', data: 1, code: '() => { throw new Error("custom boom"); }' }),
+    );
+    expect(response.statusCode).toBe(422);
+    expect(parseBody(response.body)).toMatchObject({
+      error: 'execution_failed',
+      error_description: 'custom boom',
     });
   });
 
-  describe('HEAD request', () => {
-    it('returns 200 with Content-Type header and empty body', async () => {
-      const event = createEvent({ method: 'HEAD', origin: 'https://example.com' });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(200);
-      expect(response.headers['Content-Type']).toBe('application/json');
-      expect(response.body).toBe('');
-    });
+  it('returns 422 execution_failed for syntax errors', async () => {
+    const response = await invoke(
+      createEvent({ type: 'data', mode: 'test', data: 1, code: 'not a function ===' }),
+    );
+    expect(response.statusCode).toBe(422);
   });
 
-  describe('GET / and GET /help', () => {
-    it('returns help JSON on GET /', async () => {
-      const event = createEvent({ origin: 'https://example.com' });
-      const response = await handler(event);
+  it('returns 422 execution_timeout for runaway async code', async () => {
+    const response = await invoke(
+      createEvent({
+        type: 'data',
+        mode: 'test',
+        data: 1,
+        code: 'async (x) => new Promise(() => {})',
+      }),
+    );
+    expect(response.statusCode).toBe(422);
+    expect(parseBody(response.body).error).toBe('execution_timeout');
+  }, 10_000);
+});
 
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body.name).toBe('crawler-code-runner-function');
-      expect(body.endpoints).toBeDefined();
-      expect(body.endpoints.length).toBeGreaterThan(0);
-    });
+describe('web execution', () => {
+  const fetchReturning = (text: string, headers: Record<string, string> = {}) =>
+    (() => Promise.resolve(new Response(text, { status: 200, headers }))) as typeof fetch;
 
-    it('returns help JSON on GET /help', async () => {
-      const event = createEvent({ path: '/help', origin: 'https://example.com' });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body.name).toBe('crawler-code-runner-function');
-    });
+  it('fetches the URL and passes the body text to user code', async () => {
+    const response = await invoke(
+      createEvent({
+        type: 'web',
+        mode: 'run',
+        url: 'https://public.example.com/page',
+        code: '(body) => body.length',
+      }),
+      { fetchImplementation: fetchReturning('<html>hello</html>') },
+    );
+    expect(response.statusCode).toBe(200);
+    expect(parseBody(response.body).result).toBe(18);
   });
 
-  describe('POST /run validation', () => {
-    it('returns 400 for non-JSON body', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'text/plain',
-        body: 'not json',
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(400);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('invalid_request');
-    });
-
-    it('returns 400 for missing type field', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({ mode: 'test', url: 'https://example.com', code: '(x) => x' }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(400);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('invalid_request');
-      expect(body.error_description).toContain('type');
-    });
-
-    it('returns 400 for invalid type value', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({ type: 'invalid', mode: 'test', url: 'https://example.com', code: '(x) => x' }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(400);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('invalid_request');
-      expect(body.error_description).toContain('type');
-    });
-
-    it('returns 400 for missing mode field', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({ type: 'web', url: 'https://example.com', code: '(x) => x' }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(400);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('invalid_request');
-      expect(body.error_description).toContain('mode');
-    });
-
-    it('returns 400 for invalid mode value', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({ type: 'web', mode: 'invalid', url: 'https://example.com', code: '(x) => x' }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(400);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('invalid_request');
-      expect(body.error_description).toContain('mode');
-    });
-
-    it('returns 400 for missing url field when type is web', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({ type: 'web', mode: 'run', code: '(x) => x' }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(400);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('invalid_request');
-      expect(body.error_description).toContain('url');
-    });
-
-    it('returns 400 for missing data field when type is data', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({ type: 'data', mode: 'run', code: '(x) => x' }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(400);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('invalid_request');
-      expect(body.error_description).toContain('data');
-    });
-
-    it('returns 400 for missing code field', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({ type: 'web', mode: 'run', url: 'https://example.com' }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(400);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('invalid_request');
-      expect(body.error_description).toContain('code');
-    });
-
-    it('returns 400 for invalid URL format', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({ type: 'web', mode: 'run', url: 'not-a-url', code: '(x) => x' }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(400);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('invalid_request');
-      expect(body.error_description).toContain('valid URL');
-    });
-  });
-
-  describe('POST /run web type - fetch failures', () => {
-    it('returns 502 when target URL fetch fails', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')));
-
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          type: 'web',
-          mode: 'run',
-          url: 'https://target.example.com/data',
-          code: '(text) => text',
-        }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(502);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('fetch_failed');
-
-      vi.unstubAllGlobals();
-    });
-  });
-
-  describe('POST /run web type - execution failures', () => {
-    beforeEach(() => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        status: 200,
-        text: () => Promise.resolve('hello world'),
-      }));
-    });
-
-    afterEach(() => {
-      vi.unstubAllGlobals();
-    });
-
-    it('returns 422 when code execution throws an error', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          type: 'web',
-          mode: 'run',
-          url: 'https://target.example.com/data',
-          code: '(text) => { throw new Error("intentional error"); }',
-        }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(422);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('execution_failed');
-      expect(body.error_description).toContain('intentional error');
-    });
-
-    it('returns 422 when code is syntactically invalid', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          type: 'web',
-          mode: 'run',
-          url: 'https://target.example.com/data',
-          code: '((( invalid syntax',
-        }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(422);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('execution_failed');
-    });
-  });
-
-  describe('POST /run web type - successful execution', () => {
-    afterEach(() => {
-      vi.unstubAllGlobals();
-    });
-
-    it('executes code and returns result with mode test', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        status: 200,
-        text: () => Promise.resolve('hello world'),
-      }));
-
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          type: 'web',
-          mode: 'test',
-          url: 'https://target.example.com/data',
-          code: '(text) => text.toUpperCase()',
-        }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body.type).toBe('web');
-      expect(body.mode).toBe('test');
-      expect(body.result).toBe('HELLO WORLD');
-    });
-
-    it('executes code and returns result with mode run', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        status: 200,
-        text: () => Promise.resolve('hello world'),
-      }));
-
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          type: 'web',
-          mode: 'run',
-          url: 'https://target.example.com/data',
-          code: '(text) => text.length',
-        }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body.type).toBe('web');
-      expect(body.mode).toBe('run');
-      expect(body.result).toBe(11);
-    });
-
-    it('handles code that returns an object', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        status: 200,
-        text: () => Promise.resolve('<title>Test Page</title><p>Content here</p>'),
-      }));
-
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          type: 'web',
-          mode: 'run',
-          url: 'https://target.example.com/page',
-          code: '(text) => ({ length: text.length, hasTitle: text.includes("<title>") })',
-        }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body.type).toBe('web');
-      expect(body.mode).toBe('run');
-      expect(body.result.length).toBe(43);
-      expect(body.result.hasTitle).toBe(true);
-    });
-
-    it('handles async code', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        status: 200,
-        text: () => Promise.resolve('async test'),
-      }));
-
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          type: 'web',
-          mode: 'run',
-          url: 'https://target.example.com/data',
-          code: 'async (text) => text.split(" ")',
-        }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body.type).toBe('web');
-      expect(body.mode).toBe('run');
-      expect(body.result).toEqual(['async', 'test']);
-    });
-
-    it('handles base64 encoded body', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        status: 200,
-        text: () => Promise.resolve('hello'),
-      }));
-
-      const rawBody = JSON.stringify({
+  it('blocks private-range targets with 400 (SSRF)', async () => {
+    const response = await invoke(
+      createEvent({
         type: 'web',
         mode: 'test',
-        url: 'https://target.example.com/data',
-        code: '(text) => text.toUpperCase()',
-      });
-
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        body: Buffer.from(rawBody).toString('base64'),
-        isBase64Encoded: true,
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body.type).toBe('web');
-      expect(body.mode).toBe('test');
-      expect(body.result).toBe('HELLO');
-    });
-
-    it('omits result field when code returns undefined', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        status: 200,
-        text: () => Promise.resolve('hello'),
-      }));
-
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          type: 'web',
-          mode: 'run',
-          url: 'https://target.example.com/data',
-          code: '(text) => undefined',
-        }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body.result).toBeUndefined();
-    });
+        url: 'http://127.0.0.1:8080/internal',
+        code: '(body) => body',
+      }),
+      { lookupImplementation: () => Promise.resolve([{ address: '127.0.0.1', family: 4 }]) },
+    );
+    expect(response.statusCode).toBe(400);
+    expect(parseBody(response.body).error_description).toContain('not allowed');
   });
 
-  describe('POST /run data type - successful execution', () => {
-    it('executes code against provided data object', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          type: 'data',
-          mode: 'run',
-          data: { items: [1, 2, 3] },
-          code: '(data) => data.items.length',
-        }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body.type).toBe('data');
-      expect(body.mode).toBe('run');
-      expect(body.result).toBe(3);
-    });
-
-    it('executes code against provided data array', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          type: 'data',
-          mode: 'test',
-          data: [10, 20, 30],
-          code: '(data) => data.map((x) => x * 2)',
-        }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body.type).toBe('data');
-      expect(body.mode).toBe('test');
-      expect(body.result).toEqual([20, 40, 60]);
-    });
-
-    it('executes code against provided string data', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          type: 'data',
-          mode: 'run',
-          data: 'hello world',
-          code: '(data) => data.toUpperCase()',
-        }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body.type).toBe('data');
-      expect(body.mode).toBe('run');
-      expect(body.result).toBe('HELLO WORLD');
-    });
-
-    it('executes code against null data', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          type: 'data',
-          mode: 'run',
-          data: null,
-          code: '(data) => data === null ? "was null" : "not null"',
-        }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body.type).toBe('data');
-      expect(body.mode).toBe('run');
-      expect(body.result).toBe('was null');
-    });
-
-    it('ensures Array.isArray works for array data in sandbox', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          type: 'data',
-          mode: 'test',
-          data: [1, 2, 3],
-          code: '(data) => Array.isArray(data)',
-        }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body.result).toBe(true);
-    });
-
-    it('omits result field when code returns undefined for data type', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          type: 'data',
-          mode: 'run',
-          data: 'anything',
-          code: '(data) => undefined',
-        }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body.result).toBeUndefined();
-    });
-
-    it('does not perform SSRF check for data type', async () => {
-      // data type should not trigger any fetch or DNS lookup
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          type: 'data',
-          mode: 'run',
-          data: { value: 42 },
-          code: '(data) => data.value + 1',
-        }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body.result).toBe(43);
-    });
+  it('blocks targets when ANY resolved address is private', async () => {
+    const response = await invoke(
+      createEvent({
+        type: 'web',
+        mode: 'test',
+        url: 'https://rebinding.example.com',
+        code: '(body) => body',
+      }),
+      {
+        lookupImplementation: () =>
+          Promise.resolve([
+            { address: '93.184.216.34', family: 4 },
+            { address: '10.0.0.5', family: 4 },
+          ]),
+      },
+    );
+    expect(response.statusCode).toBe(400);
   });
 
-  describe('POST /run data type - execution failures', () => {
-    it('returns 422 when code execution throws an error', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          type: 'data',
-          mode: 'run',
-          data: { value: 1 },
-          code: '(data) => { throw new Error("data processing error"); }',
-        }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(422);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('execution_failed');
-      expect(body.error_description).toContain('data processing error');
-    });
-
-    it('returns 422 when code is syntactically invalid', async () => {
-      const event = createEvent({
-        method: 'POST',
-        path: '/run',
-        origin: 'https://example.com',
-        contentType: 'application/json',
-        body: JSON.stringify({
-          type: 'data',
-          mode: 'run',
-          data: 'test',
-          code: '((( invalid syntax',
-        }),
-      });
-      const response = await handler(event);
-
-      expect(response.statusCode).toBe(422);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('execution_failed');
-    });
+  it('returns 502 when DNS resolution fails', async () => {
+    const response = await invoke(
+      createEvent({ type: 'web', mode: 'test', url: 'https://nx.example.com', code: '(b) => b' }),
+      { lookupImplementation: () => Promise.reject(new Error('ENOTFOUND')) },
+    );
+    expect(response.statusCode).toBe(502);
+    expect(parseBody(response.body).error).toBe('fetch_failed');
   });
 
-  describe('unknown routes', () => {
-    it('returns 404 for unknown path', async () => {
-      const event = createEvent({ path: '/unknown', origin: 'https://example.com' });
-      const response = await handler(event);
+  it('returns 502 when the fetch fails', async () => {
+    const response = await invoke(
+      createEvent({ type: 'web', mode: 'test', url: 'https://down.example.com', code: '(b) => b' }),
+      { fetchImplementation: (() => Promise.reject(new Error('connection refused'))) },
+    );
+    expect(response.statusCode).toBe(502);
+  });
 
-      expect(response.statusCode).toBe(404);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('not_found');
-    });
+  it('returns 413 when Content-Length exceeds the limit', async () => {
+    const response = await invoke(
+      createEvent({ type: 'web', mode: 'test', url: 'https://big.example.com', code: '(b) => b' }),
+      {
+        fetchImplementation: fetchReturning('small body', {
+          'Content-Length': String(11 * 1024 * 1024),
+        }),
+      },
+    );
+    expect(response.statusCode).toBe(413);
+    expect(parseBody(response.body).error).toBe('response_too_large');
+  });
 
-    it('returns 404 for unsupported method on known path', async () => {
-      const event = createEvent({ method: 'PUT', path: '/run', origin: 'https://example.com' });
-      const response = await handler(event);
+  it('data type does not run the SSRF check (레거시 계약)', async () => {
+    const response = await invoke(
+      createEvent({ type: 'data', mode: 'test', data: 'http://127.0.0.1', code: '(x) => x' }),
+      { lookupImplementation: () => Promise.reject(new Error('should not be called')) },
+    );
+    expect(response.statusCode).toBe(200);
+  });
+});
 
-      expect(response.statusCode).toBe(404);
-      const body = JSON.parse(response.body);
-      expect(body.error).toBe('not_found');
-    });
+describe('base64 body', () => {
+  it('decodes base64-encoded bodies', async () => {
+    const response = await invoke(
+      createEvent({ type: 'data', mode: 'test', data: 3, code: '(x) => x + 1' }, { base64: true }),
+    );
+    expect(response.statusCode).toBe(200);
+    expect(parseBody(response.body).result).toBe(4);
   });
 });

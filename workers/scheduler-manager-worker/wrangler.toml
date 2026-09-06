@@ -1,20 +1,23 @@
+# scheduler/stage/run CRUD + 파이프라인 실행 + cron 자동 실행
+#
+# Secrets (wrangler secret put):
+#   SUPABASE_URL, SUPABASE_SECRET_KEY, JWT_SECRET
 name = "audio-underview-scheduler-manager-worker"
 main = "sources/index.ts"
-compatibility_date = "2025-11-25"
+compatibility_date = "2026-07-01"
+
+[observability]
+enabled = true
 
 [vars]
 ALLOWED_ORIGINS = "http://localhost:5173,https://audio-underview.pages.dev"
-
-# Secrets (set via wrangler secret put):
-# SUPABASE_URL
-# SUPABASE_SECRET_KEY
-# JWT_SECRET
+# cron 자동 실행 게이트 — 운영에서 명시적으로 "true"로 켠다 (ADR-6)
+SCHEDULED_EXECUTION_ENABLED = "false"
 
 [[services]]
 binding = "CRAWLER_MANAGER"
 service = "audio-underview-crawler-manager-worker"
 
-[observability.logs]
-enabled = true
-head_sampling_rate = 1
-invocation_logs = true
+# 분 단위 tick — cron_expression 매칭은 scheduled handler가 수행
+[triggers]
+crons = ["* * * * *"]

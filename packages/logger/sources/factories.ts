@@ -1,106 +1,42 @@
-import { Logger } from './logger.ts';
-import type { LoggerOptions, LogLevel } from './types.ts';
+import { isLogLevel, type LogLevel } from './levels.ts';
+import { Logger, type LoggerOptions } from './logger.ts';
+import { createConsoleTransport } from './transports/console-transport.ts';
+import type { LogContext } from './types.ts';
 
-declare const process: { env?: Record<string, string | undefined> } | undefined;
-declare const window: unknown;
-declare const document: unknown;
+export interface CreateLoggerOptions {
+  minimumLevel?: LogLevel;
+  defaultContext?: LogContext;
+  enabled?: boolean;
+  additionalTransports?: LoggerOptions['transports'];
+}
 
-/**
- * Create a logger configured for browser/client-side usage
- * Uses pretty formatting for dev tools
- */
-export function createBrowserLogger(options: LoggerOptions = {}): Logger {
-  return new Logger({
-    minimumLevel: 'debug',
-    includeTimestamp: true,
-    includeLevel: true,
-    formatAsJSON: false,
-    enabled: true,
-    ...options,
+const create = (
+  format: 'json' | 'pretty',
+  options: CreateLoggerOptions = {},
+): Logger =>
+  new Logger({
+    minimumLevel: options.minimumLevel,
+    defaultContext: options.defaultContext,
+    enabled: options.enabled,
+    transports: [createConsoleTransport({ format }), ...(options.additionalTransports ?? [])],
   });
-}
+
+/** Cloudflare Worker용 — 한 줄 JSON (observability logs 수집 친화). */
+export const createWorkerLogger = (options?: CreateLoggerOptions): Logger =>
+  create('json', options);
+
+/** 서버(Lambda 등)용 — 한 줄 JSON. */
+export const createServerLogger = (options?: CreateLoggerOptions): Logger =>
+  create('json', options);
+
+/** 브라우저용 — 사람이 읽는 형식. */
+export const createBrowserLogger = (options?: CreateLoggerOptions): Logger =>
+  create('pretty', options);
 
 /**
- * Create a logger configured for Cloudflare Workers
- * Uses JSON formatting for observability logs
+ * 환경변수(`LOG_LEVEL`)에서 최소 레벨을 읽는다. 무효/미설정이면 fallback.
  */
-export function createWorkerLogger(options: LoggerOptions = {}): Logger {
-  return new Logger({
-    minimumLevel: 'debug',
-    includeTimestamp: true,
-    includeLevel: true,
-    formatAsJSON: true,
-    enabled: true,
-    ...options,
-  });
-}
-
-/**
- * Create a logger configured for Node.js server-side usage
- * Uses JSON formatting for structured logging
- */
-export function createServerLogger(options: LoggerOptions = {}): Logger {
-  return new Logger({
-    minimumLevel: 'info',
-    includeTimestamp: true,
-    includeLevel: true,
-    formatAsJSON: true,
-    enabled: true,
-    ...options,
-  });
-}
-
-/**
- * Determine the minimum log level based on environment
- */
-export function getLogLevelFromEnvironment(defaultLevel: LogLevel = 'info'): LogLevel {
-  // Check for LOG_LEVEL environment variable
-  const envLevel = (typeof process !== 'undefined' && process.env?.LOG_LEVEL) ?? undefined;
-
-  if (envLevel && isValidLogLevel(envLevel)) {
-    return envLevel;
-  }
-
-  // Check for NODE_ENV
-  const nodeEnv = (typeof process !== 'undefined' && process.env?.NODE_ENV) ?? undefined;
-
-  if (nodeEnv === 'development') {
-    return 'debug';
-  }
-
-  if (nodeEnv === 'production') {
-    return 'info';
-  }
-
-  return defaultLevel;
-}
-
-/**
- * Check if a string is a valid log level
- */
-function isValidLogLevel(level: string): level is LogLevel {
-  return ['debug', 'info', 'warn', 'error'].includes(level);
-}
-
-/**
- * Create a logger that automatically detects the environment
- */
-export function createAutoLogger(options: LoggerOptions = {}): Logger {
-  // Detect browser environment
-  const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
-
-  // Detect Cloudflare Workers environment
-  const isWorker = typeof globalThis !== 'undefined' &&
-    'caches' in globalThis &&
-    typeof (globalThis as { caches?: { default?: unknown } }).caches?.default !== 'undefined';
-
-  if (isBrowser) {
-    return createBrowserLogger(options);
-  }
-
-  if (isWorker) {
-    return createWorkerLogger(options);
-  }
-
-  return createServerLogger(options);
-}
+export const getLogLevelFromEnvironment = (
+  value: string | undefined,
+  fallback: LogLevel = 'info',
+): LogLevel => (isLogLevel(value) ? value : fallback);

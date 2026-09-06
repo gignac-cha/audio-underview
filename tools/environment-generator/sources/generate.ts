@@ -1,110 +1,23 @@
+/**
+ * 1Password vault(`Audio Underview`)에서 secret을 resolve해 로컬 .env 파일들을 생성한다.
+ *
+ * 생성 대상:
+ *   - applications/web/.env  (Vite 빌드타임 키)
+ *   - <root>/.env.workers    (authentication-worker secret 주입용 — 자동 로딩 없음)
+ *   - <root>/.env.deploy     (GitHub secrets/vars 등록용 배포 자격증명 — 자동 로딩 없음)
+ *
+ * Usage:
+ *   OP_SERVICE_ACCOUNT_TOKEN=$(pnpm run --silent environment:setup) pnpm run environment:generate
+ */
 import { writeFile, mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { createClient } from '@1password/sdk';
 
+import { SECRET_MAPPINGS, ENVIRONMENT_FILES } from './environment-definitions.ts';
+import { isValidSecretValue, buildEnvironmentFileContent } from './formatters.ts';
+
 const SCRIPT_DIRECTORY = import.meta.dirname;
 const PROJECT_ROOT = resolve(SCRIPT_DIRECTORY, '..', '..', '..');
-
-interface SecretMapping {
-  reference: string;
-  variableName: string;
-}
-
-const SECRET_MAPPINGS: SecretMapping[] = [
-  {
-    reference: 'op://Audio Underview/Google OAuth/client ID',
-    variableName: 'VITE_GOOGLE_CLIENT_ID',
-  },
-  {
-    reference: 'op://Audio Underview/GitHub OAuth Worker/URL',
-    variableName: 'VITE_GITHUB_OAUTH_WORKER_URL',
-  },
-  {
-    reference: 'op://Audio Underview/Crawler Code Runner Function/URL',
-    variableName: 'VITE_CRAWLER_CODE_RUNNER_FUNCTION_URL',
-  },
-  {
-    reference: 'op://Audio Underview/Crawler Manager Worker/URL',
-    variableName: 'VITE_CRAWLER_MANAGER_WORKER_URL',
-  },
-  {
-    reference: 'op://Audio Underview/GitHub OAuth/client ID',
-    variableName: 'OAUTH_GITHUB_CLIENT_ID',
-  },
-  {
-    reference: 'op://Audio Underview/GitHub OAuth/client secret',
-    variableName: 'OAUTH_GITHUB_CLIENT_SECRET',
-  },
-  {
-    reference: 'op://Audio Underview/Cloudflare/API token',
-    variableName: 'CLOUDFLARE_API_TOKEN',
-  },
-  {
-    reference: 'op://Audio Underview/Cloudflare/account ID',
-    variableName: 'CLOUDFLARE_ACCOUNT_ID',
-  },
-  {
-    reference: 'op://Audio Underview/AWS/access key ID',
-    variableName: 'AWS_ACCESS_KEY_ID',
-  },
-  {
-    reference: 'op://Audio Underview/AWS/secret access key',
-    variableName: 'AWS_SECRET_ACCESS_KEY',
-  },
-  {
-    reference: 'op://Audio Underview/AWS/Lambda execution role ARN',
-    variableName: 'AWS_LAMBDA_EXECUTION_ROLE_ARN',
-  },
-  {
-    reference: 'op://Audio Underview/AWS/region',
-    variableName: 'AWS_REGION',
-  },
-  {
-    reference: 'op://Audio Underview/Frontend/URL',
-    variableName: 'FRONTEND_URL',
-  },
-  {
-    reference: 'op://Audio Underview/Frontend/allowed origins',
-    variableName: 'ALLOWED_ORIGINS',
-  },
-];
-
-interface EnvironmentFileDefinition {
-  outputPath: string;
-  variableNames: string[];
-}
-
-const ENVIRONMENT_FILES: EnvironmentFileDefinition[] = [
-  {
-    outputPath: join(PROJECT_ROOT, 'applications', 'web', '.env'),
-    variableNames: [
-      'VITE_GOOGLE_CLIENT_ID',
-      'VITE_GITHUB_OAUTH_WORKER_URL',
-      'VITE_CRAWLER_CODE_RUNNER_FUNCTION_URL',
-      'VITE_CRAWLER_MANAGER_WORKER_URL',
-    ],
-  },
-  {
-    outputPath: join(PROJECT_ROOT, '.env.workers'),
-    variableNames: [
-      'OAUTH_GITHUB_CLIENT_ID',
-      'OAUTH_GITHUB_CLIENT_SECRET',
-      'FRONTEND_URL',
-      'ALLOWED_ORIGINS',
-    ],
-  },
-  {
-    outputPath: join(PROJECT_ROOT, '.env.deploy'),
-    variableNames: [
-      'CLOUDFLARE_API_TOKEN',
-      'CLOUDFLARE_ACCOUNT_ID',
-      'AWS_ACCESS_KEY_ID',
-      'AWS_SECRET_ACCESS_KEY',
-      'AWS_LAMBDA_EXECUTION_ROLE_ARN',
-      'AWS_REGION',
-    ],
-  },
-];
 
 function readToken(): string {
   const token = process.env.OP_SERVICE_ACCOUNT_TOKEN?.trim() ?? '';
@@ -118,12 +31,6 @@ function readToken(): string {
   }
 
   return token;
-}
-
-function isValidSecretValue(value: string): boolean {
-  if (!value) return false;
-  if (value === 'REPLACE_ME') return false;
-  return true;
 }
 
 async function generate(): Promise<void> {
@@ -179,26 +86,21 @@ async function generate(): Promise<void> {
   }
 
   for (const environmentFile of ENVIRONMENT_FILES) {
-    const lines: string[] = [];
+    const outputPath = join(PROJECT_ROOT, ...environmentFile.outputPathSegments);
+    const content = buildEnvironmentFileContent(environmentFile.variableNames, resolvedVariables);
 
-    for (const variableName of environmentFile.variableNames) {
-      const value = resolvedVariables.get(variableName);
-      if (value !== undefined) {
-        lines.push(`${variableName}="${value}"`);
-      }
-    }
-
-    if (lines.length === 0) {
-      console.log(`\nSkipping ${environmentFile.outputPath}: no variables to write`);
+    if (content === undefined) {
+      console.log(`\nSkipping ${outputPath}: no variables to write`);
       continue;
     }
 
-    const outputDirectory = dirname(environmentFile.outputPath);
+    const outputDirectory = dirname(outputPath);
     await mkdir(outputDirectory, { recursive: true });
-    await writeFile(environmentFile.outputPath, lines.join('\n') + '\n', 'utf-8');
+    await writeFile(outputPath, content, 'utf-8');
 
-    console.log(`\nGenerated ${environmentFile.outputPath}`);
-    console.log(`  Variables set: ${lines.map((line) => line.split('=')[0]).join(', ')}`);
+    const writtenNames = environmentFile.variableNames.filter((variableName) => resolvedVariables.has(variableName));
+    console.log(`\nGenerated ${outputPath}`);
+    console.log(`  Variables set: ${writtenNames.join(', ')}`);
   }
 }
 

@@ -1,21 +1,23 @@
 {
   "name": "@audio-underview/crawler-code-runner-function",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "main": "./sources/index.ts",
+  "version": "0.0.0",
   "scripts": {
-    "build": "node build.ts",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "build": "node scripts/build.ts"
   },
   "packageManager": "pnpm@10.26.1",
-  "dependencies": {
-    "@audio-underview/function-tools": "workspace:*",
-    "@audio-underview/logger": "workspace:*"
-  },
+  "type": "module",
+  "private": true,
   "devDependencies": {
-    "@types/node": "^25.2.3",
-    "vitest": "^4.0.18"
+    "@types/node": "catalog:",
+    "esbuild": "^0.28.1",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "dependencies": {
+    "@audio-underview/logger": "workspace:*",
+    "@audio-underview/schemas": "workspace:*",
+    "zod": "catalog:"
   }
 }

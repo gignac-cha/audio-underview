@@ -1,26 +1,26 @@
 {
   "name": "@audio-underview/scheduler-manager-worker",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "main": "./sources/index.ts",
+  "version": "0.0.0",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
   },
   "packageManager": "pnpm@10.26.1",
-  "dependencies": {
-    "@audio-underview/logger": "workspace:*",
-    "@audio-underview/worker-tools": "workspace:*",
-    "@audio-underview/supabase-connector": "workspace:*"
-  },
+  "type": "module",
+  "private": true,
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "catalog:worker",
-    "@cloudflare/workers-types": "catalog:worker",
-    "@vitest/runner": "catalog:worker",
-    "@vitest/snapshot": "catalog:worker",
-    "vitest": "catalog:worker"
+    "@cloudflare/workers-types": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
+  },
+  "dependencies": {
+    "@audio-underview/database-connector": "workspace:*",
+    "@audio-underview/logger": "workspace:*",
+    "@audio-underview/schemas": "workspace:*",
+    "@audio-underview/worker-foundation": "workspace:*",
+    "zod": "catalog:"
   }
 }

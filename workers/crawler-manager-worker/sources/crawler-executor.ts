@@ -1,79 +1,88 @@
 import type { Logger } from '@audio-underview/logger';
-import type { CrawlerRow } from '@audio-underview/supabase-connector';
-import type { CrawlerExecuteResult } from '@audio-underview/worker-tools';
-import type { CodeRunnerClient } from './code-runner-client.ts';
-import { isSafeURLPattern } from './safe-url-pattern.ts';
+import type { CrawlerExecuteResult } from '@audio-underview/schemas';
+import { isSafeURLPattern } from './safe-url-patterns.ts';
+import type { CrawlerManagerServices } from './services.ts';
 
-export type { CrawlerExecuteResult };
+/**
+ * crawler 실행 (Service Binding RPC 전용 — 스펙 §3.4).
+ * 소유권 검사 없음: binding 선언 자체가 접근 제어.
+ */
 
-function resolveURL(
-  input: unknown,
-  crawler: CrawlerRow,
-): string | null {
-  // 1. input.url if present
-  if (input !== null && input !== undefined && typeof input === 'object' && 'url' in input) {
-    const url = (input as Record<string, unknown>).url;
-    if (typeof url === 'string' && url.length > 0) {
-      return url;
+const resolveTargetURL = (crawlerID: string, input: unknown, inputSchema: Record<string, unknown>): string => {
+  // ① input.url 우선
+  if (typeof input === 'object' && input !== null) {
+    const inputURL = (input as Record<string, unknown>).url;
+    if (typeof inputURL === 'string' && inputURL.length > 0) {
+      return inputURL;
     }
   }
 
-  // 2. input_schema url default
-  const inputSchema = crawler.input_schema;
-  if (inputSchema.url !== null && inputSchema.url !== undefined && typeof inputSchema.url === 'object' && 'default' in inputSchema.url) {
-    const defaultURL = (inputSchema.url as Record<string, unknown>).default;
+  // ② input_schema.url.default fallback
+  const urlDescriptor = inputSchema.url;
+  if (typeof urlDescriptor === 'object' && urlDescriptor !== null) {
+    const defaultURL = (urlDescriptor as Record<string, unknown>).default;
     if (typeof defaultURL === 'string' && defaultURL.length > 0) {
       return defaultURL;
     }
   }
 
-  return null;
-}
+  throw new Error(
+    `Crawler ${crawlerID}: no URL available. Provide url in input or set a default in input_schema.`,
+  );
+};
 
-export async function executeCrawler(
-  codeRunnerClient: CodeRunnerClient,
-  crawler: CrawlerRow,
-  input: unknown,
+/** url_pattern은 실행 시 soft check — 불일치/unsafe여도 warn만 하고 실행은 계속 (스펙 §8.5) */
+const warnOnPatternMismatch = (
   logger: Logger,
-): Promise<CrawlerExecuteResult> {
+  crawlerID: string,
+  pattern: string,
+  url: string,
+): void => {
+  if (!isSafeURLPattern(pattern)) {
+    logger.warn('Skipping unsafe url_pattern validation', { crawlerID, pattern });
+    return;
+  }
+  try {
+    if (!new RegExp(pattern).test(url)) {
+      logger.warn('URL does not match crawler url_pattern — executing anyway', {
+        crawlerID,
+        pattern,
+        url,
+      });
+    }
+  } catch {
+    logger.warn('Failed to compile url_pattern', { crawlerID, pattern });
+  }
+};
+
+export const executeCrawler = async (
+  services: CrawlerManagerServices,
+  logger: Logger,
+  crawlerID: string,
+  input: unknown,
+): Promise<CrawlerExecuteResult> => {
+  const crawler = await services.crawlers.getByID(crawlerID);
+  if (crawler === undefined) {
+    throw new Error(`Crawler ${crawlerID} not found`);
+  }
+
+  const bearerToken = await services.createServiceToken(crawler.user_uuid);
+
   if (crawler.type === 'web') {
-    const url = resolveURL(input, crawler);
-    if (!url) {
-      throw new Error(
-        `Crawler ${crawler.id}: no URL available. Provide url in input or set a default in input_schema.`,
-      );
+    const url = resolveTargetURL(crawlerID, input, crawler.input_schema);
+    if (crawler.url_pattern !== null) {
+      warnOnPatternMismatch(logger, crawlerID, crawler.url_pattern, url);
     }
-
-    if (crawler.url_pattern) {
-      if (!isSafeURLPattern(crawler.url_pattern)) {
-        logger.warn('Skipping url_pattern validation: potential ReDoS pattern detected', {
-          urlPattern: crawler.url_pattern,
-          crawlerID: crawler.id,
-        }, { function: 'executeCrawler' });
-      } else {
-        try {
-          const pattern = new RegExp(crawler.url_pattern);
-          if (!pattern.test(url)) {
-            logger.warn('URL does not match crawler url_pattern', {
-              url,
-              urlPattern: crawler.url_pattern,
-              crawlerID: crawler.id,
-            }, { function: 'executeCrawler' });
-          }
-        } catch (error: unknown) {
-          logger.warn('Invalid url_pattern regex', {
-            urlPattern: crawler.url_pattern,
-            crawlerID: crawler.id,
-            error: error instanceof Error ? error.message : String(error),
-          }, { function: 'executeCrawler' });
-        }
-      }
-    }
-
-    const response = await codeRunnerClient.run('web', url, undefined, crawler.code);
+    const response = await services.codeRunner.run(
+      { type: 'web', mode: 'run', url, code: crawler.code },
+      bearerToken,
+    );
     return { type: 'web', result: response.result };
   }
 
-  const response = await codeRunnerClient.run('data', undefined, input, crawler.code);
+  const response = await services.codeRunner.run(
+    { type: 'data', mode: 'run', data: input, code: crawler.code },
+    bearerToken,
+  );
   return { type: 'data', result: response.result };
-}
+};

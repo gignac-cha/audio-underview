@@ -1,0 +1,21 @@
+{
+  "name": "@audio-underview/database-connector",
+  "version": "0.0.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "packageManager": "pnpm@10.26.1",
+  "type": "module",
+  "exports": "./sources/index.ts",
+  "private": true,
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "dependencies": {
+    "@audio-underview/schemas": "workspace:*",
+    "@supabase/supabase-js": "^2.110.0",
+    "zod": "catalog:"
+  }
+}

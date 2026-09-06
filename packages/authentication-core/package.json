@@ -1,0 +1,22 @@
+{
+  "name": "@audio-underview/authentication-core",
+  "version": "0.0.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "packageManager": "pnpm@10.26.1",
+  "type": "module",
+  "exports": "./sources/index.ts",
+  "private": true,
+  "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "dependencies": {
+    "@audio-underview/schemas": "workspace:*",
+    "@audio-underview/worker-foundation": "workspace:*",
+    "zod": "catalog:"
+  }
+}

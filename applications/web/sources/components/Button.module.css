@@ -1,0 +1,104 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: var(--radius-medium);
+  border: 1px solid transparent;
+  font-weight: 560;
+  white-space: nowrap;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.button:active:not([aria-disabled='true']):not(:disabled) {
+  transform: translateY(1px);
+}
+
+.button:disabled,
+.button[aria-disabled='true'] {
+  opacity: 0.5;
+}
+
+.medium {
+  height: 36px;
+  padding: 0 14px;
+  font-size: 13.5px;
+}
+
+.small {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+
+.icon {
+  display: inline-flex;
+  margin-left: -2px;
+}
+
+.label {
+  display: inline-flex;
+  align-items: center;
+}
+
+.primary {
+  background-color: var(--accent);
+  color: var(--text-on-accent);
+  border-color: var(--accent);
+}
+
+.primary:hover:not([aria-disabled='true']):not(:disabled) {
+  background-color: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+.secondary {
+  background-color: var(--background-raised);
+  color: var(--text-primary);
+  border-color: var(--border-hairline);
+  box-shadow: var(--shadow-raised);
+}
+
+.secondary:hover:not([aria-disabled='true']):not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.ghost {
+  background-color: transparent;
+  color: var(--text-secondary);
+}
+
+.ghost:hover:not([aria-disabled='true']):not(:disabled) {
+  background-color: var(--background-inset);
+  color: var(--text-primary);
+}
+
+.danger {
+  background-color: var(--color-error-soft);
+  color: var(--color-error);
+  border-color: transparent;
+}
+
+.danger:hover:not([aria-disabled='true']):not(:disabled) {
+  background-color: var(--color-error);
+  color: var(--text-on-accent);
+}
+
+.shortcut {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 2px 5px;
+  border-radius: var(--radius-small);
+  background-color: rgb(0 0 0 / 12%);
+  color: inherit;
+  opacity: 0.75;
+  line-height: 1;
+}
+
+.primary .shortcut {
+  background-color: rgb(255 255 255 / 20%);
+}

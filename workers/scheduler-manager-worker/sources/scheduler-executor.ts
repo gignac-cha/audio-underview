@@ -1,51 +1,124 @@
-import type { SupabaseClient } from '@audio-underview/supabase-connector';
 import type { Logger } from '@audio-underview/logger';
+import type { SchedulerStageRow } from '@audio-underview/database-connector';
 import {
-  listSchedulerStages,
-  updateSchedulerRun,
-  updateScheduler,
-  createSchedulerStageRun,
-  updateSchedulerStageRun,
-} from '@audio-underview/supabase-connector';
-import type { CrawlerExecutionClient } from './crawler-execution-client.ts';
-import {
-  executeStage,
   executeFanOut,
+  executeStage,
   resolveDefaultInput,
+  type StageRunnerDependencies,
 } from './stage-runner.ts';
+import type { SchedulerManagerServices } from './services.ts';
 
-export interface ExecutorDependencies {
-  supabaseClient: SupabaseClient;
-  crawlerExecutionClient: CrawlerExecutionClient;
+/**
+ * 파이프라인 실행 상태 머신 (스펙 §4.6).
+ *
+ * pending ─→ running ─┬─→ completed          (모든 stage 성공)
+ *                     ├─→ partially_failed   (fan-out 일부 실패, 끝까지 진행)
+ *                     └─→ failed             (stage throw / 전원 실패 / timeout)
+ *
+ * - 에러는 run에 기록하고 **rethrow하지 않는다** — 호출측은 run을 재조회해 응답.
+ * - `signal.aborted` 이후에는 어떤 DB 쓰기도 하지 않는다 (timeout 경로가 기록 담당,
+ *   `onlyIfStatus` guard와 이중 방어 — 스펙 §8.12).
+ */
+
+export interface SchedulerExecutorDependencies {
+  services: SchedulerManagerServices;
   logger: Logger;
 }
 
-export async function executeScheduler(
-  dependencies: ExecutorDependencies,
+const runFanOutStage = async (
+  dependencies: StageRunnerDependencies,
+  runID: string,
+  stage: SchedulerStageRow,
+  fanOutField: string,
+  input: unknown,
+  signal: AbortSignal | undefined,
+): Promise<{ output: unknown[]; hasPartialFailure: boolean }> => {
+  const { services } = dependencies;
+
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    throw new Error(
+      `Stage ${stage.stage_order}: fan_out_field "${fanOutField}" requires object input, got ${
+        input === null ? 'null' : Array.isArray(input) ? 'array' : typeof input
+      }`,
+    );
+  }
+  const items = (input as Record<string, unknown>)[fanOutField];
+  if (items === undefined || items === null) {
+    throw new Error(`Stage ${stage.stage_order}: fan_out_field "${fanOutField}" not found in input`);
+  }
+  if (!Array.isArray(items)) {
+    throw new Error(`Stage ${stage.stage_order}: fan_out_field "${fanOutField}" is not an array`);
+  }
+
+  const stageRun = await services.stageRuns.create({
+    run_id: runID,
+    stage_id: stage.id,
+    stage_order: stage.stage_order,
+    status: 'running',
+    started_at: new Date().toISOString(),
+    input,
+  });
+
+  if (items.length === 0) {
+    await services.stageRuns.update(stageRun.id, runID, {
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+      output: [],
+      items_total: 0,
+      items_succeeded: 0,
+      items_failed: 0,
+    });
+    return { output: [], hasPartialFailure: false };
+  }
+
+  const fanOut = await executeFanOut(dependencies, stage, items, signal);
+  await services.stageRuns.update(stageRun.id, runID, {
+    status: fanOut.status,
+    completed_at: new Date().toISOString(),
+    output: fanOut.results,
+    items_total: fanOut.itemsTotal,
+    items_succeeded: fanOut.itemsSucceeded,
+    items_failed: fanOut.itemsFailed,
+  });
+
+  if (fanOut.status === 'failed') {
+    throw new Error(`Stage ${stage.stage_order}: all fan-out items failed`);
+  }
+  return { output: fanOut.results, hasPartialFailure: fanOut.status === 'partially_failed' };
+};
+
+export const executeScheduler = async (
+  dependencies: SchedulerExecutorDependencies,
   schedulerID: string,
   userUUID: string,
   runID: string,
   signal?: AbortSignal,
-): Promise<void> {
-  const { supabaseClient, logger } = dependencies;
-
-  const stageRunnerDependencies = {
-    supabaseClient: dependencies.supabaseClient,
-    crawlerExecutionClient: dependencies.crawlerExecutionClient,
-    logger: dependencies.logger,
+): Promise<void> => {
+  const { services, logger } = dependencies;
+  const updateRun = async (
+    input: Parameters<SchedulerManagerServices['runs']['update']>[2],
+  ): Promise<void> => {
+    if (signal?.aborted === true) {
+      return; // timeout 경로가 기록 — late write 금지
+    }
+    try {
+      await services.runs.update(runID, schedulerID, input, {
+        onlyIfStatus: ['pending', 'running'],
+      });
+    } catch (error) {
+      logger.error('Failed to update scheduler run', error, {
+        function: 'executeScheduler',
+        metadata: { runID },
+      });
+    }
   };
 
   try {
-    // Mark run as running
-    await updateSchedulerRun(supabaseClient, runID, schedulerID, {
-      status: 'running',
-      started_at: new Date().toISOString(),
-    });
+    await updateRun({ status: 'running', started_at: new Date().toISOString() });
 
-    const stages = await listSchedulerStages(supabaseClient, schedulerID);
-
+    const stages = await services.stages.list(schedulerID);
     if (stages.length === 0) {
-      await updateSchedulerRun(supabaseClient, runID, schedulerID, {
+      await updateRun({
         status: 'completed',
         completed_at: new Date().toISOString(),
         result: null,
@@ -53,141 +126,61 @@ export async function executeScheduler(
       return;
     }
 
-    let currentInput: unknown = resolveDefaultInput(stages[0].input_schema);
-    let lastOutput: unknown = null;
+    const firstStage = stages[0];
+    if (firstStage === undefined) {
+      return;
+    }
+    let currentInput: unknown = resolveDefaultInput(firstStage.input_schema);
     let hasPartialFailure = false;
 
     for (const stage of stages) {
-      if (signal?.aborted) break;
+      if (signal?.aborted === true) {
+        return;
+      }
 
-      // Fan-out check
-      if (stage.fan_out_field) {
-        if (currentInput !== null && currentInput !== undefined && typeof currentInput !== 'object') {
-          throw new Error(
-            `Stage ${stage.stage_order}: fan_out_field "${stage.fan_out_field}" requires object input, got ${typeof currentInput}`,
-          );
-        }
-        const inputObject = currentInput as Record<string, unknown> | null;
-        const fanOutItems = inputObject?.[stage.fan_out_field];
-
-        if (fanOutItems === undefined || fanOutItems === null) {
-          throw new Error(
-            `Stage ${stage.stage_order}: fan_out_field "${stage.fan_out_field}" not found in input`,
-          );
-        }
-
-        if (!Array.isArray(fanOutItems)) {
-          throw new Error(
-            `Stage ${stage.stage_order}: fan_out_field "${stage.fan_out_field}" is not an array`,
-          );
-        }
-
-        // Create stage_run record for the fan-out stage
-        const stageRun = await createSchedulerStageRun(supabaseClient, {
-          run_id: runID,
-          stage_id: stage.id,
-          stage_order: stage.stage_order,
-          status: 'running',
-          started_at: new Date().toISOString(),
-          input: currentInput,
-        });
-
-        if (fanOutItems.length === 0) {
-          await updateSchedulerStageRun(supabaseClient, stageRun.id, runID, {
-            status: 'completed',
-            completed_at: new Date().toISOString(),
-            output: [],
-            items_total: 0,
-            items_succeeded: 0,
-            items_failed: 0,
-          });
-          currentInput = [];
-          lastOutput = [];
-          continue;
-        }
-
-        const fanOutResult = await executeFanOut(
-          stageRunnerDependencies,
-          stage,
-          fanOutItems,
-          1,
-          signal,
-        );
-
-        await updateSchedulerStageRun(supabaseClient, stageRun.id, runID, {
-          status: fanOutResult.status,
-          completed_at: new Date().toISOString(),
-          output: fanOutResult.results,
-          items_total: fanOutResult.itemsTotal,
-          items_succeeded: fanOutResult.itemsSucceeded,
-          items_failed: fanOutResult.itemsFailed,
-        });
-
-        if (fanOutResult.status === 'failed') {
-          throw new Error(
-            `Stage ${stage.stage_order}: all fan-out items failed`,
-          );
-        }
-
-        if (fanOutResult.status === 'partially_failed') {
-          hasPartialFailure = true;
-        }
-
-        currentInput = fanOutResult.results;
-        lastOutput = fanOutResult.results;
-      } else {
-        // Normal stage execution
-        const stageResult = await executeStage(
-          stageRunnerDependencies,
+      if (stage.fan_out_field !== null) {
+        const fanOut = await runFanOutStage(
+          dependencies,
           runID,
           stage,
+          stage.fan_out_field,
           currentInput,
           signal,
         );
-
-        currentInput = stageResult.output;
-        lastOutput = stageResult.output;
+        hasPartialFailure = hasPartialFailure || fanOut.hasPartialFailure;
+        currentInput = fanOut.output;
+      } else {
+        const result = await executeStage(dependencies, runID, stage, currentInput, signal);
+        currentInput = result.output; // stage N output === stage N+1 input
       }
     }
 
-    // Pipeline completed successfully — skip if handler already timed out
-    if (signal?.aborted) return;
-
-    await updateSchedulerRun(supabaseClient, runID, schedulerID, {
-      status: hasPartialFailure ? 'partially_failed' : 'completed',
-      completed_at: new Date().toISOString(),
-      result: lastOutput,
-    });
-  } catch (error: unknown) {
-    if (signal?.aborted) return;
-
-    const errorMessage = error instanceof Error ? error.message : String(error);
-
-    logger.error('Scheduler execution failed', error, {
-      function: 'executeScheduler',
-      metadata: { schedulerID, runID },
-    });
-
-    await updateSchedulerRun(supabaseClient, runID, schedulerID, {
+    if (signal?.aborted !== true) {
+      await updateRun({
+        status: hasPartialFailure ? 'partially_failed' : 'completed',
+        completed_at: new Date().toISOString(),
+        result: currentInput ?? null,
+      });
+    }
+  } catch (error) {
+    await updateRun({
       status: 'failed',
       completed_at: new Date().toISOString(),
-      error: errorMessage,
-    }).catch((updateError: unknown) => {
-      logger.error('Failed to update run status after error', updateError, {
-        function: 'executeScheduler',
-        metadata: { schedulerID, runID },
-      });
+      error: error instanceof Error ? error.message : String(error),
     });
   } finally {
-    if (signal?.aborted) return;
-    // Always update last_run_at
-    await updateScheduler(supabaseClient, schedulerID, userUUID, {
-      last_run_at: new Date().toISOString(),
-    }).catch((updateError: unknown) => {
-      logger.error('Failed to update scheduler last_run_at', updateError, {
-        function: 'executeScheduler',
-        metadata: { schedulerID },
-      });
-    });
+    // 성공/실패 무관 항상 갱신 — 단 abort 시에는 skip (스펙 §4.6.5)
+    if (signal?.aborted !== true) {
+      try {
+        await services.schedulers.update(schedulerID, userUUID, {
+          last_run_at: new Date().toISOString(),
+        });
+      } catch (error) {
+        logger.error('Failed to update scheduler last_run_at', error, {
+          function: 'executeScheduler',
+          metadata: { schedulerID },
+        });
+      }
+    }
   }
-}
+};

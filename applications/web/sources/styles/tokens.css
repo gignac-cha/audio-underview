@@ -1,0 +1,153 @@
+/*
+ * Design tokens — "instrument panel" 방향.
+ * 따뜻한 카본 다크 + 종이 질감 라이트, 시그널 오렌지 액센트.
+ * 모든 컴포넌트는 이 변수만 참조한다 (raw 색상 금지).
+ */
+
+:root {
+  /* 타이포그래피 */
+  --font-user-interface: 'Archivo Variable', 'Avenir Next', 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
+
+  /* 치수 */
+  --radius-small: 4px;
+  --radius-medium: 8px;
+  --radius-large: 12px;
+  --header-height: 56px;
+  --content-width: 1160px;
+
+  /* 모션 */
+  --transition-fast: 140ms cubic-bezier(0.3, 0.7, 0.4, 1);
+  --transition-medium: 240ms cubic-bezier(0.3, 0.7, 0.4, 1);
+
+  /* z-index 계층 */
+  --layer-header: 40;
+  --layer-overlay: 90;
+  --layer-toast: 100;
+}
+
+/* ---- 라이트: 웜 페이퍼 ---- */
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --background-page: #f3f1ea;
+  --background-panel: #fbfaf6;
+  --background-raised: #ffffff;
+  --background-inset: #ecEae2;
+  --background-code: #14140f;
+  --background-backdrop: rgb(30 28 22 / 55%);
+
+  --text-primary: #1d1c17;
+  --text-secondary: #5d5a4e;
+  --text-faint: #8b8779;
+  --text-on-accent: #fffdf8;
+  --text-on-code: #e8e6da;
+
+  --border-hairline: #dcd8ca;
+  --border-strong: #b8b3a1;
+
+  --accent: #d3500c;
+  --accent-strong: #b34209;
+  --accent-soft: rgb(211 80 12 / 12%);
+
+  --color-success: #2c7a44;
+  --color-success-soft: rgb(44 122 68 / 12%);
+  --color-error: #bb3428;
+  --color-error-soft: rgb(187 52 40 / 10%);
+  --color-info: #2b5fb8;
+  --color-info-soft: rgb(43 95 184 / 10%);
+  --color-warning: #a06207;
+  --color-warning-soft: rgb(160 98 7 / 14%);
+  --color-neutral: #6e6a5c;
+  --color-neutral-soft: rgb(110 106 92 / 12%);
+
+  --shadow-raised: 0 1px 2px rgb(30 28 22 / 6%), 0 4px 16px rgb(30 28 22 / 8%);
+  --shadow-overlay: 0 8px 40px rgb(30 28 22 / 25%);
+
+  --dot-grid: radial-gradient(rgb(29 28 23 / 7%) 1px, transparent 1px);
+}
+
+/* ---- 다크: 웜 카본 ---- */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --background-page: #131311;
+  --background-panel: #1b1b18;
+  --background-raised: #232320;
+  --background-inset: #0e0e0c;
+  --background-code: #101010;
+  --background-backdrop: rgb(4 4 3 / 62%);
+
+  --text-primary: #ecebe3;
+  --text-secondary: #a5a294;
+  --text-faint: #6f6c60;
+  --text-on-accent: #16130e;
+  --text-on-code: #e8e6da;
+
+  --border-hairline: #2d2c27;
+  --border-strong: #4a4840;
+
+  --accent: #ff7a29;
+  --accent-strong: #ff965a;
+  --accent-soft: rgb(255 122 41 / 14%);
+
+  --color-success: #4cc38a;
+  --color-success-soft: rgb(76 195 138 / 13%);
+  --color-error: #ff6b5e;
+  --color-error-soft: rgb(255 107 94 / 12%);
+  --color-info: #6ba6ff;
+  --color-info-soft: rgb(107 166 255 / 12%);
+  --color-warning: #e5a53c;
+  --color-warning-soft: rgb(229 165 60 / 14%);
+  --color-neutral: #8d8a7c;
+  --color-neutral-soft: rgb(141 138 124 / 14%);
+
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 18px rgb(0 0 0 / 35%);
+  --shadow-overlay: 0 8px 48px rgb(0 0 0 / 60%);
+
+  --dot-grid: radial-gradient(rgb(236 235 227 / 5%) 1px, transparent 1px);
+}
+
+/* data-theme가 지정되기 전(부팅 직전)의 시스템 선호 폴백 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+
+    --background-page: #131311;
+    --background-panel: #1b1b18;
+    --background-raised: #232320;
+    --background-inset: #0e0e0c;
+    --background-code: #101010;
+    --background-backdrop: rgb(4 4 3 / 62%);
+
+    --text-primary: #ecebe3;
+    --text-secondary: #a5a294;
+    --text-faint: #6f6c60;
+    --text-on-accent: #16130e;
+    --text-on-code: #e8e6da;
+
+    --border-hairline: #2d2c27;
+    --border-strong: #4a4840;
+
+    --accent: #ff7a29;
+    --accent-strong: #ff965a;
+    --accent-soft: rgb(255 122 41 / 14%);
+
+    --color-success: #4cc38a;
+    --color-success-soft: rgb(76 195 138 / 13%);
+    --color-error: #ff6b5e;
+    --color-error-soft: rgb(255 107 94 / 12%);
+    --color-info: #6ba6ff;
+    --color-info-soft: rgb(107 166 255 / 12%);
+    --color-warning: #e5a53c;
+    --color-warning-soft: rgb(229 165 60 / 14%);
+    --color-neutral: #8d8a7c;
+    --color-neutral-soft: rgb(141 138 124 / 14%);
+
+    --shadow-raised: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 18px rgb(0 0 0 / 35%);
+    --shadow-overlay: 0 8px 48px rgb(0 0 0 / 60%);
+
+    --dot-grid: radial-gradient(rgb(236 235 227 / 5%) 1px, transparent 1px);
+  }
+}

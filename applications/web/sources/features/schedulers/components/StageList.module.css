@@ -1,0 +1,19 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+}
+
+.connector {
+  display: flex;
+  justify-content: center;
+  color: var(--text-faint);
+  padding: 4px 0;
+}
+
+.empty {
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 12px 0;
+  text-align: center;
+}

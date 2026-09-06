@@ -1,0 +1,19 @@
+{
+  "name": "@audio-underview/schemas",
+  "version": "0.0.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "packageManager": "pnpm@10.26.1",
+  "type": "module",
+  "exports": "./sources/index.ts",
+  "private": true,
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "dependencies": {
+    "zod": "catalog:"
+  }
+}

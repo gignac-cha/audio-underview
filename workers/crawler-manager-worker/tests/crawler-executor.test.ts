@@ -1,205 +1,144 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { Logger } from '@audio-underview/logger';
+import type { RunCodeRequestBody } from '@audio-underview/schemas';
 import { executeCrawler } from '../sources/crawler-executor.ts';
-import { validateCodeRunnerResult } from '../sources/code-runner-client.ts';
-import type { CodeRunnerClient } from '../sources/code-runner-client.ts';
-import type { CrawlerRow } from '@audio-underview/supabase-connector';
+import { CRAWLER_ID, createFakeServices, mockCrawler } from './test-helpers.ts';
 
-function createMockCodeRunnerClient(
-  result: unknown = { extracted: 'data' },
-): CodeRunnerClient & { run: ReturnType<typeof vi.fn> } {
+const silentLogger = new Logger({ transports: [] });
+
+const createRunRecorder = () => {
+  const calls: { request: RunCodeRequestBody; bearerToken: string }[] = [];
   return {
-    run: vi.fn().mockResolvedValue({ type: 'web', mode: 'run', result }),
+    calls,
+    codeRunner: {
+      run: (request: RunCodeRequestBody, bearerToken: string) => {
+        calls.push({ request, bearerToken });
+        return Promise.resolve({ type: request.type, mode: 'run' as const, result: { ok: true } });
+      },
+    },
   };
-}
-
-function createMockLogger() {
-  return {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-    createChild: vi.fn().mockReturnThis(),
-  } as any;
-}
-
-function createMockCrawler(overrides: Partial<CrawlerRow> = {}): CrawlerRow {
-  return {
-    id: '00000000-0000-0000-0000-000000000001',
-    user_uuid: '00000000-0000-0000-0000-000000000002',
-    name: 'Test Crawler',
-    type: 'web',
-    url_pattern: '.*\\.example\\.com',
-    code: '(text) => ({ title: "test" })',
-    input_schema: { body: 'string' },
-    output_schema: {},
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    ...overrides,
-  };
-}
+};
 
 describe('executeCrawler', () => {
-  describe('web crawler', () => {
-    it('resolves URL from input.url and calls codeRunnerClient.run', async () => {
-      const client = createMockCodeRunnerClient({ title: 'Hello' });
-      const logger = createMockLogger();
-      const crawler = createMockCrawler({ code: '(text) => ({ title: text })' });
-      const input = { url: 'https://www.example.com/page' };
+  it('throws when the crawler does not exist', async () => {
+    const services = createFakeServices({
+      crawlers: { getByID: () => Promise.resolve(undefined) },
+    });
+    await expect(executeCrawler(services, silentLogger, CRAWLER_ID, {})).rejects.toThrow(
+      `Crawler ${CRAWLER_ID} not found`,
+    );
+  });
 
-      const result = await executeCrawler(client, crawler, input, logger);
-
-      expect(result).toEqual({ type: 'web', result: { title: 'Hello' } });
-      expect(client.run).toHaveBeenCalledOnce();
-      expect(client.run).toHaveBeenCalledWith(
-        'web',
-        'https://www.example.com/page',
-        undefined,
-        crawler.code,
-      );
+  it('prefers input.url over the schema default', async () => {
+    const recorder = createRunRecorder();
+    const services = createFakeServices({
+      crawlers: {
+        getByID: () =>
+          Promise.resolve({
+            ...mockCrawler,
+            input_schema: { url: { type: 'string', default: 'https://default.example.com' } },
+          }),
+      },
+      codeRunner: recorder.codeRunner,
     });
 
-    it('resolves URL from input_schema.url.default when input has no url', async () => {
-      const client = createMockCodeRunnerClient();
-      const logger = createMockLogger();
-      const crawler = createMockCrawler({
-        input_schema: {
-          url: { default: 'https://fallback.example.com/default' },
+    await executeCrawler(services, silentLogger, CRAWLER_ID, {
+      url: 'https://input.example.com',
+    });
+    expect(recorder.calls[0]?.request).toMatchObject({
+      type: 'web',
+      mode: 'run',
+      url: 'https://input.example.com',
+    });
+  });
+
+  it('falls back to input_schema.url.default', async () => {
+    const recorder = createRunRecorder();
+    const services = createFakeServices({
+      crawlers: {
+        getByID: () =>
+          Promise.resolve({
+            ...mockCrawler,
+            input_schema: { url: { type: 'string', default: 'https://default.example.com' } },
+          }),
+      },
+      codeRunner: recorder.codeRunner,
+    });
+
+    await executeCrawler(services, silentLogger, CRAWLER_ID, {});
+    expect(recorder.calls[0]?.request).toMatchObject({ url: 'https://default.example.com' });
+  });
+
+  it('throws when no URL is available for a web crawler', async () => {
+    const services = createFakeServices({
+      crawlers: { getByID: () => Promise.resolve({ ...mockCrawler, input_schema: {} }) },
+    });
+    await expect(executeCrawler(services, silentLogger, CRAWLER_ID, {})).rejects.toThrow(
+      'no URL available',
+    );
+  });
+
+  it('continues execution when the URL does not match url_pattern (warn만)', async () => {
+    const recorder = createRunRecorder();
+    const warnSpy = vi.fn();
+    const logger = new Logger({
+      transports: [
+        {
+          write: (record) => {
+            if (record.level === 'warn') {
+              warnSpy(record.message);
+            }
+          },
         },
-      });
-      const input = {};
-
-      await executeCrawler(client, crawler, input, logger);
-
-      expect(client.run).toHaveBeenCalledWith(
-        'web',
-        'https://fallback.example.com/default',
-        undefined,
-        crawler.code,
-      );
+      ],
+      minimumLevel: 'warn',
+    });
+    const services = createFakeServices({
+      crawlers: {
+        getByID: () => Promise.resolve({ ...mockCrawler, url_pattern: '^https://only\\.this\\.host/' }),
+      },
+      codeRunner: recorder.codeRunner,
     });
 
-    it('throws when no URL is available', async () => {
-      const client = createMockCodeRunnerClient();
-      const logger = createMockLogger();
-      const crawler = createMockCrawler({ input_schema: {} });
-      const input = {};
-
-      await expect(executeCrawler(client, crawler, input, logger)).rejects.toThrow(
-        /no URL available/,
-      );
-      expect(client.run).not.toHaveBeenCalled();
+    const result = await executeCrawler(services, logger, CRAWLER_ID, {
+      url: 'https://different.example.com',
     });
-
-    it('warns when URL does not match url_pattern but still executes', async () => {
-      const client = createMockCodeRunnerClient();
-      const logger = createMockLogger();
-      const crawler = createMockCrawler({ url_pattern: '^https://only\\.allowed\\.com' });
-      const input = { url: 'https://different.com/page' };
-
-      const result = await executeCrawler(client, crawler, input, logger);
-
-      expect(logger.warn).toHaveBeenCalledOnce();
-      expect(logger.warn).toHaveBeenCalledWith(
-        'URL does not match crawler url_pattern',
-        expect.objectContaining({
-          url: 'https://different.com/page',
-          urlPattern: '^https://only\\.allowed\\.com',
-          crawlerID: crawler.id,
-        }),
-        { function: 'executeCrawler' },
-      );
-      expect(result.type).toBe('web');
-      expect(client.run).toHaveBeenCalledOnce();
-    });
-
-    it('skips url_pattern validation on unsafe regex and logs warning', async () => {
-      const client = createMockCodeRunnerClient();
-      const logger = createMockLogger();
-      const crawler = createMockCrawler({ url_pattern: '[invalid(' });
-      const input = { url: 'https://www.example.com/page' };
-
-      const result = await executeCrawler(client, crawler, input, logger);
-
-      expect(logger.warn).toHaveBeenCalledWith(
-        'Skipping url_pattern validation: potential ReDoS pattern detected',
-        expect.objectContaining({
-          urlPattern: '[invalid(',
-          crawlerID: crawler.id,
-        }),
-        expect.objectContaining({ function: 'executeCrawler' }),
-      );
-      expect(result.type).toBe('web');
-      expect(client.run).toHaveBeenCalledOnce();
-    });
+    expect(result).toEqual({ type: 'web', result: { ok: true } });
+    expect(warnSpy).toHaveBeenCalledWith('URL does not match crawler url_pattern — executing anyway');
   });
 
-  describe('data crawler', () => {
-    it('calls codeRunnerClient.run with data type and input', async () => {
-      const client = createMockCodeRunnerClient({ processed: true });
-      client.run.mockResolvedValue({ type: 'data', mode: 'run', result: { processed: true } });
-      const logger = createMockLogger();
-      const crawler = createMockCrawler({ type: 'data', url_pattern: null });
-      const input = { items: [1, 2, 3] };
-
-      const result = await executeCrawler(client, crawler, input, logger);
-
-      expect(result).toEqual({ type: 'data', result: { processed: true } });
-      expect(client.run).toHaveBeenCalledOnce();
-      expect(client.run).toHaveBeenCalledWith(
-        'data',
-        undefined,
-        input,
-        crawler.code,
-      );
+  it('passes data input straight through for data crawlers', async () => {
+    const recorder = createRunRecorder();
+    const services = createFakeServices({
+      crawlers: {
+        getByID: () => Promise.resolve({ ...mockCrawler, type: 'data', url_pattern: null }),
+      },
+      codeRunner: recorder.codeRunner,
     });
-  });
 
-  describe('error propagation', () => {
-    it('propagates errors from codeRunnerClient.run', async () => {
-      const client = createMockCodeRunnerClient();
-      client.run.mockRejectedValue(new Error('Code execution failed'));
-      const logger = createMockLogger();
-      const crawler = createMockCrawler();
-      const input = { url: 'https://www.example.com/page' };
-
-      await expect(executeCrawler(client, crawler, input, logger)).rejects.toThrow(
-        'Code execution failed',
-      );
-    });
-  });
-});
-
-describe('validateCodeRunnerResult', () => {
-  it('accepts valid web result', () => {
-    const result = validateCodeRunnerResult({ type: 'web', mode: 'run', result: { data: 'ok' } });
-    expect(result.type).toBe('web');
-    expect(result.mode).toBe('run');
-    expect(result.result).toEqual({ data: 'ok' });
-  });
-
-  it('accepts valid result with null', () => {
-    const result = validateCodeRunnerResult({ type: 'data', mode: 'test', result: null });
+    const input = { rows: [1, 2, 3] };
+    const result = await executeCrawler(services, silentLogger, CRAWLER_ID, input);
+    expect(recorder.calls[0]?.request).toMatchObject({ type: 'data', mode: 'run', data: input });
     expect(result.type).toBe('data');
-    expect(result.result).toBeNull();
   });
 
-  it('throws on null input', () => {
-    expect(() => validateCodeRunnerResult(null)).toThrow('Expected object from code-runner');
+  it('mints the service token for the crawler owner', async () => {
+    const recorder = createRunRecorder();
+    const services = createFakeServices({
+      crawlers: { getByID: () => Promise.resolve({ ...mockCrawler, type: 'data' }) },
+      codeRunner: recorder.codeRunner,
+    });
+    await executeCrawler(services, silentLogger, CRAWLER_ID, {});
+    expect(recorder.calls[0]?.bearerToken).toBe('service-token');
   });
 
-  it('throws on non-object input', () => {
-    expect(() => validateCodeRunnerResult('string')).toThrow('Expected object from code-runner');
-  });
-
-  it('throws on invalid type', () => {
-    expect(() => validateCodeRunnerResult({ type: 'unknown', mode: 'run', result: {} })).toThrow("Expected type 'web' or 'data'");
-  });
-
-  it('throws on invalid mode', () => {
-    expect(() => validateCodeRunnerResult({ type: 'web', mode: 'unknown', result: {} })).toThrow("Expected mode 'test' or 'run'");
-  });
-
-  it('throws on missing result field', () => {
-    expect(() => validateCodeRunnerResult({ type: 'web', mode: 'run' })).toThrow('Missing result field');
+  it('propagates code runner failures', async () => {
+    const services = createFakeServices({
+      crawlers: { getByID: () => Promise.resolve({ ...mockCrawler, type: 'data' }) },
+      codeRunner: { run: () => Promise.reject(new Error('CodeRunner error 422')) },
+    });
+    await expect(executeCrawler(services, silentLogger, CRAWLER_ID, {})).rejects.toThrow(
+      'CodeRunner error 422',
+    );
   });
 });

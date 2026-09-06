@@ -1,54 +1,39 @@
-import styled from '@emotion/styled';
-import * as Avatar from '@radix-ui/react-avatar';
-import type { OAuthUser } from '@audio-underview/sign-provider';
+import type { AuthenticatedUser } from '@audio-underview/schemas';
+import { useState } from 'react';
+import styles from './Header.module.css';
 
-type AvatarSize = 'default' | 'large';
+const initialFromName = (name: string): string => {
+  const trimmed = name.trim();
+  return trimmed.length === 0 ? '?' : trimmed.charAt(0).toUpperCase();
+};
 
-interface UserAvatarProperties {
-  user: OAuthUser | undefined;
-  size?: AvatarSize;
-}
+/** 사용자 아바타 — picture 우선, 실패/부재 시 이름 이니셜 폴백. */
+export const UserAvatar = ({ user, size = 30 }: { user: AuthenticatedUser; size?: number }) => {
+  const [failed, setFailed] = useState(false);
+  const dimension = `${String(size)}px`;
 
-const AvatarRoot = styled(Avatar.Root)<{ size: AvatarSize }>`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  vertical-align: middle;
-  overflow: hidden;
-  user-select: none;
-  width: ${({ size }) => (size === 'large' ? '80px' : '36px')};
-  height: ${({ size }) => (size === 'large' ? '80px' : '36px')};
-  border-radius: 50%;
-  background-color: var(--accent-primary);
-  flex-shrink: 0;
-`;
+  if (user.picture !== undefined && !failed) {
+    return (
+      <img
+        className={styles.avatar}
+        style={{ width: dimension, height: dimension }}
+        src={user.picture}
+        alt={user.name}
+        onError={() => {
+          setFailed(true);
+        }}
+      />
+    );
+  }
 
-const AvatarImage = styled(Avatar.Image)`
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: inherit;
-`;
-
-const AvatarFallback = styled(Avatar.Fallback)<{ size: AvatarSize }>`
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: var(--accent-primary);
-  color: var(--text-primary);
-  font-size: ${({ size }) => (size === 'large' ? '2rem' : '1rem')};
-  font-weight: 500;
-`;
-
-export function UserAvatar({ user, size = 'default' }: UserAvatarProperties) {
   return (
-    <AvatarRoot size={size}>
-      <AvatarImage src={user?.picture} alt={user?.name ?? 'User avatar'} />
-      <AvatarFallback size={size}>
-        {user?.name?.charAt(0).toUpperCase()}
-      </AvatarFallback>
-    </AvatarRoot>
+    <span
+      className={styles.avatarFallback}
+      style={{ width: dimension, height: dimension }}
+      aria-label={user.name}
+      title={user.name}
+    >
+      {initialFromName(user.name)}
+    </span>
   );
-}
+};
