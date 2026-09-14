@@ -15,7 +15,11 @@ export default defineWorkersConfig({
             SUPABASE_SECRET_KEY: 'test-supabase-secret',
             AXIOM_API_TOKEN: 'test-axiom-token',
             AXIOM_DATASET: 'test-dataset',
-            ALLOWED_ORIGINS: 'https://example.com',
+            // `https://app.example.com` is the SPA origin these tests redirect
+            // back to; `/authorize` and `/callback` now refuse any origin that
+            // is not listed here, so it has to be trusted like the real SPA is.
+            ALLOWED_ORIGINS: 'https://example.com,https://app.example.com',
+            JWT_SECRET: 'test-jwt-secret-key-for-testing-only',
           },
         },
       },
