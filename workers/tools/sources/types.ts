@@ -1,4 +1,5 @@
 import type { Logger } from '@audio-underview/logger';
+import type { OAuthProviderID } from '@audio-underview/sign-provider';
 
 export interface ResponseContext {
   origin: string;
@@ -11,17 +12,7 @@ export interface OAuthErrorResponse {
   error_description?: string;
 }
 
-export type OAuthProvider =
-  | 'apple'
-  | 'discord'
-  | 'facebook'
-  | 'github'
-  | 'google'
-  | 'kakao'
-  | 'microsoft'
-  | 'naver'
-  | 'twitch'
-  | 'twitter';
+export type OAuthProvider = OAuthProviderID;
 
 export interface BaseEnvironment {
   FRONTEND_URL: string;

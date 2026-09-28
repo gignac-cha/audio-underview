@@ -14,6 +14,11 @@ export const oauthProviderID = z.enum([
   'discord',
   'kakao',
   'naver',
+  'threads',
+  'tiktok',
+  'line',
+  'bluesky',
+  'twitch',
 ]);
 
 export type OAuthProviderID = z.infer<typeof oauthProviderID>;

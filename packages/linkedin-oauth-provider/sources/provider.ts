@@ -26,7 +26,17 @@ export const linkedInUserInfoSchema = z.object({
   given_name: z.string().optional(),
   family_name: z.string().optional(),
   picture: z.string().url().optional(),
-  locale: z.string().optional(),
+  // Documented as text ("en-US"), but LinkedIn is known to send
+  // `{ country, language }`. Nothing reads it, so neither shape may fail a login.
+  locale: z
+    .union([
+      z.string(),
+      z.object({
+        country: z.string().optional(),
+        language: z.string().optional(),
+      }),
+    ])
+    .optional(),
 });
 
 export type LinkedInUserInfo = z.infer<typeof linkedInUserInfoSchema>;

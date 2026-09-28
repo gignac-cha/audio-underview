@@ -12,10 +12,15 @@ import {
   X_AUTHORIZATION_ENDPOINT,
   X_TOKEN_ENDPOINT,
   X_USER_INFO_ENDPOINT,
+  X_DEFAULT_SCOPES,
 } from './configuration.ts';
 
 /**
- * X (Twitter) user data schema from /2/users/me endpoint
+ * X user data schema from /2/users/me endpoint.
+ *
+ * `confirmed_email` is only present when the token was granted the
+ * `users.email` scope and the account has a confirmed address. A malformed
+ * value is dropped rather than failing the whole login.
  */
 export const xUserDataSchema = z.object({
   data: z.object({
@@ -23,6 +28,7 @@ export const xUserDataSchema = z.object({
     username: z.string().min(1),
     name: z.string().min(1),
     profile_image_url: z.string().url().optional(),
+    confirmed_email: z.email().optional().catch(undefined),
     description: z.string().optional(),
     created_at: z.string().optional(),
     verified: z.boolean().optional(),
@@ -67,7 +73,7 @@ export const xOAuthProvider: OAuthProvider = {
   buildAuthorizationURL(parameters: OAuthAuthorizationParameters): string {
     // X requires PKCE - validate that codeChallenge is provided
     if (!parameters.codeChallenge) {
-      throw new Error('X (Twitter) OAuth requires PKCE. Please provide a codeChallenge parameter.');
+      throw new Error('X OAuth requires PKCE. Please provide a codeChallenge parameter.');
     }
 
     const url = new URL(X_AUTHORIZATION_ENDPOINT);
@@ -105,15 +111,13 @@ export const xOAuthProvider: OAuthProvider = {
   },
 
   parseUserData(data: Record<string, unknown>): OAuthUser {
-    const userData = parseXUserData(data);
+    const user = parseXUserData(data).data;
 
-    // X doesn't provide email through the basic users.read scope
-    // Email requires special approval from X
-    const user = userData.data;
-
+    // Only the address X reports as confirmed is passed on. Without one the
+    // field is omitted — never filled with a made-up address.
     return {
       id: user.id,
-      email: null, // X doesn't provide email by default
+      ...(user.confirmed_email ? { email: user.confirmed_email } : {}),
       name: user.name,
       picture: user.profile_image_url,
       provider: X_PROVIDER_ID,
@@ -140,7 +144,7 @@ export function createXAuthorizationURL(
     clientID,
     redirectURI,
     responseType: options?.responseType ?? 'code',
-    scopes: options?.scopes ?? ['users.read', 'tweet.read'],
+    scopes: options?.scopes ?? X_DEFAULT_SCOPES,
     state,
     codeChallenge,
     codeChallengeMethod: options?.codeChallengeMethod ?? 'S256',

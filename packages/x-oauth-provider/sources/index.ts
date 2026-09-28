@@ -7,6 +7,7 @@ export {
   X_REVOKE_ENDPOINT,
   X_USER_INFO_ENDPOINT,
   X_DEFAULT_SCOPES,
+  X_USER_FIELDS,
   type XOAuthConfiguration,
 } from './configuration.ts';
 

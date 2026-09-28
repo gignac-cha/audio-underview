@@ -143,6 +143,46 @@ export const PROVIDER_DISPLAY_CONFIGURATIONS: Record<OAuthProviderID, ProviderDi
     svgPath: NAVER_SVG_PATH,
     svgViewBox: '0 0 24 24',
   },
+  threads: {
+    providerID: 'threads',
+    displayName: 'Threads',
+    backgroundColor: '#000000',
+    textColor: '#FFFFFF',
+    iconType: 'fontawesome',
+    iconName: 'faThreads',
+  },
+  tiktok: {
+    providerID: 'tiktok',
+    displayName: 'TikTok',
+    backgroundColor: '#000000',
+    textColor: '#FFFFFF',
+    iconType: 'fontawesome',
+    iconName: 'faTiktok',
+  },
+  line: {
+    providerID: 'line',
+    displayName: 'LINE',
+    backgroundColor: '#06C755',
+    textColor: '#FFFFFF',
+    iconType: 'fontawesome',
+    iconName: 'faLine',
+  },
+  bluesky: {
+    providerID: 'bluesky',
+    displayName: 'Bluesky',
+    backgroundColor: '#1185FE',
+    textColor: '#FFFFFF',
+    iconType: 'fontawesome',
+    iconName: 'faBluesky',
+  },
+  twitch: {
+    providerID: 'twitch',
+    displayName: 'Twitch',
+    backgroundColor: '#9146FF',
+    textColor: '#FFFFFF',
+    iconType: 'fontawesome',
+    iconName: 'faTwitch',
+  },
 };
 
 /**

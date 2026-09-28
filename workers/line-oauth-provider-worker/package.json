@@ -1,0 +1,28 @@
+{
+  "name": "@audio-underview/line-oauth-provider-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./sources/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@audio-underview/axiom-logger": "workspace:*",
+    "@audio-underview/line-oauth-provider": "workspace:*",
+    "@audio-underview/logger": "workspace:*",
+    "@audio-underview/sign-provider": "workspace:*",
+    "@audio-underview/supabase-connector": "workspace:*",
+    "@audio-underview/worker-tools": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "catalog:worker",
+    "@cloudflare/workers-types": "catalog:worker",
+    "@vitest/runner": "catalog:worker",
+    "@vitest/snapshot": "catalog:worker",
+    "vitest": "catalog:worker"
+  }
+}
