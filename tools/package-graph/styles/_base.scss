@@ -1,0 +1,50 @@
+@use 'variables' as *;
+
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-color: $rule transparent;
+  scrollbar-width: thin;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: $page;
+  color: $ink;
+  font: 14px/1.55 $font;
+  font-feature-settings: 'tnum';
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid $ink;
+  outline-offset: 2px;
+}
+
+code {
+  font-family: inherit;
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,259 @@
+@use 'variables' as *;
+
+@each $category, $color in $categories {
+  [data-category='#{$category}'] {
+    --category-color: #{$color};
+  }
+}
+
+// Cables. Drawn under the modules, so they disappear behind a face plate
+// the way a real cable runs behind the rack.
+.category-lines {
+  pointer-events: none;
+
+  .bundle {
+    transition: opacity 0.12s;
+
+    &.dimmed {
+      opacity: 0.25;
+    }
+
+    &.muted {
+      opacity: 0.15;
+    }
+  }
+
+  .bundle-line {
+    fill: none;
+    stroke: var(--category-color);
+    stroke-linecap: round;
+    pointer-events: stroke;
+    filter: drop-shadow(0 1.5px 0 rgba(29, 31, 34, 0.28));
+  }
+
+  .jack {
+    fill: $ink;
+    stroke: var(--category-color);
+    stroke-width: 2.5;
+  }
+
+  .bundle-count {
+    rect {
+      fill: $panel;
+      stroke: $ink;
+      stroke-width: 1;
+      rx: 2;
+    }
+
+    text {
+      fill: $ink;
+      font-family: $font;
+      font-size: 11.5px;
+      font-weight: 600;
+    }
+
+    &.dependency rect {
+      stroke: $dependency;
+    }
+
+    &.dependent rect {
+      stroke: $dependent;
+    }
+  }
+
+  .package-line {
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+
+    &.dependency {
+      stroke: $dependency;
+    }
+
+    &.dependent {
+      stroke: $dependent;
+    }
+
+    &.folded {
+      stroke-width: 3.5;
+    }
+
+    &.development {
+      stroke-dasharray: 3 4;
+    }
+  }
+}
+
+// Module face plate.
+.category-box {
+  position: relative;
+  padding: 12px 14px 12px;
+  border: 1px solid $rule;
+  border-top: 4px solid var(--category-color);
+  border-radius: $radius;
+  background: $panel;
+  box-shadow: $lip, 0 2px 6px rgba(29, 31, 34, 0.08);
+  cursor: grab;
+  transition: opacity 0.12s;
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    h3 {
+      margin: 0;
+      font-size: 14.5px;
+      font-weight: 600;
+    }
+
+    em {
+      color: $ink-soft;
+      font-size: 12.5px;
+      font-style: normal;
+    }
+  }
+
+  // The panel's own jack, in its cable colour.
+  .swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: radial-gradient(circle, $ink 0 2.5px, var(--category-color) 3px 6px);
+    flex: none;
+  }
+
+  .collapse {
+    width: 22px;
+    height: 22px;
+    margin-left: auto;
+    border: 1px solid $rule;
+    border-radius: $radius;
+    background: $panel-inset;
+    color: $ink;
+    line-height: 1;
+    cursor: pointer;
+
+    &:hover {
+      border-color: $ink;
+    }
+  }
+
+  > p {
+    margin: 4px 0 10px;
+    color: $ink-soft;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  &.collapsed {
+    > p,
+    .category-members {
+      display: none;
+    }
+  }
+
+  &.dragging {
+    z-index: 10;
+    box-shadow: $lip, 0 10px 24px rgba(29, 31, 34, 0.22);
+  }
+}
+
+.category-members {
+  display: grid;
+  grid-template-columns: repeat(var(--columns), minmax(0, 1fr));
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+// A package, printed on the plate like a labelled button.
+.member {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 7px;
+  border: 1px solid $rule-soft;
+  border-radius: $radius;
+  background: $panel-inset;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+
+  .label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .badge {
+    margin-left: auto;
+    color: $ink-soft;
+    font-size: 11.5px;
+  }
+
+  &:hover {
+    border-color: $ink;
+  }
+
+  &.match {
+    background: color-mix(in srgb, $match 35%, $panel-inset);
+  }
+}
+
+.diagram.has-focus {
+  .category-box:not(.involved) {
+    opacity: 0.45;
+  }
+
+  .member {
+    opacity: 0.4;
+
+    &.active,
+    &.dependency,
+    &.dependent {
+      opacity: 1;
+    }
+
+    &.active {
+      border-color: $ink;
+      background: $ink;
+      color: $panel;
+    }
+
+    &.dependency {
+      border: 1.5px solid $dependency;
+    }
+
+    &.dependent {
+      border: 1.5px solid $dependent;
+    }
+  }
+}
+
+.diagram {
+  .layer-labels text {
+    fill: $ink-soft;
+    font-family: $font;
+    font-size: 12.5px;
+  }
+
+  foreignObject {
+    overflow: visible;
+  }
+
+  .category-holder {
+    width: 300px;
+  }
+
+  .category-node {
+    cursor: grab;
+  }
+
+  .category-box {
+    user-select: none;
+  }
+}
