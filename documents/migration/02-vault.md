@@ -68,9 +68,10 @@ logger와 볼트는 `newscast-*` 패키지를 import하지 않는다.
 - 문자열 → `redactSecrets`
 - `null`·원시값 → 그대로
 - 깊이 8 이상 → `'[Truncated]'`
-- 이미 본 객체 → `'[Circular]'`
-- `Error` → `{ name, message: redactSecrets(message), stack: 문자열이면 redactSecrets(stack) 아니면 undefined, cause: 있으면 재귀 scrub 아니면 undefined }`
+- 현재 재귀 경로(조상)에 이미 있는 객체 → `'[Circular]'`. 순환이 아닌 공유 참조는 나오는 곳마다 펼친다.
+- `Error` → `{ name, message: redactSecrets(message), stack: 문자열이면 redactSecrets(stack) 아니면 undefined, cause: 있으면 재귀 scrub 아니면 undefined }`. 그 밖의 own enumerable 속성(예: `code`·`status`)도 재귀 scrub해 함께 남기고, 이름이 겹치면 앞의 네 필드가 우선한다.
 - `Date` → 그대로
+- `toJSON`이 함수인 객체(예: `URL`) → `toJSON()` 결과를 재귀 scrub
 - 배열 → 원소마다 재귀
 - 객체 → 값마다 재귀
 
@@ -98,6 +99,8 @@ export {
   - `error.cause`가 `{}`가 아니라 펼쳐져서 scrub된다.
   - 요청·응답 본문이 pretty 출력에서도 scrub된다.
   - 순환 참조가 있어도 예외 없이 기록된다.
+  - 순환이 아닌 공유 참조는 `[Circular]`가 되지 않는다.
+  - `URL`은 href 문자열로, `Error`의 `code`·`status`는 그대로 남는다.
   - 접두사를 포함한 일반 단어는 그대로다.
 
 ## 3. `workers/api-key-vault-worker`
@@ -136,7 +139,7 @@ export {
 | `PROVIDER_KEY_KEK_PREVIOUS` | secret, 선택 | 이전 KEK |
 | `PROVIDER_KEY_KEK_VERSION` | var | 새로 쓰는 행의 세대 번호. 양의 정수로 못 읽으면 1 |
 | `VAULT_INTERNAL_TOKEN` | secret, 선택 | 호출자가 헤더로 보내야 하는 값 |
-| `AI_GATEWAY_BASE_URL` | secret, 선택 | 앞뒤 공백 제거 후 비어 있지 않으면 게이트웨이 경유 |
+| `AI_GATEWAY_BASE_URL` | secret, 선택 | 앞뒤 공백 제거 후 비어 있지 않으면 게이트웨이 경유. `https:` URL만 받는다 |
 | `AI_GATEWAY_TOKEN` | secret, 선택 | 있으면 `cf-aig-authorization: Bearer <값>` |
 | `AUDIT_HASH_SALT` | secret, 선택 | 감사 로그 해시 salt |
 
@@ -223,7 +226,7 @@ provider 순서는 `anthropic, openai, google, xai`로 고정한다. 키는 URL�
   - `\`를 포함한다.
   - 상위로 올라간다. 판정은 이렇다. `\t\n\r`을 지우고 `?`·`#` 앞부분만 본다. `%2f`·`%5c`(대소문자 무관)가 있으면 거부한다. `/`로 나눈 조각 중 `%2e`(대소문자 무관)를 `.`로 바꿨을 때 `..`인 조각이 있으면 거부한다. `%252e`는 풀지 않는다.
 - 선행 `/`를 떼고 잇는다. 직접 호출은 `<origin>/<path>`, 게이트웨이는 `<base 끝 / 제거>/<segment>/<뒤 경로>`.
-- base 파싱 실패는 `blocked_origin`, 완성 URL 파싱 실패는 `invalid_path`.
+- base 파싱 실패나 base가 `https:`가 아니면 `blocked_origin`, 완성 URL 파싱 실패는 `invalid_path`.
 - 완성 URL의 origin이 base origin과 다르면 `blocked_origin`.
 - 완성 URL의 pathname이 허용 접두사로 시작하지 않으면 `invalid_path`. 직접 호출은 `/`, 게이트웨이는 `<base pathname>/<segment>/`.
 - 거부 예(모든 provider, 게이트웨이 경유 포함):
@@ -244,8 +247,8 @@ provider 순서는 `anthropic, openai, google, xai`로 고정한다. 키는 URL�
 
 **키 검증**
 - 모양: 16~512자, 모든 글자가 0x21~0x7E. 아니면 제공자를 호출하지 않는다.
-- 검증 호출: 게이트웨이가 설정돼 있으면 경유, 10초 타임아웃, 응답 본문은 읽고 버린다.
-- 결과: 2xx는 `valid`, 400·401·403은 `invalid`, 그 밖의 상태·네트워크 실패·타임아웃은 `unavailable`.
+- 검증 호출: 게이트웨이가 설정돼 있으면 경유, 10초 타임아웃, 응답 본문은 읽고 버린다. redirect는 따라가지 않는다(`redirect: 'manual'`).
+- 결과: 2xx는 `valid`, 400·401·403은 `invalid`, 그 밖의 상태(3xx 포함)·네트워크 실패·타임아웃은 `unavailable`.
 
 ### 3.7 라우트 (전부 `POST`, JSON 본문)
 
@@ -281,7 +284,7 @@ provider 순서는 `anthropic, openai, google, xai`로 고정한다. 키는 URL�
 6. URL 만들기 실패는 400 `{ ok: false, error: 'invalid_path' | 'blocked_origin' }`. 키를 읽기 전에 거른다.
 7. 행이 없거나 복호화 결과가 `null`이면 404 `{ ok: false, error: 'no_key' }`.
 8. 감사 `used`를 제공자 호출 전에 기록한다.
-9. §3.6 헤더와 본문으로 fetch한다. 바이너리면 풀린 바이트를 그대로 보낸다. 타임아웃은 240초.
+9. §3.6 헤더와 본문으로 fetch한다. 바이너리면 풀린 바이트를 그대로 보낸다. 타임아웃은 240초. redirect는 따라가지 않고(`redirect: 'manual'`), 3xx도 11번처럼 데이터로 전달한다.
 10. fetch 예외는 502 `{ ok: false, error: 'provider_unreachable' }`.
 11. 200 `{ ok: true, provider, status, contentType, body }`. 제공자 상태 코드와 본문 텍스트를 그대로 싣는다. 단, `contentType`·`body`에 평문 키가 있으면 `[REDACTED]`로 바꾼다(§3.9). `contentType`이 없으면 `application/octet-stream`.
 
@@ -343,7 +346,8 @@ provider 순서는 `anthropic, openai, google, xai`로 고정한다. 키는 URL�
   - 거부: 빈 값, `short`, 앞뒤 공백, 끝 개행, curl 명령 통째, 513자, 숫자
 - 검증 호출이 provider별 헤더로 나가고, 키가 URL에 없다.
 - 400·401·403은 `invalid`다. 404·429·500·502·503과 네트워크 실패는 `unavailable`이다.
-- 게이트웨이가 설정돼 있으면 경유한다.
+- 게이트웨이가 설정돼 있으면 경유한다. `http://` 게이트웨이로는 호출하지 않는다.
+- redirect를 따라가지 않고, 3xx는 `unavailable`이다.
 
 **audit**
 - 동작은 네 개만 받는다.
@@ -371,7 +375,8 @@ provider 순서는 `anthropic, openai, google, xai`로 고정한다. 키는 URL�
   - URL 검사가 키 읽기보다 먼저다. 호출자가 고른 게이트웨이 namespace로는 나가지 않는다.
   - 허용 안 된 메서드는 400이다. GET에 본문이 붙어도 400이고 제공자를 호출하지 않는다. 연결 실패는 502이고 요청 내용을 인용하지 않는다. 제공자 오류는 데이터로 전달한다.
   - 바이너리 본문은 바이트 그대로 content-type boundary를 유지한다. 텍스트와 바이너리를 같이 보내거나 base64가 아니거나 상한을 넘으면 400이다.
-  - 게이트웨이는 볼트 설정만 쓴다.
+  - 게이트웨이는 볼트 설정만 쓴다. `http://` 게이트웨이는 400 `blocked_origin`이고 제공자를 호출하지 않는다.
+  - redirect를 따라가지 않고 3xx를 데이터로 전달한다.
 - rewrap은 복호화 없이 새 KEK로 옮기고, 못 여는 행은 센다.
 - 어떤 응답에도 평문 키가 없다.
 - 감사 로그:
@@ -391,5 +396,6 @@ provider 순서는 `anthropic, openai, google, xai`로 고정한다. 키는 URL�
   - `workingDirectory: workers/api-key-vault-worker`, `command: deploy`
   - `apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}`, `accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}`
   - `secrets:`·`env:`는 넣지 않는다.
+  - 최상위 `permissions: contents: read`, checkout 단계에 `persist-credentials: false`.
 - `deployment-targets.ts`: `DEPLOYMENT_TARGETS`에 `['@audio-underview/api-key-vault-worker', { workflow: 'deploy-api-key-vault-worker.yml', paused: AWAITING_SECRETS }]`를 추가한다.
 - 확인: `pnpm --filter @audio-underview/deployment-planner test`.

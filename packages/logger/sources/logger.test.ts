@@ -531,6 +531,77 @@ describe('Logger', () => {
       expect(parsed.data.self).toBe('[Circular]');
     });
 
+    test('expands a shared reference at every place it appears', () => {
+      const logger = new Logger({ formatAsJSON: true });
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+      const shared = { token: OPENAI_KEY, region: 'us' };
+      const sharedError = new Error(`rejected ${XAI_KEY}`);
+      logger.info('shared data', {
+        first: shared,
+        second: shared,
+        list: [shared, shared],
+        failures: [sharedError, sharedError],
+      });
+
+      const output = infoSpy.mock.calls[0][0] as string;
+      expect(output).not.toContain(OPENAI_KEY);
+      expect(output).not.toContain(XAI_KEY);
+      expect(output).not.toContain('[Circular]');
+
+      const parsed = JSON.parse(output);
+      const scrubbedShared = { token: 'sk-[REDACTED]', region: 'us' };
+      expect(parsed.data.first).toEqual(scrubbedShared);
+      expect(parsed.data.second).toEqual(scrubbedShared);
+      expect(parsed.data.list).toEqual([scrubbedShared, scrubbedShared]);
+      expect(parsed.data.failures[0].message).toBe('rejected xai-[REDACTED]');
+      expect(parsed.data.failures[1].message).toBe('rejected xai-[REDACTED]');
+    });
+
+    test('writes a URL as its href with the credential redacted', () => {
+      const logger = new Logger({ formatAsJSON: true });
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+      const endpoint = new URL(`https://generativelanguage.googleapis.com/v1beta/models?key=${GOOGLE_KEY}`);
+      logger.info('provider request', { endpoint });
+
+      const output = infoSpy.mock.calls[0][0] as string;
+      expect(output).not.toContain(GOOGLE_KEY);
+
+      const parsed = JSON.parse(output);
+      expect(parsed.data.endpoint).toBe(
+        'https://generativelanguage.googleapis.com/v1beta/models?key=AIza[REDACTED]',
+      );
+    });
+
+    test('keeps extra Error properties such as code and status and scrubs them', () => {
+      const logger = new Logger({ formatAsJSON: true });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const providerError = Object.assign(new Error('401 Unauthorized'), {
+        code: 'invalid_api_key',
+        status: 401,
+        requestID: 'req_011CXyZAbCdEf',
+        headers: { authorization: `Bearer ${XAI_KEY}` },
+        body: `Incorrect API key provided: ${OPENAI_KEY}`,
+      });
+      logger.error('provider call failed', new Error('wrapped', { cause: providerError }));
+
+      const output = errorSpy.mock.calls[0][0] as string;
+      expect(output).not.toContain(XAI_KEY);
+      expect(output).not.toContain(OPENAI_KEY);
+
+      const parsed = JSON.parse(output);
+      expect(parsed.error.cause.name).toBe('Error');
+      expect(parsed.error.cause.message).toBe('401 Unauthorized');
+      expect(typeof parsed.error.cause.stack).toBe('string');
+      expect(parsed.error.cause.code).toBe('invalid_api_key');
+      expect(parsed.error.cause.status).toBe(401);
+      expect(parsed.error.cause.requestID).toBe('req_011CXyZAbCdEf');
+      expect(parsed.error.cause.headers).toEqual({ authorization: 'Bearer [REDACTED]' });
+      expect(parsed.error.cause.body).toBe('Incorrect API key provided: sk-[REDACTED]');
+    });
+
     test('replaces deeply nested values with [Truncated]', () => {
       const logger = new Logger({ formatAsJSON: true });
       const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});

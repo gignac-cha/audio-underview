@@ -99,7 +99,8 @@ function removeTrailingSlashes(value: string): string {
 
 /**
  * Builds the provider URL for a caller-supplied path. The origin always comes
- * from the provider table or the vault's own gateway setting, never from the caller.
+ * from the provider table or the vault's own gateway setting, never from the caller,
+ * and a gateway base that is not https is refused as `blocked_origin`.
  */
 export function buildProviderURL(
   provider: ProviderName,
@@ -130,6 +131,10 @@ export function buildProviderURL(
     try {
       baseURL = new URL(trimmedBase);
     } catch {
+      return { ok: false, error: 'blocked_origin' };
+    }
+    // The key and the gateway token ride in headers, so a base that is not https would send them in clear text.
+    if (baseURL.protocol !== 'https:') {
       return { ok: false, error: 'blocked_origin' };
     }
     const gatewayRelativePath =

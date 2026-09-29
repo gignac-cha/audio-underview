@@ -16,9 +16,11 @@ import { redactSecrets } from './secret-redaction.ts';
 const SCRUB_MAXIMUM_DEPTH = 8;
 
 /**
- * Recursively copy a value, redacting credentials from every string in it
+ * Recursively copy a value, redacting credentials from every string in it.
+ * ancestorObjects holds only the objects on the current recursion path, so a shared
+ * reference is expanded wherever it appears and only a real cycle becomes '[Circular]'
  */
-function scrubValue(value: unknown, depth: number, seenObjects: WeakSet<object>): unknown {
+function scrubValue(value: unknown, depth: number, ancestorObjects: WeakSet<object>): unknown {
   if (typeof value === 'string') {
     return redactSecrets(value);
   }
@@ -31,35 +33,50 @@ function scrubValue(value: unknown, depth: number, seenObjects: WeakSet<object>)
     return '[Truncated]';
   }
 
-  if (seenObjects.has(value)) {
+  if (ancestorObjects.has(value)) {
     return '[Circular]';
-  }
-
-  if (value instanceof Error) {
-    seenObjects.add(value);
-    return {
-      name: value.name,
-      message: redactSecrets(value.message),
-      stack: typeof value.stack === 'string' ? redactSecrets(value.stack) : undefined,
-      cause: value.cause !== undefined ? scrubValue(value.cause, depth + 1, seenObjects) : undefined,
-    };
   }
 
   if (value instanceof Date) {
     return value;
   }
 
-  seenObjects.add(value);
+  ancestorObjects.add(value);
+  try {
+    if (value instanceof Error) {
+      const scrubbedError: Record<string, unknown> = {
+        name: value.name,
+        message: redactSecrets(value.message),
+        stack: typeof value.stack === 'string' ? redactSecrets(value.stack) : undefined,
+        cause: value.cause !== undefined ? scrubValue(value.cause, depth + 1, ancestorObjects) : undefined,
+      };
+      // Extra properties such as code or status are kept, but never replace the four fields above
+      for (const [key, child] of Object.entries(value)) {
+        if (!Object.hasOwn(scrubbedError, key)) {
+          scrubbedError[key] = scrubValue(child, depth + 1, ancestorObjects);
+        }
+      }
+      return scrubbedError;
+    }
 
-  if (Array.isArray(value)) {
-    return value.map((element) => scrubValue(element, depth + 1, seenObjects));
-  }
+    // Objects such as URL are scrubbed in the form JSON.stringify would write them
+    const toJSON = (value as { toJSON?: unknown }).toJSON;
+    if (typeof toJSON === 'function') {
+      return scrubValue(toJSON.call(value), depth + 1, ancestorObjects);
+    }
 
-  const scrubbed: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value)) {
-    scrubbed[key] = scrubValue(child, depth + 1, seenObjects);
+    if (Array.isArray(value)) {
+      return value.map((element) => scrubValue(element, depth + 1, ancestorObjects));
+    }
+
+    const scrubbed: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value)) {
+      scrubbed[key] = scrubValue(child, depth + 1, ancestorObjects);
+    }
+    return scrubbed;
+  } finally {
+    ancestorObjects.delete(value);
   }
-  return scrubbed;
 }
 
 /**

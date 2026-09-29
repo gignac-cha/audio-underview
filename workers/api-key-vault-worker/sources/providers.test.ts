@@ -249,4 +249,19 @@ describe('buildProviderURL (gateway)', () => {
       error: 'blocked_origin',
     });
   });
+
+  it('reports blocked_origin when the base is not https', () => {
+    for (const baseURL of [
+      'http://gateway.ai.cloudflare.com/v1/vault-account/vault-gateway',
+      'ws://gateway.example.com/v1/a/b',
+      'ftp://gateway.example.com/v1/a/b',
+    ]) {
+      for (const provider of PROVIDER_NAMES) {
+        expect(buildProviderURL(provider, 'v1/models', { baseURL, token: null })).toEqual({
+          ok: false,
+          error: 'blocked_origin',
+        });
+      }
+    }
+  });
 });

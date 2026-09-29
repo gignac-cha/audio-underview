@@ -16,6 +16,7 @@ interface CapturedRequest {
   headers: Record<string, string>;
   body: string | null;
   hasSignal: boolean;
+  redirect: string | undefined;
 }
 
 function headersToRecord(headers: Headers): Record<string, string> {
@@ -38,6 +39,7 @@ function stubFetch(respond: () => Response | Promise<Response>): CapturedRequest
         headers: headersToRecord(request.headers),
         body: request.body === null ? null : await request.text(),
         hasSignal: init?.signal instanceof AbortSignal,
+        redirect: init?.redirect,
       });
       return respond();
     }),
@@ -123,6 +125,7 @@ describe('validateProviderKey', () => {
     expect(request?.method).toBe(expected.method);
     expect(request?.body).toBe(expected.body);
     expect(request?.hasSignal).toBe(true);
+    expect(request?.redirect).toBe('manual');
     for (const [name, value] of Object.entries(expected.headers)) {
       expect(request?.headers[name]).toBe(value);
     }
@@ -136,6 +139,18 @@ describe('validateProviderKey', () => {
   it.each([404, 429, 500, 502, 503])('reports %i as unavailable', async (status) => {
     stubFetch(() => new Response('upstream trouble', { status }));
     await expect(validateProviderKey('openai', KEY, null)).resolves.toMatchObject({ result: 'unavailable', status });
+  });
+
+  it('does not follow a redirect and reports it as unavailable', async () => {
+    const captured = stubFetch(
+      () => new Response(null, { status: 302, headers: { location: 'https://evil.example.com/collect' } }),
+    );
+    await expect(validateProviderKey('openai', KEY, null)).resolves.toMatchObject({
+      result: 'unavailable',
+      status: 302,
+    });
+    expect(captured.map((request) => request.url)).toEqual(['https://api.openai.com/v1/models']);
+    expect(captured[0]?.redirect).toBe('manual');
   });
 
   it('reports 2xx as valid', () => {
@@ -177,5 +192,13 @@ describe('validateProviderKey', () => {
     for (const request of captured) {
       expect(request.url).not.toContain(KEY);
     }
+  });
+
+  it('does not call a gateway base that is not https', async () => {
+    const captured = stubFetch(() => new Response('{}', { status: 200 }));
+    await expect(
+      validateProviderKey('openai', KEY, { baseURL: 'http://gateway.example.com/v1/a/b', token: 'vault-gateway-token' }),
+    ).resolves.toMatchObject({ result: 'unavailable', status: null });
+    expect(captured).toEqual([]);
   });
 });

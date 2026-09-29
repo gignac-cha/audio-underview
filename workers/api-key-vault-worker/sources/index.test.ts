@@ -25,6 +25,7 @@ interface ProviderCall {
   method: string;
   headers: Record<string, string>;
   body: Uint8Array;
+  redirect: string | undefined;
   auditActionsAtCall: string[];
 }
 
@@ -79,6 +80,7 @@ async function captureCall(input: RequestInfo | URL, init?: RequestInit): Promis
     method: request.method,
     headers: headersToRecord(request.headers),
     body: new Uint8Array(await request.arrayBuffer()),
+    redirect: init?.redirect,
     auditActionsAtCall: harness.database.auditLog.map((row) => row.action),
   };
 }
@@ -311,6 +313,16 @@ describe('/internal/keys/put', () => {
     ).resolves.toEqual({ status: 503, json: { error: 'validation_unavailable' } });
     expect(harness.database.providerKeys).toEqual([]);
     expect(harness.database.auditLog).toEqual([]);
+  });
+
+  it('does not validate through a gateway base that is not https', async () => {
+    createHarness({ AI_GATEWAY_BASE_URL: 'http://gateway.example.com/v1/a/b', AI_GATEWAY_TOKEN: 'vault-gateway-token' });
+    await expect(
+      call('/internal/keys/put', { userId: 'user-1', provider: 'openai', key: KEYS.openai }),
+    ).resolves.toEqual({ status: 503, json: { error: 'validation_unavailable' } });
+    expect(harness.validationCalls).toEqual([]);
+    expect(harness.providerCalls).toEqual([]);
+    expect(harness.database.providerKeys).toEqual([]);
   });
 
   it('does not call the provider for a malformed key', async () => {
@@ -578,6 +590,47 @@ describe('/internal/proxy', () => {
     await expect(
       call('/internal/proxy', { userId: 'user-1', provider: 'openai', path: 'v1/models', method: 'GET' }),
     ).resolves.toEqual({ status: 502, json: { ok: false, error: 'provider_unreachable' } });
+  });
+
+  it('sends the key with redirect: manual on both the validation call and the proxy call', async () => {
+    await register('user-1', 'openai');
+    await call('/internal/proxy', { userId: 'user-1', provider: 'openai', path: 'v1/models', method: 'GET' });
+    expect(harness.validationCalls).toHaveLength(1);
+    expect(harness.providerCalls).toHaveLength(1);
+    expect(harness.validationCalls[0]?.redirect).toBe('manual');
+    expect(harness.providerCalls[0]?.redirect).toBe('manual');
+  });
+
+  it('passes a redirect through as data instead of following it', async () => {
+    await register('user-1', 'openai');
+    harness.respond = () =>
+      new Response('Found', {
+        status: 302,
+        headers: { location: 'https://evil.example.com/collect', 'content-type': 'text/plain' },
+      });
+    await expect(
+      call('/internal/proxy', { userId: 'user-1', provider: 'openai', path: 'v1/models', method: 'GET' }),
+    ).resolves.toEqual({
+      status: 200,
+      json: { ok: true, provider: 'openai', status: 302, contentType: 'text/plain', body: 'Found' },
+    });
+    expect(harness.providerCalls.map((providerCall) => providerCall.url)).toEqual(['https://api.openai.com/v1/models']);
+  });
+
+  it('refuses a gateway base that is not https before reading the key', async () => {
+    const database = new FakeDatabase();
+    createHarness({}, database);
+    await register('user-1', 'openai');
+    createHarness(
+      { AI_GATEWAY_BASE_URL: 'http://gateway.example.com/v1/a/b', AI_GATEWAY_TOKEN: 'vault-gateway-token' },
+      database,
+    );
+    const statementsBefore = database.executedStatements.length;
+    await expect(
+      call('/internal/proxy', { userId: 'user-1', provider: 'openai', path: 'v1/models', method: 'GET' }),
+    ).resolves.toEqual({ status: 400, json: { ok: false, error: 'blocked_origin' } });
+    expect(harness.providerCalls).toEqual([]);
+    expect(database.executedStatements).toHaveLength(statementsBefore);
   });
 
   it('passes provider errors through as data', async () => {

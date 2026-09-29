@@ -3,6 +3,9 @@ name: "Deploy: API Key Vault Worker"
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   deploy-api-key-vault-worker:
     runs-on: ubuntu-latest
@@ -10,6 +13,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4

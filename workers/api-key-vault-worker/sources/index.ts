@@ -310,10 +310,13 @@ const handleProxy: RouteHandler = async (context) => {
   let response: Response;
   let responseText: string;
   try {
+    // A redirect is passed back as data, never followed: following it would
+    // carry the key headers to whatever origin the Location names.
     response = await fetch(target.url, {
       method,
       headers: buildProviderHeaders(provider, key, body.headers, gateway),
       body: requestBody,
+      redirect: 'manual',
       signal: AbortSignal.timeout(PROXY_TIMEOUT_MILLISECONDS),
     });
     // Reading the body stays inside the try: a stream that breaks or times out

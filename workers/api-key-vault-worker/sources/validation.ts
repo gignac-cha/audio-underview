@@ -49,8 +49,9 @@ export function classifyValidationStatus(status: number): KeyValidationResult {
 
 /**
  * Makes the provider's cheapest authenticated call with the key. The key only
- * travels in headers, the response body is read and thrown away, and any
- * network failure or timeout is reported as `unavailable`.
+ * travels in headers, a redirect is not followed (so it reads as `unavailable`),
+ * the response body is read and thrown away, and any network failure or
+ * timeout is reported as `unavailable`.
  */
 export async function validateProviderKey(
   provider: ProviderName,
@@ -68,6 +69,7 @@ export async function validateProviderKey(
       method: validationRequest.method,
       headers: buildProviderHeaders(provider, key, validationRequest.headers, gateway),
       body: validationRequest.body,
+      redirect: 'manual',
       signal: AbortSignal.timeout(VALIDATION_TIMEOUT_MILLISECONDS),
     });
     try {
