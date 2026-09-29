@@ -1,0 +1,33 @@
+// Modular-synth rack: brushed-aluminium panels with black silkscreen, and
+// patch cables in real cable colours. The cables are the only loud thing.
+
+$page: #e2e3de; // aluminium, the room around the rack
+$bay: #cdd0c9; // the rack bay the modules sit in
+$panel: #f2f2ee; // module face plate
+$panel-inset: #e7e8e3; // buttons printed on a face plate
+$ink: #1d1f22; // silkscreen ink
+$ink-soft: #5d6066;
+$rule: #b3b6af;
+$rule-soft: #d3d5cf;
+
+// Focus colours stay clear of every cable colour below.
+$dependency: #0e7c86; // what the pinned package uses
+$dependent: #c4379a; // what uses the pinned package
+$match: #e9b300;
+
+$radius: 3px;
+$lip: 0 1px 0 rgba(29, 31, 34, 0.12);
+
+$font: 'IBM Plex Sans KR', 'IBM Plex Sans', 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif;
+
+// Patch cable colours, one per category.
+$categories: (
+  core: #2b2d31,
+  provider-packages: #2f6fd1,
+  runtime-tools: #2e9a5a,
+  oauth-workers: #e07a1f,
+  platform-workers: #d3382c,
+  web: #7b52c4,
+  functions: #d9a514,
+  developer-tools: #8c8f94,
+);

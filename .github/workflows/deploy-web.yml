@@ -1,12 +1,8 @@
 name: "Deploy: Web"
 
 on:
+  # Production deploys on main are started by deploy-affected-workspaces.yml.
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'applications/web/**'
-      - 'packages/**'
   pull_request:
     branches: [main]
     types: [labeled, synchronize]

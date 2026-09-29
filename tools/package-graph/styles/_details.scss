@@ -1,0 +1,135 @@
+@use 'variables' as *;
+
+.details {
+  width: 320px;
+  margin: 18px 24px 24px 0;
+  padding: 18px 18px 20px;
+  overflow-y: auto;
+  border: 1px solid $rule;
+  border-radius: $radius;
+  background: $panel;
+  box-shadow: $lip;
+
+  h2 {
+    margin: 10px 0 2px;
+    font-size: 17px;
+    font-weight: 600;
+    line-height: 1.3;
+    word-break: break-all;
+  }
+
+  h3 {
+    margin: 18px 0 8px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .path {
+    margin: 0;
+    color: $ink-soft;
+    font-size: 12.5px;
+    word-break: break-all;
+  }
+
+  .summary {
+    margin: 14px 0 0;
+    padding-top: 12px;
+    border-top: 1px solid $rule-soft;
+    font-size: 13.5px;
+    line-height: 1.65;
+
+    strong {
+      font-weight: 600;
+    }
+  }
+
+  .details-empty {
+    h2 {
+      margin: 0 0 8px;
+      font-size: 15px;
+    }
+
+    p {
+      margin: 0 0 8px;
+      color: $ink-soft;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+  }
+
+  .details-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .close {
+    width: 26px;
+    height: 26px;
+    border: 1px solid $rule;
+    border-radius: $radius;
+    background: $panel-inset;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+
+    &:hover {
+      border-color: $ink;
+    }
+  }
+}
+
+// Category of the pinned package, marked with its cable colour.
+.details .category {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: $ink-soft;
+
+  &::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--category-color);
+  }
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border: 1px solid $rule-soft;
+    border-radius: $radius;
+    background: $panel-inset;
+    font-size: 12.5px;
+    cursor: pointer;
+
+    &::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--category-color);
+    }
+
+    &:hover {
+      border-color: $ink;
+    }
+  }
+
+  .empty {
+    color: $ink-soft;
+    font-size: 12.5px;
+  }
+}

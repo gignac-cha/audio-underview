@@ -1,0 +1,94 @@
+name: "Deploy: Affected Workspaces"
+
+# On every push to main, asks the plan-deployments action which deploy
+# workflows the change needs and starts each of them.
+# Database migrations keep their own path-triggered workflow.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      base:
+        description: 'Commit to compare against (empty means the previous commit)'
+        type: string
+        default: ''
+      dispatch:
+        description: 'Start the deploy workflows (off only writes the plan)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-affected-workspaces
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    name: Plan deployments
+    permissions:
+      contents: read
+    outputs:
+      deployments: ${{ steps.plan.outputs.deployments }}
+      has-deployments: ${{ steps.plan.outputs.has-deployments }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Plan deployments
+        id: plan
+        uses: ./.github/actions/plan-deployments
+        with:
+          base: ${{ github.event_name == 'push' && github.event.before || inputs.base }}
+          head: ${{ github.sha }}
+
+      - name: Write plan summary
+        env:
+          DEPLOYMENTS: ${{ steps.plan.outputs.deployments }}
+          PAUSED: ${{ steps.plan.outputs.paused-workspaces }}
+        run: |
+          {
+            echo "### Deployment plan"
+            echo
+            echo "| Workflow | Inputs | Workspaces |"
+            echo "|---|---|---|"
+            jq -r '.[] | "| `\(.workflow)` | \(.inputs | join(", ")) | \(.workspaces | join(", ")) |"' <<< "${DEPLOYMENTS}"
+            echo
+            echo "Paused:"
+            echo
+            jq -r '.[] | "- `\(.workspace)`: \(.reason)"' <<< "${PAUSED}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  dispatch:
+    needs: plan
+    # Only main dispatches, so a manual run on another branch can never deploy that branch.
+    if: >-
+      needs.plan.outputs.has-deployments == 'true'
+      && github.ref_name == 'main'
+      && (github.event_name == 'push' || inputs.dispatch)
+    runs-on: ubuntu-latest
+    name: Dispatch ${{ matrix.deployment.workflow }}
+    permissions:
+      actions: write
+    strategy:
+      fail-fast: false
+      matrix:
+        deployment: ${{ fromJSON(needs.plan.outputs.deployments) }}
+
+    steps:
+      - name: Start deploy workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          WORKFLOW: ${{ matrix.deployment.workflow }}
+          INPUTS: ${{ join(matrix.deployment.inputs, ' ') }}
+          REFERENCE: ${{ github.ref_name }}
+        run: |
+          fields=()
+          for input in ${INPUTS}; do
+            fields+=(-f "${input}=true")
+          done
+          gh workflow run "${WORKFLOW}" --ref "${REFERENCE}" "${fields[@]}"

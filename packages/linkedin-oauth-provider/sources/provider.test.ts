@@ -36,6 +36,18 @@ describe('linkedInUserInfoSchema', () => {
   test('allows minimal payload', () => {
     expect(linkedInUserInfoSchema.safeParse({ sub: 'abc' }).success).toBe(true);
   });
+
+  test('accepts locale as the documented string', () => {
+    expect(linkedInUserInfoSchema.safeParse({ ...validPayload, locale: 'en-US' }).success).toBe(true);
+  });
+
+  test('accepts locale as the { country, language } object LinkedIn sends', () => {
+    const result = linkedInUserInfoSchema.safeParse({
+      ...validPayload,
+      locale: { country: 'US', language: 'en' },
+    });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe('linkedInOAuthProvider.buildAuthorizationURL', () => {

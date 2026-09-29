@@ -1,6 +1,7 @@
 name = "audio-underview-kakao-oauth-provider-worker"
 main = "sources/index.ts"
 compatibility_date = "2025-11-25"
+compatibility_flags = ["nodejs_compat"]
 
 [[kv_namespaces]]
 binding = "AUDIO_UNDERVIEW_OAUTH_STATE"
@@ -8,11 +9,16 @@ id = "6a8c4022e9984b0fb81957ed410ad9b0"
 
 [vars]
 ALLOWED_ORIGINS = "http://localhost:5173,https://audio-underview.pages.dev"
+AXIOM_DATASET = "audio-underview"
 
 # Required secrets (set via wrangler secret put):
 # - KAKAO_CLIENT_ID (REST API Key)
 # - KAKAO_CLIENT_SECRET (optional, but recommended)
 # - FRONTEND_URL
+# - SUPABASE_URL
+# - SUPABASE_SECRET_KEY
+# - AXIOM_API_TOKEN
+# - JWT_SECRET
 
 [observability.logs]
 enabled = true

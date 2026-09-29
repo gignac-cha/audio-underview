@@ -57,7 +57,23 @@ describe('parseOAuthUser', () => {
   });
 
   test('parses all valid providers', () => {
-    const providers = ['google', 'apple', 'microsoft', 'facebook', 'github', 'x', 'linkedin', 'discord', 'kakao', 'naver'];
+    const providers = [
+      'google',
+      'apple',
+      'microsoft',
+      'facebook',
+      'github',
+      'x',
+      'linkedin',
+      'discord',
+      'kakao',
+      'naver',
+      'threads',
+      'tiktok',
+      'line',
+      'bluesky',
+      'twitch',
+    ];
     for (const provider of providers) {
       const result = parseOAuthUser({ ...validUser, provider });
       expect(result.provider).toBe(provider);

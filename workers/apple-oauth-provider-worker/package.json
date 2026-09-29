@@ -12,8 +12,10 @@
   },
   "dependencies": {
     "@audio-underview/apple-oauth-provider": "workspace:*",
+    "@audio-underview/axiom-logger": "workspace:*",
     "@audio-underview/logger": "workspace:*",
     "@audio-underview/sign-provider": "workspace:*",
+    "@audio-underview/supabase-connector": "workspace:*",
     "@audio-underview/worker-tools": "workspace:*"
   },
   "devDependencies": {

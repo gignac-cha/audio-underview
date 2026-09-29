@@ -35,6 +35,34 @@ on:
         description: 'Deploy Naver OAuth Worker'
         type: boolean
         default: false
+      threads:
+        description: 'Deploy Threads OAuth Worker'
+        type: boolean
+        default: false
+      tiktok:
+        description: 'Deploy TikTok OAuth Worker'
+        type: boolean
+        default: false
+      line:
+        description: 'Deploy LINE OAuth Worker'
+        type: boolean
+        default: false
+      bluesky:
+        description: 'Deploy Bluesky OAuth Worker'
+        type: boolean
+        default: false
+      linkedin:
+        description: 'Deploy LinkedIn OAuth Worker'
+        type: boolean
+        default: false
+      x:
+        description: 'Deploy X OAuth Worker'
+        type: boolean
+        default: false
+      twitch:
+        description: 'Deploy Twitch OAuth Worker'
+        type: boolean
+        default: false
       deploy_all:
         description: 'Deploy ALL workers (overrides individual selections)'
         type: boolean
@@ -117,7 +145,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_KEY_ID: ${{ secrets.APPLE_KEY_ID }}
           APPLE_PRIVATE_KEY: ${{ secrets.APPLE_PRIVATE_KEY }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
 
   deploy-microsoft:
     if: ${{ inputs.microsoft || inputs.deploy_all }}
@@ -154,7 +182,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
           MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
 
   deploy-facebook:
     if: ${{ inputs.facebook || inputs.deploy_all }}
@@ -191,7 +219,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           FACEBOOK_CLIENT_ID: ${{ secrets.FACEBOOK_CLIENT_ID }}
           FACEBOOK_CLIENT_SECRET: ${{ secrets.FACEBOOK_CLIENT_SECRET }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
 
   deploy-github:
     if: ${{ inputs.github || inputs.deploy_all }}
@@ -265,7 +293,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
           DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
 
   deploy-kakao:
     if: ${{ inputs.kakao || inputs.deploy_all }}
@@ -302,7 +330,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           KAKAO_CLIENT_ID: ${{ secrets.KAKAO_CLIENT_ID }}
           KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
 
   deploy-naver:
     if: ${{ inputs.naver || inputs.deploy_all }}
@@ -339,4 +367,261 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+
+  deploy-threads:
+    if: ${{ inputs.threads || inputs.deploy_all }}
+    runs-on: ubuntu-latest
+    name: Deploy Threads OAuth Worker
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '25'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/threads-oauth-provider-worker
+          command: deploy
+          secrets: |
+            THREADS_CLIENT_ID
+            THREADS_CLIENT_SECRET
+            FRONTEND_URL
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          THREADS_CLIENT_ID: ${{ secrets.THREADS_CLIENT_ID }}
+          THREADS_CLIENT_SECRET: ${{ secrets.THREADS_CLIENT_SECRET }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+
+  deploy-tiktok:
+    if: ${{ inputs.tiktok || inputs.deploy_all }}
+    runs-on: ubuntu-latest
+    name: Deploy TikTok OAuth Worker
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '25'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/tiktok-oauth-provider-worker
+          command: deploy
+          secrets: |
+            TIKTOK_CLIENT_KEY
+            TIKTOK_CLIENT_SECRET
+            FRONTEND_URL
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+
+  deploy-line:
+    if: ${{ inputs.line || inputs.deploy_all }}
+    runs-on: ubuntu-latest
+    name: Deploy LINE OAuth Worker
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '25'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/line-oauth-provider-worker
+          command: deploy
+          secrets: |
+            LINE_CHANNEL_ID
+            LINE_CHANNEL_SECRET
+            FRONTEND_URL
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          LINE_CHANNEL_ID: ${{ secrets.LINE_CHANNEL_ID }}
+          LINE_CHANNEL_SECRET: ${{ secrets.LINE_CHANNEL_SECRET }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+
+  deploy-bluesky:
+    if: ${{ inputs.bluesky || inputs.deploy_all }}
+    runs-on: ubuntu-latest
+    name: Deploy Bluesky OAuth Worker
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '25'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/bluesky-oauth-provider-worker
+          command: deploy
+          secrets: |
+            BLUESKY_CLIENT_PRIVATE_JWK
+            FRONTEND_URL
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          BLUESKY_CLIENT_PRIVATE_JWK: ${{ secrets.BLUESKY_CLIENT_PRIVATE_JWK }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+
+  deploy-linkedin:
+    if: ${{ inputs.linkedin || inputs.deploy_all }}
+    runs-on: ubuntu-latest
+    name: Deploy LinkedIn OAuth Worker
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '25'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/linkedin-oauth-provider-worker
+          command: deploy
+          secrets: |
+            LINKEDIN_CLIENT_ID
+            LINKEDIN_CLIENT_SECRET
+            FRONTEND_URL
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          LINKEDIN_CLIENT_ID: ${{ secrets.LINKEDIN_CLIENT_ID }}
+          LINKEDIN_CLIENT_SECRET: ${{ secrets.LINKEDIN_CLIENT_SECRET }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+
+  deploy-x:
+    if: ${{ inputs.x || inputs.deploy_all }}
+    runs-on: ubuntu-latest
+    name: Deploy X OAuth Worker
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '25'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/x-oauth-provider-worker
+          command: deploy
+          secrets: |
+            X_CLIENT_ID
+            X_CLIENT_SECRET
+            FRONTEND_URL
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          X_CLIENT_ID: ${{ secrets.X_CLIENT_ID }}
+          X_CLIENT_SECRET: ${{ secrets.X_CLIENT_SECRET }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+
+  deploy-twitch:
+    if: ${{ inputs.twitch || inputs.deploy_all }}
+    runs-on: ubuntu-latest
+    name: Deploy Twitch OAuth Worker
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '25'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/twitch-oauth-provider-worker
+          command: deploy
+          secrets: |
+            TWITCH_CLIENT_ID
+            TWITCH_CLIENT_SECRET
+            FRONTEND_URL
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}

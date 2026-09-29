@@ -1,0 +1,108 @@
+@use 'variables' as *;
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 14px 24px;
+  border-bottom: 1px solid $rule;
+  background: $panel;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  h1 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  p {
+    margin: 0;
+    color: $ink-soft;
+    font-size: 12.5px;
+  }
+}
+
+// A panel jack: the one mark of the rack in the header.
+.brand-jack {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: radial-gradient(circle, $ink 0 4px, #c2c4be 4.5px 7px, $ink 7.5px 9px, transparent 9.5px);
+  flex: none;
+}
+
+#search {
+  flex: 0 1 260px;
+  margin-left: auto;
+  padding: 6px 12px;
+  border: 1px solid $rule;
+  border-radius: $radius;
+  background: #fff;
+  color: $ink;
+  font: inherit;
+  font-size: 13px;
+
+  &:focus {
+    border-color: $ink;
+    outline: none;
+  }
+
+  &::placeholder {
+    color: $ink-soft;
+  }
+}
+
+.controls {
+  display: flex;
+  gap: 6px;
+}
+
+.ghost-button {
+  padding: 5px 11px;
+  border: 1px solid $rule;
+  border-radius: $radius;
+  background: $panel;
+  box-shadow: $lip;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    border-color: $ink;
+  }
+
+  &:active {
+    box-shadow: none;
+    transform: translateY(1px);
+  }
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 0;
+}
+
+.stage {
+  display: flex;
+  min-height: 0;
+  padding: 18px 16px 24px 24px;
+}
+
+// The drawing area is the rack bay: a recessed, darker surface.
+.diagram {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 1px solid $rule;
+  border-radius: $radius;
+  background: $bay;
+  box-shadow: inset 0 1px 3px rgba(29, 31, 34, 0.12);
+  cursor: grab;
+}

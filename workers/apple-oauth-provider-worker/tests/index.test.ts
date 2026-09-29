@@ -1,9 +1,211 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('@audio-underview/axiom-logger', () => ({
+  instrumentWorker: vi.fn((handler: unknown) => handler),
+}));
+
 import { env, fetchMock } from 'cloudflare:test';
-import worker from '../sources/index.ts';
+import { signJWT, verifyJWT } from '@audio-underview/worker-tools';
 import { createMockJWT } from '@audio-underview/worker-tools/tests/mock-jwt.ts';
+import worker from '../sources/index.ts';
 
 const WORKER_URL = 'https://worker.example.com';
+const APPLE_ORIGIN = 'https://appleid.apple.com';
+const SUPABASE_ORIGIN = 'https://test.supabase.co';
+const JWT_SECRET = 'test-jwt-secret-key-for-testing-only';
+const ACCOUNT_UUID = '83156cb5-c92a-4c75-b944-341d2d857bbf';
+const OTHER_ACCOUNT_UUID = '11111111-2222-3333-4444-555555555555';
+/** The `sub` of the ID token Apple returns: the provider-side identifier. */
+const APPLE_SUBJECT = 'apple-user-001';
+
+function appleAccountRow(uuid: string = ACCOUNT_UUID) {
+  return { provider: 'apple', identifier: APPLE_SUBJECT, uuid, created_at: '2026-01-01T00:00:00+00:00' };
+}
+
+function googleAccountRow(uuid: string = ACCOUNT_UUID) {
+  return { provider: 'google', identifier: 'google-sub-1', uuid, created_at: '2026-08-01T00:00:00+00:00' };
+}
+
+function interceptSupabase(
+  method: 'GET' | 'POST' | 'DELETE',
+  table: string,
+  status: number,
+  body: unknown,
+) {
+  fetchMock
+    .get(SUPABASE_ORIGIN)
+    .intercept({ path: new RegExp(`^/rest/v1/${table}`), method })
+    .reply(status, JSON.stringify(body))
+    .persist();
+}
+
+/**
+ * A paused Supabase project answers with a Cloudflare error page rather than a
+ * PostgREST payload, which the connector surfaces as a thrown error.
+ */
+function interceptSupabaseOutage() {
+  fetchMock
+    .get(SUPABASE_ORIGIN)
+    .intercept({ path: /^\/rest\/v1\//, method: 'GET' })
+    .reply(503, JSON.stringify({ message: 'error code: 1016' }))
+    .persist();
+}
+
+function interceptAccountMissing() {
+  interceptSupabase('GET', 'accounts', 406, {
+    code: 'PGRST116',
+    details: 'The result contains 0 rows',
+    hint: null,
+    message: 'JSON object requested, multiple (or no) rows returned',
+  });
+}
+
+/**
+ * Apple has no user info endpoint; the identity rides in the ID token. A key
+ * set to undefined drops out of the token, the way Apple leaves `email` out
+ * when the user never shared one.
+ */
+function createIDToken(overrides: Record<string, unknown> = {}): string {
+  return createMockJWT({
+    sub: APPLE_SUBJECT,
+    email: 'test@privaterelay.appleid.com',
+    email_verified: true,
+    is_private_email: true,
+    ...overrides,
+  });
+}
+
+/** Pass null for a token response that carries no `id_token` at all. */
+function interceptTokenExchange(idToken: string | null = createIDToken()) {
+  fetchMock
+    .get(APPLE_ORIGIN)
+    .intercept({ path: '/auth/token', method: 'POST' })
+    .reply(200, JSON.stringify({
+      access_token: 'mock-access-token',
+      token_type: 'Bearer',
+      expires_in: 3600,
+      ...(idToken ? { id_token: idToken } : {}),
+    }));
+}
+
+/**
+ * What `response_mode=form_post` produces: Apple's page makes the browser POST
+ * the callback parameters as a urlencoded form, cross site.
+ */
+function formPostCallback(fields: Record<string, string>): Request {
+  return new Request(`${WORKER_URL}/callback`, {
+    method: 'POST',
+    headers: { Origin: APPLE_ORIGIN, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(fields),
+  });
+}
+
+function queryCallback(fields: Record<string, string>): Request {
+  return new Request(`${WORKER_URL}/callback?${new URLSearchParams(fields)}`);
+}
+
+/**
+ * The state is handed to the shared `verifyState` as a KV key, so the worker
+ * refuses anything that is not the 32-character alphanumeric shape
+ * `generateState()` emits (otherwise a crafted state names an
+ * `account/{provider}/{identifier}` cache entry and deletes it). These tests
+ * still want readable names, so pad one into that shape.
+ */
+function oauthState(label: string): string {
+  return label.replace(/[^A-Za-z0-9]/g, '').padEnd(32, '0').slice(0, 32);
+}
+
+async function putAuthorizationState(
+  state: string,
+  value: { redirectURI: string; nonce?: string; linkTicket?: string },
+) {
+  await env.AUDIO_UNDERVIEW_OAUTH_STATE.put(state, JSON.stringify(value));
+}
+
+/** Stand-in for the nonce the SPA keeps in sessionStorage. */
+const LINK_NONCE = 'cb0d6e2a-6ad4-4c74-9b2a-2a2b6a2f0e11';
+
+async function putLinkTicket(
+  ticket: string,
+  uuid: string = ACCOUNT_UUID,
+  nonce: string = LINK_NONCE,
+) {
+  await env.AUDIO_UNDERVIEW_OAUTH_STATE.put(`link-ticket/${ticket}`, JSON.stringify({ uuid, nonce }));
+}
+
+async function createSessionToken(subject: string = ACCOUNT_UUID): Promise<string> {
+  const issuedAt = Math.floor(Date.now() / 1000);
+  return signJWT({ sub: subject, provider: 'apple', iat: issuedAt, exp: issuedAt + 86_400 }, JWT_SECRET);
+}
+
+function authorizedRequest(path: string, method: string, token: string): Request {
+  return new Request(`${WORKER_URL}${path}`, {
+    method,
+    headers: { Origin: 'https://example.com', Authorization: `Bearer ${token}` },
+  });
+}
+
+function linkConfirmRequest(token: string, body: unknown): Request {
+  return new Request(`${WORKER_URL}/accounts/link-confirm`, {
+    method: 'POST',
+    headers: {
+      Origin: 'https://example.com',
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Drives a link flow the way the SPA does — mint a ticket over the
+ * authenticated route, then let Apple's form_post callback come back — and
+ * returns the two secrets the confirmation needs. The caller registers the
+ * provider interceptors and decides who confirms.
+ */
+async function startLinkFlow(state: string, subject: string = ACCOUNT_UUID) {
+  const token = await createSessionToken(subject);
+  const ticketResponse = await worker.fetch(authorizedRequest('/link-tickets', 'POST', token), env);
+  const { ticket, nonce } = await ticketResponse.json() as { ticket: string; nonce: string };
+
+  await putAuthorizationState(state, {
+    redirectURI: 'https://app.example.com/settings',
+    linkTicket: ticket,
+  });
+
+  const callbackResponse = await worker.fetch(formPostCallback({ code: 'test-code', state }), env);
+  const redirectURL = new URL(callbackResponse.headers.get('Location')!);
+
+  return { token, nonce, redirectURL, linkCode: redirectURL.searchParams.get('link_code') };
+}
+
+function base64URLToBytes(value: string): Uint8Array {
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+}
+
+function decodeJWTSegment(segment: string): Record<string, unknown> {
+  return JSON.parse(new TextDecoder().decode(base64URLToBytes(segment)));
+}
+
+/** Public half of the test APPLE_PRIVATE_KEY, to check the client secret signature. */
+async function importApplePublicKey(): Promise<CryptoKey> {
+  const pem = (env as unknown as { APPLE_PRIVATE_KEY: string }).APPLE_PRIVATE_KEY
+    .replace(/-----(BEGIN|END) PRIVATE KEY-----/g, '')
+    .replace(/\s/g, '');
+  const privateKey = await crypto.subtle.importKey(
+    'pkcs8',
+    Uint8Array.from(atob(pem), (character) => character.charCodeAt(0)),
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    true,
+    ['sign'],
+  );
+  const { kty, crv, x, y } = await crypto.subtle.exportKey('jwk', privateKey) as JsonWebKey;
+  return crypto.subtle.importKey('jwk', { kty, crv, x, y }, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+}
+
+/** Origins that get intercepted; their mocks are reset between tests. */
+const MOCK_ORIGINS = [SUPABASE_ORIGIN, APPLE_ORIGIN];
 
 beforeEach(() => {
   fetchMock.activate();
@@ -11,6 +213,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Interceptors (especially persisted ones) outlive a single test otherwise.
+  for (const origin of MOCK_ORIGINS) {
+    fetchMock.get(origin).cleanMocks();
+  }
   fetchMock.deactivate();
 });
 
@@ -34,10 +240,12 @@ describe('apple-oauth-provider-worker', () => {
       expect(redirectURL.origin).toBe('https://appleid.apple.com');
       expect(redirectURL.pathname).toBe('/auth/authorize');
       expect(redirectURL.searchParams.get('client_id')).toBe('test-apple-client-id');
+      expect(redirectURL.searchParams.get('redirect_uri')).toBe(`${WORKER_URL}/callback`);
       expect(redirectURL.searchParams.get('response_type')).toBe('code');
       expect(redirectURL.searchParams.get('scope')).toBe('name email');
       expect(redirectURL.searchParams.get('state')).toBeTruthy();
       expect(redirectURL.searchParams.get('nonce')).toBeTruthy();
+      // Apple only releases name and email through form_post.
       expect(redirectURL.searchParams.get('response_mode')).toBe('form_post');
     });
 
@@ -51,11 +259,74 @@ describe('apple-oauth-provider-worker', () => {
       const nonce = redirectURL.searchParams.get('nonce')!;
 
       const storedValue = await env.AUDIO_UNDERVIEW_OAUTH_STATE.get(state);
-      expect(storedValue).toBeTruthy();
+      expect(JSON.parse(storedValue!)).toEqual({ redirectURI: 'https://app.example.com/callback', nonce });
+    });
 
-      const stateData = JSON.parse(storedValue!);
-      expect(stateData.redirectURI).toBe('https://app.example.com/callback');
-      expect(stateData.nonce).toBe(nonce);
+    it('refuses a redirect_uri that is not an allowed origin', async () => {
+      const request = new Request(
+        `${WORKER_URL}/authorize?redirect_uri=https://evil.example.net/steal`,
+      );
+      const response = await worker.fetch(request, env);
+
+      // The callback would otherwise deliver access_token + session_token there.
+      expect(response.status).toBe(400);
+      expect(await response.text()).toContain('not an allowed origin');
+    });
+
+    it('refuses a redirect_uri that is not an http(s) URL', async () => {
+      const request = new Request(
+        `${WORKER_URL}/authorize?redirect_uri=${encodeURIComponent('javascript:alert(1)')}`,
+      );
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+    });
+
+    it('carries the link ticket through the state so the JWT never enters a URL', async () => {
+      const request = new Request(
+        `${WORKER_URL}/authorize?redirect_uri=https://app.example.com/settings&link_ticket=ticket-1`,
+        { headers: { Referer: 'https://app.example.com/settings' } },
+      );
+      const response = await worker.fetch(request, env);
+
+      const location = response.headers.get('Location')!;
+      const redirectURL = new URL(location);
+      const state = redirectURL.searchParams.get('state')!;
+
+      expect(JSON.parse((await env.AUDIO_UNDERVIEW_OAUTH_STATE.get(state))!)).toEqual({
+        redirectURI: 'https://app.example.com/settings',
+        nonce: redirectURL.searchParams.get('nonce'),
+        linkTicket: 'ticket-1',
+      });
+      // The ticket is state, not something Apple ever sees.
+      expect(location).not.toContain('ticket-1');
+    });
+
+    it('starts a link flow whatever the Referer says, because it proves nothing', async () => {
+      // This endpoint is a cookie-less GET, so an attacker sets any Referer
+      // they like from their own server. The binding is enforced at
+      // POST /accounts/link-confirm instead (see the link CSRF test below).
+      for (const headers of [
+        { Referer: 'https://evil.example.net/bait' },
+        {} as Record<string, string>,
+      ]) {
+        const response = await worker.fetch(
+          new Request(
+            `${WORKER_URL}/authorize?redirect_uri=https://app.example.com/settings&link_ticket=some-ticket`,
+            { headers },
+          ),
+          env,
+        );
+
+        expect(response.status).toBe(302);
+      }
+    });
+
+    it('still allows a plain login with no Referer', async () => {
+      const request = new Request(`${WORKER_URL}/authorize?redirect_uri=https://app.example.com/callback`);
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(302);
     });
   });
 
@@ -76,16 +347,17 @@ describe('apple-oauth-provider-worker', () => {
       expect(location).toContain('error=access_denied');
     });
 
-    it('redirects with error when code or state is missing', async () => {
-      const formData = new URLSearchParams();
-      formData.append('state', 'test-state');
-
-      const request = new Request(`${WORKER_URL}/callback`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: formData,
-      });
+    it('redirects with error when provider returns error on a query callback', async () => {
+      const request = new Request(`${WORKER_URL}/callback?error=access_denied&error_description=User%20denied`);
       const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(302);
+      const location = response.headers.get('Location')!;
+      expect(location).toContain('error=access_denied');
+    });
+
+    it('redirects with error when code or state is missing', async () => {
+      const response = await worker.fetch(formPostCallback({ state: 'test-state' }), env);
 
       expect(response.status).toBe(302);
       const location = response.headers.get('Location')!;
@@ -93,90 +365,166 @@ describe('apple-oauth-provider-worker', () => {
     });
 
     it('redirects with error when state is invalid', async () => {
-      const formData = new URLSearchParams();
-      formData.append('code', 'test-code');
-      formData.append('state', 'invalid-state');
-
-      const request = new Request(`${WORKER_URL}/callback`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: formData,
-      });
-      const response = await worker.fetch(request, env);
+      const response = await worker.fetch(
+        formPostCallback({ code: 'test-code', state: 'invalid-state' }),
+        env,
+      );
 
       expect(response.status).toBe(302);
       const location = response.headers.get('Location')!;
       expect(location).toContain('error=invalid_state');
     });
 
+    it('redirects with error for a well formed state that is not in KV', async () => {
+      const response = await worker.fetch(
+        formPostCallback({ code: 'test-code', state: oauthState('neverissued') }),
+        env,
+      );
+
+      expect(response.headers.get('Location')!).toContain('error=invalid_state');
+    });
+
+    it('cannot be used to delete an account cache entry through the state key', async () => {
+      await env.AUDIO_UNDERVIEW_OAUTH_STATE.put(`account/apple/${APPLE_SUBJECT}`, ACCOUNT_UUID);
+
+      const response = await worker.fetch(
+        formPostCallback({ code: 'anything', state: `account/apple/${APPLE_SUBJECT}` }),
+        env,
+      );
+
+      expect(response.headers.get('Location')!).toContain('error=invalid_state');
+      // The state KV namespace also holds the Supabase-outage fallback; an
+      // unauthenticated request must not be able to erase it.
+      expect(await env.AUDIO_UNDERVIEW_OAUTH_STATE.get(`account/apple/${APPLE_SUBJECT}`)).toBe(ACCOUNT_UUID);
+    });
+
+    it('refuses a stored redirect_uri that is not an allowed origin', async () => {
+      await putAuthorizationState(oauthState('foreign'), { redirectURI: 'https://evil.example.net/steal' });
+
+      // No interceptors on purpose: the refusal happens before the code is ever
+      // exchanged, so any outbound call here would fail the test.
+      const response = await worker.fetch(
+        formPostCallback({ code: 'test-code', state: oauthState('foreign') }),
+        env,
+      );
+
+      const redirectURL = new URL(response.headers.get('Location')!);
+      expect(redirectURL.origin).toBe('https://example.com');
+      expect(redirectURL.searchParams.get('error')).toBe('invalid_redirect_uri');
+      expect(redirectURL.searchParams.has('session_token')).toBe(false);
+      expect(redirectURL.searchParams.has('access_token')).toBe(false);
+    });
+
     it('redirects with error when token exchange fails', async () => {
-      const stateData = JSON.stringify({ redirectURI: 'https://app.example.com/callback', nonce: 'test-nonce' });
-      await env.AUDIO_UNDERVIEW_OAUTH_STATE.put('valid-state', stateData);
+      await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
 
       fetchMock
-        .get('https://appleid.apple.com')
+        .get(APPLE_ORIGIN)
         .intercept({ path: '/auth/token', method: 'POST' })
         .reply(400, JSON.stringify({ error: 'invalid_grant' }));
 
-      const request = new Request(`${WORKER_URL}/callback?code=test-code&state=valid-state`);
-      const response = await worker.fetch(request, env);
+      const response = await worker.fetch(
+        formPostCallback({ code: 'test-code', state: oauthState('valid') }),
+        env,
+      );
 
       expect(response.status).toBe(302);
       const location = response.headers.get('Location')!;
       expect(location).toContain('error=token_exchange_failed');
     });
 
-    it('redirects with error when id_token is missing from token response', async () => {
-      const stateData = JSON.stringify({ redirectURI: 'https://app.example.com/callback', nonce: 'test-nonce' });
-      await env.AUDIO_UNDERVIEW_OAUTH_STATE.put('valid-state', stateData);
+    it('signs the client secret as an ES256 JWT with APPLE_PRIVATE_KEY', async () => {
+      await putAuthorizationState(oauthState('secret'), { redirectURI: 'https://app.example.com/callback' });
 
+      let tokenRequestBody: string | undefined;
       fetchMock
-        .get('https://appleid.apple.com')
-        .intercept({ path: '/auth/token', method: 'POST' })
-        .reply(200, JSON.stringify({
-          access_token: 'mock-access-token',
-          token_type: 'Bearer',
-        }));
+        .get(APPLE_ORIGIN)
+        .intercept({
+          path: '/auth/token',
+          method: 'POST',
+          body: (body: string) => {
+            tokenRequestBody = body;
+            return true;
+          },
+        })
+        .reply(400, JSON.stringify({ error: 'invalid_grant' }));
 
-      const request = new Request(`${WORKER_URL}/callback?code=test-code&state=valid-state`);
-      const response = await worker.fetch(request, env);
+      await worker.fetch(formPostCallback({ code: 'test-code', state: oauthState('secret') }), env);
+
+      const parameters = new URLSearchParams(tokenRequestBody!);
+      expect(parameters.get('client_id')).toBe('test-apple-client-id');
+      expect(parameters.get('grant_type')).toBe('authorization_code');
+      expect(parameters.get('code')).toBe('test-code');
+      expect(parameters.get('redirect_uri')).toBe(`${WORKER_URL}/callback`);
+
+      const [encodedHeader, encodedPayload, encodedSignature] = parameters.get('client_secret')!.split('.');
+      expect(decodeJWTSegment(encodedHeader)).toEqual({ alg: 'ES256', kid: 'test-key-id', typ: 'JWT' });
+
+      const payload = decodeJWTSegment(encodedPayload);
+      expect(payload).toMatchObject({
+        iss: 'test-team-id',
+        sub: 'test-apple-client-id',
+        aud: 'https://appleid.apple.com',
+      });
+      expect((payload.exp as number) - (payload.iat as number)).toBe(15_777_000);
+
+      const signatureIsValid = await crypto.subtle.verify(
+        { name: 'ECDSA', hash: 'SHA-256' },
+        await importApplePublicKey(),
+        base64URLToBytes(encodedSignature),
+        new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`),
+      );
+      expect(signatureIsValid).toBe(true);
+    });
+
+    it('redirects with error when id_token is missing from token response', async () => {
+      await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
+
+      interceptTokenExchange(null);
+
+      const response = await worker.fetch(
+        formPostCallback({ code: 'test-code', state: oauthState('valid') }),
+        env,
+      );
 
       expect(response.status).toBe(302);
       const location = response.headers.get('Location')!;
       expect(location).toContain('error=missing_id_token');
     });
 
+    it('redirects with error when the ID token carries no subject', async () => {
+      await putAuthorizationState(oauthState('nosubject'), { redirectURI: 'https://app.example.com/callback' });
+
+      // No Supabase interceptor: an identity without a subject must never reach
+      // the account lookup, where it would share one `account/apple/…` key.
+      interceptTokenExchange(createIDToken({ sub: undefined }));
+
+      const response = await worker.fetch(
+        formPostCallback({ code: 'test-code', state: oauthState('nosubject') }),
+        env,
+      );
+
+      const redirectURL = new URL(response.headers.get('Location')!);
+      expect(redirectURL.searchParams.get('error')).toBe('invalid_id_token');
+      expect(redirectURL.searchParams.has('uuid')).toBe(false);
+      expect(redirectURL.searchParams.has('session_token')).toBe(false);
+    });
+
     it('completes full OAuth flow with id_token and redirects with user data', async () => {
-      const stateData = JSON.stringify({ redirectURI: 'https://app.example.com/callback', nonce: 'test-nonce' });
-      await env.AUDIO_UNDERVIEW_OAUTH_STATE.put('valid-state', stateData);
-
-      const mockIDToken = createMockJWT({
-        sub: 'apple-user-001',
-        email: 'test@privaterelay.appleid.com',
-        email_verified: true,
-        is_private_email: true,
+      await putAuthorizationState(oauthState('valid'), {
+        redirectURI: 'https://app.example.com/callback',
+        nonce: 'test-nonce',
       });
 
-      const mockUserJSON = JSON.stringify({
-        name: {
-          firstName: 'John',
-          lastName: 'Doe',
-        },
-      });
+      const mockIDToken = createIDToken();
+      interceptTokenExchange(mockIDToken);
+      interceptSupabase('GET', 'accounts', 200, appleAccountRow());
 
-      fetchMock
-        .get('https://appleid.apple.com')
-        .intercept({ path: '/auth/token', method: 'POST' })
-        .reply(200, JSON.stringify({
-          access_token: 'mock-access-token',
-          token_type: 'Bearer',
-          id_token: mockIDToken,
-        }));
-
+      // Apple posts the name, as JSON in a `user` field, on the first sign-in only.
       const formData = new FormData();
       formData.append('code', 'test-code');
-      formData.append('state', 'valid-state');
-      formData.append('user', mockUserJSON);
+      formData.append('state', oauthState('valid'));
+      formData.append('user', JSON.stringify({ name: { firstName: 'John', lastName: 'Doe' } }));
 
       const request = new Request(`${WORKER_URL}/callback`, {
         method: 'POST',
@@ -192,17 +540,700 @@ describe('apple-oauth-provider-worker', () => {
       const userParameter = redirectURL.searchParams.get('user');
       expect(userParameter).toBeTruthy();
       const user = JSON.parse(decodeURIComponent(userParameter!));
-      expect(user.id).toBe('apple-user-001');
+      expect(user.id).toBe(APPLE_SUBJECT);
       expect(user.email).toBe('test@privaterelay.appleid.com');
       expect(user.name).toBe('John Doe');
       expect(user.provider).toBe('apple');
 
       expect(redirectURL.searchParams.get('access_token')).toBe('mock-access-token');
       expect(redirectURL.searchParams.get('id_token')).toBe(mockIDToken);
+      expect(redirectURL.searchParams.get('uuid')).toBe(ACCOUNT_UUID);
 
       // Verify state was consumed
-      const remainingState = await env.AUDIO_UNDERVIEW_OAUTH_STATE.get('valid-state');
+      const remainingState = await env.AUDIO_UNDERVIEW_OAUTH_STATE.get(oauthState('valid'));
       expect(remainingState).toBeNull();
+    });
+
+    it('completes the flow on a query (GET) callback as well', async () => {
+      await putAuthorizationState(oauthState('query'), { redirectURI: 'https://app.example.com/callback' });
+
+      interceptTokenExchange();
+      interceptSupabase('GET', 'accounts', 200, appleAccountRow());
+
+      const response = await worker.fetch(
+        queryCallback({ code: 'test-code', state: oauthState('query') }),
+        env,
+      );
+
+      const redirectURL = new URL(response.headers.get('Location')!);
+      expect(redirectURL.origin).toBe('https://app.example.com');
+      expect(redirectURL.searchParams.get('error')).toBeNull();
+      expect(redirectURL.searchParams.get('uuid')).toBe(ACCOUNT_UUID);
+      expect(redirectURL.searchParams.get('session_token')).toBeTruthy();
+    });
+
+    it('falls back to the email local part when Apple sends no name (later sign-ins)', async () => {
+      await putAuthorizationState(oauthState('returning'), { redirectURI: 'https://app.example.com/callback' });
+
+      interceptTokenExchange();
+      interceptSupabase('GET', 'accounts', 200, appleAccountRow());
+
+      const response = await worker.fetch(
+        formPostCallback({ code: 'test-code', state: oauthState('returning') }),
+        env,
+      );
+
+      const redirectURL = new URL(response.headers.get('Location')!);
+      const user = JSON.parse(decodeURIComponent(redirectURL.searchParams.get('user')!));
+      expect(user.name).toBe('test');
+      expect(user.email).toBe('test@privaterelay.appleid.com');
+    });
+
+    it('omits email rather than inventing one when the ID token carries none', async () => {
+      await putAuthorizationState(oauthState('noemail'), { redirectURI: 'https://app.example.com/callback' });
+
+      interceptTokenExchange(createIDToken({ email: undefined, email_verified: undefined, is_private_email: undefined }));
+      interceptSupabase('GET', 'accounts', 200, appleAccountRow());
+
+      const response = await worker.fetch(
+        formPostCallback({ code: 'test-code', state: oauthState('noemail') }),
+        env,
+      );
+
+      const redirectURL = new URL(response.headers.get('Location')!);
+      expect(redirectURL.searchParams.get('error')).toBeNull();
+
+      const user = JSON.parse(decodeURIComponent(redirectURL.searchParams.get('user')!));
+      expect(user.id).toBe(APPLE_SUBJECT);
+      expect('email' in user).toBe(false);
+      expect(user.name).toBe('Apple User');
+      expect(redirectURL.searchParams.get('uuid')).toBe(ACCOUNT_UUID);
+    });
+
+    it('ignores a user field that is not valid JSON', async () => {
+      await putAuthorizationState(oauthState('baduser'), { redirectURI: 'https://app.example.com/callback' });
+
+      interceptTokenExchange();
+      interceptSupabase('GET', 'accounts', 200, appleAccountRow());
+
+      const response = await worker.fetch(
+        formPostCallback({ code: 'test-code', state: oauthState('baduser'), user: '{not json' }),
+        env,
+      );
+
+      const redirectURL = new URL(response.headers.get('Location')!);
+      expect(redirectURL.searchParams.get('error')).toBeNull();
+      const user = JSON.parse(decodeURIComponent(redirectURL.searchParams.get('user')!));
+      expect(user.name).toBe('test');
+    });
+
+    it('redirects with invalid_request when a POST callback body is not a form', async () => {
+      const request = new Request(`${WORKER_URL}/callback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: 'test-code', state: oauthState('json') }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get('Location')!).toContain('error=invalid_request');
+    });
+
+    it('issues a session JWT whose sub is the account UUID and which carries no jid', async () => {
+      await putAuthorizationState(oauthState('session'), { redirectURI: 'https://app.example.com/callback' });
+
+      interceptTokenExchange();
+      interceptSupabase('GET', 'accounts', 200, appleAccountRow());
+
+      const response = await worker.fetch(
+        formPostCallback({ code: 'test-code', state: oauthState('session') }),
+        env,
+      );
+
+      const redirectURL = new URL(response.headers.get('Location')!);
+      const sessionToken = redirectURL.searchParams.get('session_token');
+      expect(sessionToken).toBeTruthy();
+
+      const payload = await verifyJWT(sessionToken!, JWT_SECRET);
+      expect(payload).not.toBeNull();
+      expect(payload!.sub).toBe(ACCOUNT_UUID);
+      expect(payload!.provider).toBe('apple');
+      expect(payload!.exp - payload!.iat).toBe(86_400);
+      // A `jid` claim would make the pipeline reject this as a media token.
+      expect('jid' in payload!).toBe(false);
+      // The raw provider token is still handed over during the transition.
+      expect(redirectURL.searchParams.get('access_token')).toBe('mock-access-token');
+    });
+
+    it('caches the resolved account UUID for a Supabase outage', async () => {
+      await putAuthorizationState(oauthState('cache'), { redirectURI: 'https://app.example.com/callback' });
+
+      interceptTokenExchange();
+      interceptSupabase('GET', 'accounts', 200, appleAccountRow());
+
+      await worker.fetch(formPostCallback({ code: 'test-code', state: oauthState('cache') }), env);
+
+      expect(await env.AUDIO_UNDERVIEW_OAUTH_STATE.get(`account/apple/${APPLE_SUBJECT}`)).toBe(ACCOUNT_UUID);
+    });
+
+    it('keeps logging in with no session token when JWT_SECRET is not configured', async () => {
+      await putAuthorizationState(oauthState('no-secret'), { redirectURI: 'https://app.example.com/callback' });
+
+      interceptTokenExchange();
+      interceptSupabase('GET', 'accounts', 200, appleAccountRow());
+
+      const response = await worker.fetch(
+        formPostCallback({ code: 'test-code', state: oauthState('no-secret') }),
+        { ...env, JWT_SECRET: undefined },
+      );
+
+      expect(response.status).toBe(302);
+      const redirectURL = new URL(response.headers.get('Location')!);
+      expect(redirectURL.searchParams.get('error')).toBeNull();
+      expect(redirectURL.searchParams.has('session_token')).toBe(false);
+      expect(redirectURL.searchParams.get('uuid')).toBe(ACCOUNT_UUID);
+      expect(redirectURL.searchParams.get('access_token')).toBe('mock-access-token');
+    });
+
+    it('accepts a legacy state that holds the bare redirect URI', async () => {
+      await env.AUDIO_UNDERVIEW_OAUTH_STATE.put(oauthState('legacy'), 'https://app.example.com/callback');
+
+      interceptTokenExchange();
+      interceptSupabase('GET', 'accounts', 200, appleAccountRow());
+
+      const response = await worker.fetch(
+        formPostCallback({ code: 'test-code', state: oauthState('legacy') }),
+        env,
+      );
+
+      const redirectURL = new URL(response.headers.get('Location')!);
+      expect(redirectURL.origin).toBe('https://app.example.com');
+      expect(redirectURL.searchParams.get('uuid')).toBe(ACCOUNT_UUID);
+    });
+
+    it('accepts a state the previous worker stored as { redirectURI, nonce }', async () => {
+      // A login still in flight across the deploy carries the old Apple shape.
+      await putAuthorizationState(oauthState('previous'), {
+        redirectURI: 'https://app.example.com/callback',
+        nonce: 'test-nonce',
+      });
+
+      interceptTokenExchange();
+      interceptSupabase('GET', 'accounts', 200, appleAccountRow());
+
+      const response = await worker.fetch(
+        formPostCallback({ code: 'test-code', state: oauthState('previous') }),
+        env,
+      );
+
+      const redirectURL = new URL(response.headers.get('Location')!);
+      expect(redirectURL.origin).toBe('https://app.example.com');
+      expect(redirectURL.searchParams.get('error')).toBeNull();
+      expect(redirectURL.searchParams.get('uuid')).toBe(ACCOUNT_UUID);
+    });
+
+    it('logs a known account in from the KV cache when Supabase is unreachable', async () => {
+      await env.AUDIO_UNDERVIEW_OAUTH_STATE.put(`account/apple/${APPLE_SUBJECT}`, ACCOUNT_UUID);
+      await putAuthorizationState(oauthState('outage'), { redirectURI: 'https://app.example.com/callback' });
+
+      interceptTokenExchange();
+      interceptSupabaseOutage();
+
+      const response = await worker.fetch(
+        formPostCallback({ code: 'test-code', state: oauthState('outage') }),
+        env,
+      );
+
+      expect(response.status).toBe(302);
+      const redirectURL = new URL(response.headers.get('Location')!);
+      expect(redirectURL.origin).toBe('https://app.example.com');
+      expect(redirectURL.searchParams.get('error')).toBeNull();
+      expect(redirectURL.searchParams.get('uuid')).toBe(ACCOUNT_UUID);
+
+      const payload = await verifyJWT(redirectURL.searchParams.get('session_token')!, JWT_SECRET);
+      expect(payload!.sub).toBe(ACCOUNT_UUID);
+    });
+
+    it('fails closed for an unknown account when Supabase is unreachable', async () => {
+      await putAuthorizationState(oauthState('fail-closed'), { redirectURI: 'https://app.example.com/callback' });
+
+      interceptTokenExchange();
+      interceptSupabaseOutage();
+
+      const response = await worker.fetch(
+        formPostCallback({ code: 'test-code', state: oauthState('fail-closed') }),
+        env,
+      );
+
+      expect(response.status).toBe(302);
+      const location = response.headers.get('Location')!;
+      expect(location).toContain('error=account_unavailable');
+
+      // No identity is invented: no uuid and no session token.
+      const redirectURL = new URL(location);
+      expect(redirectURL.searchParams.has('uuid')).toBe(false);
+      expect(redirectURL.searchParams.has('session_token')).toBe(false);
+    });
+  });
+
+  describe('form_post routing', () => {
+    it('routes a form_post POST /callback to the callback, not to the account routes', async () => {
+      // No Authorization header: were the POST claimed by the account routes it
+      // would answer 401 JSON instead of redirecting to the frontend.
+      const response = await worker.fetch(
+        formPostCallback({ error: 'user_cancelled_authorize' }),
+        env,
+      );
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get('Location')!).toContain('error=user_cancelled_authorize');
+    });
+
+    it('answers a preflight on /callback with the widened CORS headers', async () => {
+      const request = new Request(`${WORKER_URL}/callback`, {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://example.com' },
+      });
+
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(204);
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+      expect(response.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, DELETE, OPTIONS');
+      expect(response.headers.get('Access-Control-Allow-Headers')).toBe('Authorization, Content-Type');
+    });
+  });
+
+  describe('link callback', () => {
+    it('stashes the provider identity under a link code and links nothing', async () => {
+      await putLinkTicket('link-ok');
+      await putAuthorizationState(oauthState('link'), {
+        redirectURI: 'https://app.example.com/settings',
+        linkTicket: 'link-ok',
+      });
+
+      // Only the provider call is intercepted. Any Supabase call the callback
+      // made would hit the disabled network and fail the test — which is the
+      // point: the callback must not link, because it cannot tell whose browser
+      // it is answering.
+      interceptTokenExchange();
+
+      const response = await worker.fetch(
+        formPostCallback({ code: 'test-code', state: oauthState('link') }),
+        env,
+      );
+
+      expect(response.status).toBe(302);
+      const redirectURL = new URL(response.headers.get('Location')!);
+      expect(redirectURL.origin + redirectURL.pathname).toBe('https://app.example.com/settings');
+      expect(redirectURL.searchParams.get('provider')).toBe('apple');
+
+      const linkCode = redirectURL.searchParams.get('link_code')!;
+      expect(linkCode).toMatch(/^[0-9a-f-]{36}$/);
+      expect(JSON.parse((await env.AUDIO_UNDERVIEW_OAUTH_STATE.get(`link-code/${linkCode}`))!)).toEqual({
+        uuid: ACCOUNT_UUID,
+        provider: 'apple',
+        identifier: APPLE_SUBJECT,
+        nonce: LINK_NONCE,
+      });
+
+      // Nothing that could act as a credential travels in this URL, and the
+      // nonce stays in the initiating browser.
+      expect(redirectURL.searchParams.has('session_token')).toBe(false);
+      expect(redirectURL.searchParams.has('access_token')).toBe(false);
+      expect(redirectURL.searchParams.has('id_token')).toBe(false);
+      expect(redirectURL.searchParams.has('user')).toBe(false);
+      expect(redirectURL.searchParams.has('uuid')).toBe(false);
+      expect(response.headers.get('Location')).not.toContain(LINK_NONCE);
+
+      // No link, so no account row and no outage-cache entry yet either.
+      expect(await env.AUDIO_UNDERVIEW_OAUTH_STATE.get(`account/apple/${APPLE_SUBJECT}`)).toBeNull();
+      // The ticket is single use.
+      expect(await env.AUDIO_UNDERVIEW_OAUTH_STATE.get('link-ticket/link-ok')).toBeNull();
+    });
+
+    it('reports expired and stashes nothing for an unknown, replayed or timed-out ticket', async () => {
+      await putAuthorizationState(oauthState('expired'), {
+        redirectURI: 'https://app.example.com/settings',
+        linkTicket: 'never-issued',
+      });
+
+      interceptTokenExchange();
+
+      const response = await worker.fetch(
+        formPostCallback({ code: 'test-code', state: oauthState('expired') }),
+        env,
+      );
+
+      const redirectURL = new URL(response.headers.get('Location')!);
+      expect(redirectURL.searchParams.get('link_result')).toBe('expired');
+      expect(redirectURL.searchParams.has('link_code')).toBe(false);
+
+      const stashed = await env.AUDIO_UNDERVIEW_OAUTH_STATE.list({ prefix: 'link-code/' });
+      expect(stashed.keys).toEqual([]);
+    });
+  });
+
+  describe('POST /accounts/link-confirm', () => {
+    function interceptProviderRoundTrip() {
+      interceptTokenExchange();
+    }
+
+    function interceptLinkInsert() {
+      interceptAccountMissing();
+      interceptSupabase('GET', 'users', 200, { uuid: ACCOUNT_UUID });
+      interceptSupabase('POST', 'accounts', 201, appleAccountRow());
+    }
+
+    it('links when the same browser returns with both halves', async () => {
+      interceptProviderRoundTrip();
+      const flow = await startLinkFlow(oauthState('confirm'));
+      interceptLinkInsert();
+
+      const response = await worker.fetch(
+        linkConfirmRequest(flow.token, { link_code: flow.linkCode, nonce: flow.nonce }),
+        env,
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ result: 'linked' });
+      // Only now does the account become resolvable during a Supabase outage.
+      expect(await env.AUDIO_UNDERVIEW_OAUTH_STATE.get(`account/apple/${APPLE_SUBJECT}`)).toBe(ACCOUNT_UUID);
+    });
+
+    it('answers 409 when the provider belongs to another account', async () => {
+      interceptProviderRoundTrip();
+      const flow = await startLinkFlow(oauthState('confconflict'));
+      interceptSupabase('GET', 'accounts', 200, appleAccountRow(OTHER_ACCOUNT_UUID));
+
+      const response = await worker.fetch(
+        linkConfirmRequest(flow.token, { link_code: flow.linkCode, nonce: flow.nonce }),
+        env,
+      );
+
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ result: 'conflict' });
+      // A conflict must not point the outage cache at the wrong account.
+      expect(await env.AUDIO_UNDERVIEW_OAUTH_STATE.get(`account/apple/${APPLE_SUBJECT}`)).toBeNull();
+    });
+
+    it('refuses the cross-browser attack the callback can no longer decide (link CSRF)', async () => {
+      // The attacker mints a ticket for their own account and calls /authorize
+      // server side; the victim's browser finishes the round trip and gets the
+      // link code, while the nonce never left the attacker.
+      interceptProviderRoundTrip();
+      const attacker = await startLinkFlow(oauthState('csrf'), ACCOUNT_UUID);
+      const victimToken = await createSessionToken(OTHER_ACCOUNT_UUID);
+
+      // Victim's browser: holds the code, never saw the nonce.
+      const victimAttempt = await worker.fetch(
+        linkConfirmRequest(victimToken, { link_code: attacker.linkCode }),
+        env,
+      );
+      // Attacker: holds the nonce and the matching session, but no link code.
+      const attackerAttempt = await worker.fetch(
+        linkConfirmRequest(attacker.token, { nonce: attacker.nonce }),
+        env,
+      );
+
+      expect(victimAttempt.status).toBe(403);
+      expect(await victimAttempt.json()).toMatchObject({ error: 'link_binding_failed' });
+      expect(attackerAttempt.status).toBe(410);
+      expect(await attackerAttempt.json()).toMatchObject({ error: 'link_code_expired' });
+
+      // Zero links: no Supabase interceptors were registered, so any attempt to
+      // write would have failed the test outright.
+      expect(await env.AUDIO_UNDERVIEW_OAUTH_STATE.get(`account/apple/${APPLE_SUBJECT}`)).toBeNull();
+    });
+
+    it('refuses a link code confirmed under a different session', async () => {
+      interceptProviderRoundTrip();
+      const flow = await startLinkFlow(oauthState('reverse'));
+      const otherToken = await createSessionToken(OTHER_ACCOUNT_UUID);
+
+      const response = await worker.fetch(
+        linkConfirmRequest(otherToken, { link_code: flow.linkCode, nonce: flow.nonce }),
+        env,
+      );
+
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ error: 'link_binding_failed' });
+    });
+
+    it('refuses a mismatched nonce and burns the code', async () => {
+      interceptProviderRoundTrip();
+      const flow = await startLinkFlow(oauthState('badnonce'));
+
+      const guessed = await worker.fetch(
+        linkConfirmRequest(flow.token, { link_code: flow.linkCode, nonce: crypto.randomUUID() }),
+        env,
+      );
+      const retry = await worker.fetch(
+        linkConfirmRequest(flow.token, { link_code: flow.linkCode, nonce: flow.nonce }),
+        env,
+      );
+
+      expect(guessed.status).toBe(403);
+      expect(retry.status).toBe(410);
+    });
+
+    it('answers 410 for a replayed link code', async () => {
+      interceptProviderRoundTrip();
+      const flow = await startLinkFlow(oauthState('replay'));
+      interceptLinkInsert();
+
+      const first = await worker.fetch(
+        linkConfirmRequest(flow.token, { link_code: flow.linkCode, nonce: flow.nonce }),
+        env,
+      );
+      const second = await worker.fetch(
+        linkConfirmRequest(flow.token, { link_code: flow.linkCode, nonce: flow.nonce }),
+        env,
+      );
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(410);
+    });
+
+    it('answers 410 for a body that carries no usable link code', async () => {
+      const token = await createSessionToken();
+
+      for (const body of [{}, { nonce: LINK_NONCE }, { link_code: 42, nonce: LINK_NONCE }]) {
+        const response = await worker.fetch(linkConfirmRequest(token, body), env);
+        expect(response.status).toBe(410);
+      }
+    });
+
+    it('returns 401 without a session token, leaving the code unspent', async () => {
+      interceptProviderRoundTrip();
+      const flow = await startLinkFlow(oauthState('unauth'));
+
+      const response = await worker.fetch(
+        new Request(`${WORKER_URL}/accounts/link-confirm`, {
+          method: 'POST',
+          headers: { Origin: 'https://example.com', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ link_code: flow.linkCode, nonce: flow.nonce }),
+        }),
+        env,
+      );
+
+      expect(response.status).toBe(401);
+      expect(await env.AUDIO_UNDERVIEW_OAUTH_STATE.get(`link-code/${flow.linkCode}`)).not.toBeNull();
+    });
+
+    it('returns 503 when Supabase is unreachable', async () => {
+      interceptProviderRoundTrip();
+      const flow = await startLinkFlow(oauthState('confoutage'));
+      interceptSupabaseOutage();
+
+      const response = await worker.fetch(
+        linkConfirmRequest(flow.token, { link_code: flow.linkCode, nonce: flow.nonce }),
+        env,
+      );
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ error: 'accounts_unavailable' });
+    });
+  });
+
+  describe('POST /link-tickets', () => {
+    it('mints a ticket bound to the session sub, plus a nonce for the browser', async () => {
+      const token = await createSessionToken();
+      const response = await worker.fetch(authorizedRequest('/link-tickets', 'POST', token), env);
+
+      expect(response.status).toBe(200);
+      const body = await response.json() as { ticket: string; nonce: string };
+      expect(body.ticket).toMatch(/^[0-9a-f-]{36}$/);
+      expect(body.nonce).toMatch(/^[0-9a-f-]{36}$/);
+      expect(body.nonce).not.toBe(body.ticket);
+
+      const stored = await env.AUDIO_UNDERVIEW_OAUTH_STATE.get(`link-ticket/${body.ticket}`);
+      expect(JSON.parse(stored!)).toEqual({ uuid: ACCOUNT_UUID, nonce: body.nonce });
+    });
+
+    it('binds the ticket to the token sub, never to a caller supplied uuid', async () => {
+      const token = await createSessionToken();
+      const request = new Request(`${WORKER_URL}/link-tickets?uuid=${OTHER_ACCOUNT_UUID}`, {
+        method: 'POST',
+        headers: { Origin: 'https://example.com', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ uuid: OTHER_ACCOUNT_UUID }),
+      });
+
+      const response = await worker.fetch(request, env);
+      const body = await response.json() as { ticket: string };
+      const stored = await env.AUDIO_UNDERVIEW_OAUTH_STATE.get(`link-ticket/${body.ticket}`);
+
+      expect(stored).toContain(ACCOUNT_UUID);
+      expect(stored).not.toContain(OTHER_ACCOUNT_UUID);
+    });
+
+    it('returns 401 without a session token', async () => {
+      const request = new Request(`${WORKER_URL}/link-tickets`, {
+        method: 'POST',
+        headers: { Origin: 'https://example.com' },
+      });
+
+      const response = await worker.fetch(request, env);
+      expect(response.status).toBe(401);
+      expect(await response.json()).toMatchObject({ error: 'unauthorized' });
+    });
+
+    it('returns 401 for a media token that carries jid', async () => {
+      const issuedAt = Math.floor(Date.now() / 1000);
+      const mediaToken = await signJWT(
+        { sub: ACCOUNT_UUID, jid: 'job-1', iat: issuedAt, exp: issuedAt + 300 },
+        JWT_SECRET,
+      );
+
+      const response = await worker.fetch(authorizedRequest('/link-tickets', 'POST', mediaToken), env);
+      expect(response.status).toBe(401);
+    });
+
+    it('returns 401 for a token signed with the wrong secret', async () => {
+      const issuedAt = Math.floor(Date.now() / 1000);
+      const forged = await signJWT(
+        { sub: ACCOUNT_UUID, iat: issuedAt, exp: issuedAt + 300 },
+        'not-the-real-secret',
+      );
+
+      const response = await worker.fetch(authorizedRequest('/link-tickets', 'POST', forged), env);
+      expect(response.status).toBe(401);
+    });
+
+    it('returns 503 when JWT_SECRET is not configured', async () => {
+      const token = await createSessionToken();
+      const response = await worker.fetch(
+        authorizedRequest('/link-tickets', 'POST', token),
+        { ...env, JWT_SECRET: undefined },
+      );
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ error: 'session_tokens_unavailable' });
+    });
+  });
+
+  describe('GET /accounts', () => {
+    it('lists linked providers without the provider-side identifier', async () => {
+      interceptSupabase('GET', 'accounts', 200, [googleAccountRow(), appleAccountRow()]);
+
+      const token = await createSessionToken();
+      const response = await worker.fetch(authorizedRequest('/accounts', 'GET', token), env);
+
+      expect(response.status).toBe(200);
+      const body = await response.text();
+      expect(JSON.parse(body)).toEqual({
+        accounts: [
+          { provider: 'apple', linkedAt: '2026-01-01T00:00:00.000Z' },
+          { provider: 'google', linkedAt: '2026-08-01T00:00:00.000Z' },
+        ],
+      });
+      expect(body).not.toContain('google-sub-1');
+      expect(body).not.toContain(APPLE_SUBJECT);
+    });
+
+    it('returns 401 without a session token', async () => {
+      const request = new Request(`${WORKER_URL}/accounts`, { headers: { Origin: 'https://example.com' } });
+      const response = await worker.fetch(request, env);
+      expect(response.status).toBe(401);
+    });
+
+    it('returns 503 when Supabase is unreachable', async () => {
+      interceptSupabaseOutage();
+
+      const token = await createSessionToken();
+      const response = await worker.fetch(authorizedRequest('/accounts', 'GET', token), env);
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ error: 'accounts_unavailable' });
+    });
+  });
+
+  describe('DELETE /accounts/{provider}', () => {
+    it('removes a provider while another login remains', async () => {
+      interceptSupabase('GET', 'accounts', 200, [appleAccountRow(), googleAccountRow()]);
+      interceptSupabase('DELETE', 'accounts', 200, [googleAccountRow()]);
+
+      const token = await createSessionToken();
+      const response = await worker.fetch(authorizedRequest('/accounts/google', 'DELETE', token), env);
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ removed: true });
+    });
+
+    it('drops the account cache entry so the removed login cannot come back', async () => {
+      await env.AUDIO_UNDERVIEW_OAUTH_STATE.put(`account/apple/${APPLE_SUBJECT}`, ACCOUNT_UUID);
+      interceptSupabase('GET', 'accounts', 200, [appleAccountRow(), googleAccountRow()]);
+      interceptSupabase('DELETE', 'accounts', 200, [appleAccountRow()]);
+
+      const token = await createSessionToken();
+      const response = await worker.fetch(authorizedRequest('/accounts/apple', 'DELETE', token), env);
+
+      expect(response.status).toBe(200);
+      // Otherwise the disconnected Apple account still resolves to this UUID
+      // through the Supabase-outage fallback — a login that was never revoked.
+      expect(await env.AUDIO_UNDERVIEW_OAUTH_STATE.get(`account/apple/${APPLE_SUBJECT}`)).toBeNull();
+    });
+
+    it('refuses to remove the last remaining login', async () => {
+      await env.AUDIO_UNDERVIEW_OAUTH_STATE.put(`account/apple/${APPLE_SUBJECT}`, ACCOUNT_UUID);
+      interceptSupabase('GET', 'accounts', 200, [appleAccountRow()]);
+
+      const token = await createSessionToken();
+      const response = await worker.fetch(authorizedRequest('/accounts/apple', 'DELETE', token), env);
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: 'last_account' });
+      // A refused removal leaves the cached login alone.
+      expect(await env.AUDIO_UNDERVIEW_OAUTH_STATE.get(`account/apple/${APPLE_SUBJECT}`)).toBe(ACCOUNT_UUID);
+    });
+
+    it('returns 404 for a provider that is not linked', async () => {
+      interceptSupabase('GET', 'accounts', 200, [appleAccountRow(), googleAccountRow()]);
+
+      const token = await createSessionToken();
+      const response = await worker.fetch(authorizedRequest('/accounts/naver', 'DELETE', token), env);
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toMatchObject({ error: 'account_not_found' });
+    });
+
+    it('returns 401 without a session token', async () => {
+      const request = new Request(`${WORKER_URL}/accounts/apple`, {
+        method: 'DELETE',
+        headers: { Origin: 'https://example.com' },
+      });
+
+      const response = await worker.fetch(request, env);
+      expect(response.status).toBe(401);
+    });
+  });
+
+  describe('CORS preflight', () => {
+    it('allows Authorization and DELETE for an allowed origin', async () => {
+      const request = new Request(`${WORKER_URL}/accounts`, {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://example.com' },
+      });
+
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(204);
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+      expect(response.headers.get('Access-Control-Allow-Methods')).toContain('DELETE');
+      expect(response.headers.get('Access-Control-Allow-Headers')).toContain('Authorization');
+    });
+
+    it('does not answer with CORS headers for an unknown origin', async () => {
+      const request = new Request(`${WORKER_URL}/accounts`, {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://attacker.example.net' },
+      });
+
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(204);
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+      expect(response.headers.get('Access-Control-Allow-Methods')).toBeNull();
     });
   });
 

@@ -1,0 +1,52 @@
+name: 'Plan deployments'
+description: >-
+  Decides which deployable workspaces a commit range affects, following
+  workspace dependencies, and reports them grouped by deploy workflow.
+  It deploys nothing. The repository must be checked out with the base commit
+  available, for example with fetch-depth 0.
+
+inputs:
+  base:
+    description: 'Commit before the change. Empty or all zeros means the parent of head.'
+    required: false
+    default: ''
+  head:
+    description: 'Commit after the change.'
+    required: false
+    default: 'HEAD'
+
+outputs:
+  deployments:
+    description: 'JSON array of {workflow, inputs, workspaces}, one per deploy workflow to run.'
+    value: ${{ steps.plan.outputs.deployments }}
+  has-deployments:
+    description: "'true' when deployments is not empty."
+    value: ${{ steps.plan.outputs.has-deployments }}
+  changed-workspaces:
+    description: 'JSON array of workspaces whose own files changed.'
+    value: ${{ steps.plan.outputs.changed-workspaces }}
+  affected-workspaces:
+    description: 'JSON array of changed workspaces plus everything that depends on them.'
+    value: ${{ steps.plan.outputs.affected-workspaces }}
+  paused-workspaces:
+    description: 'JSON array of {workspace, reason} for affected targets that are held back.'
+    value: ${{ steps.plan.outputs.paused-workspaces }}
+  repository-changes:
+    description: 'JSON array of repository-level files that made every workspace affected.'
+    value: ${{ steps.plan.outputs.repository-changes }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '25'
+
+    - name: Plan deployments
+      id: plan
+      shell: bash
+      env:
+        BASE_SHA: ${{ inputs.base }}
+        HEAD_SHA: ${{ inputs.head }}
+      run: node "${GITHUB_WORKSPACE}/tools/deployment-planner/scripts/plan-deployments.ts"

@@ -15,6 +15,7 @@
     "@audio-underview/logger": "workspace:*",
     "@audio-underview/microsoft-oauth-provider": "workspace:*",
     "@audio-underview/sign-provider": "workspace:*",
+    "@audio-underview/supabase-connector": "workspace:*",
     "@audio-underview/worker-tools": "workspace:*"
   },
   "devDependencies": {

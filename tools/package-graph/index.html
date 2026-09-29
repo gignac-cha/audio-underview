@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>audio-underview 패키지 관계도</title>
+    <link rel="icon" href="data:," />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap"
+    />
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="brand">
+        <span class="brand-jack" aria-hidden="true"></span>
+        <div>
+          <h1>audio-underview 패키지 관계도</h1>
+          <p id="summary"></p>
+        </div>
+      </div>
+      <input
+        id="search"
+        type="search"
+        placeholder="패키지 이름으로 찾기"
+        title="Enter를 누르면 첫 결과를 고정하고, Esc를 누르면 해제합니다."
+        autocomplete="off"
+      />
+      <div id="controls" class="controls">
+        <button type="button" class="ghost-button" data-action="fit">화면에 맞추기</button>
+        <button type="button" class="ghost-button" data-action="reset-layout">배치 초기화</button>
+        <button type="button" class="ghost-button" data-action="expand-all">모두 펼치기</button>
+        <button type="button" class="ghost-button" data-action="collapse-all">모두 접기</button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <main class="stage">
+        <svg id="diagram" class="diagram" role="img" aria-label="audio-underview 패키지 관계도"></svg>
+      </main>
+      <aside id="details" class="details"></aside>
+    </div>
+
+    <script type="module" src="./script.ts"></script>
+  </body>
+</html>
