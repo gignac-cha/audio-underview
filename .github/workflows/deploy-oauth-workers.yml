@@ -145,7 +145,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_KEY_ID: ${{ secrets.APPLE_KEY_ID }}
           APPLE_PRIVATE_KEY: ${{ secrets.APPLE_PRIVATE_KEY }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
 
   deploy-microsoft:
     if: ${{ inputs.microsoft || inputs.deploy_all }}
@@ -182,7 +182,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
           MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
 
   deploy-facebook:
     if: ${{ inputs.facebook || inputs.deploy_all }}
@@ -219,7 +219,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           FACEBOOK_CLIENT_ID: ${{ secrets.FACEBOOK_CLIENT_ID }}
           FACEBOOK_CLIENT_SECRET: ${{ secrets.FACEBOOK_CLIENT_SECRET }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
 
   deploy-github:
     if: ${{ inputs.github || inputs.deploy_all }}
@@ -293,7 +293,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
           DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
 
   deploy-kakao:
     if: ${{ inputs.kakao || inputs.deploy_all }}
@@ -330,7 +330,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           KAKAO_CLIENT_ID: ${{ secrets.KAKAO_CLIENT_ID }}
           KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
 
   deploy-naver:
     if: ${{ inputs.naver || inputs.deploy_all }}
@@ -367,7 +367,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
 
   deploy-threads:
     if: ${{ inputs.threads || inputs.deploy_all }}
@@ -404,7 +404,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           THREADS_CLIENT_ID: ${{ secrets.THREADS_CLIENT_ID }}
           THREADS_CLIENT_SECRET: ${{ secrets.THREADS_CLIENT_SECRET }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
 
   deploy-tiktok:
     if: ${{ inputs.tiktok || inputs.deploy_all }}
@@ -441,7 +441,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
 
   deploy-line:
     if: ${{ inputs.line || inputs.deploy_all }}
@@ -478,7 +478,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           LINE_CHANNEL_ID: ${{ secrets.LINE_CHANNEL_ID }}
           LINE_CHANNEL_SECRET: ${{ secrets.LINE_CHANNEL_SECRET }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
 
   deploy-bluesky:
     if: ${{ inputs.bluesky || inputs.deploy_all }}
@@ -513,7 +513,7 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           BLUESKY_CLIENT_PRIVATE_JWK: ${{ secrets.BLUESKY_CLIENT_PRIVATE_JWK }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
 
   deploy-linkedin:
     if: ${{ inputs.linkedin || inputs.deploy_all }}
@@ -550,7 +550,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           LINKEDIN_CLIENT_ID: ${{ secrets.LINKEDIN_CLIENT_ID }}
           LINKEDIN_CLIENT_SECRET: ${{ secrets.LINKEDIN_CLIENT_SECRET }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
 
   deploy-x:
     if: ${{ inputs.x || inputs.deploy_all }}
@@ -587,7 +587,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           X_CLIENT_ID: ${{ secrets.X_CLIENT_ID }}
           X_CLIENT_SECRET: ${{ secrets.X_CLIENT_SECRET }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
 
   deploy-twitch:
     if: ${{ inputs.twitch || inputs.deploy_all }}
@@ -624,4 +624,4 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
           TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
-          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
