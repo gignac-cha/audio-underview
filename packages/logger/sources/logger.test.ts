@@ -602,6 +602,40 @@ describe('Logger', () => {
       expect(parsed.error.cause.body).toBe('Incorrect API key provided: sk-[REDACTED]');
     });
 
+    test('redacts a credential in a nested Error name but keeps an ordinary name', () => {
+      const logger = new Logger({ formatAsJSON: true });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+      const namedError = new Error('rejected');
+      namedError.name = `ProviderError(key=${GOOGLE_KEY})`;
+      logger.error('provider call failed', new Error('wrapped', { cause: namedError }));
+      logger.info('retrying', { failures: [new TypeError('fetch failed')] });
+
+      const output = errorSpy.mock.calls[0][0] as string;
+      expect(output).not.toContain(GOOGLE_KEY);
+      expect(JSON.parse(output).error.cause.name).toBe('ProviderError(key=AIza[REDACTED])');
+
+      const retrying = JSON.parse(infoSpy.mock.calls[0][0] as string);
+      expect(retrying.data.failures[0].name).toBe('TypeError');
+    });
+
+    test('redacts credentials in property names', () => {
+      const logger = new Logger({ formatAsJSON: true });
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+      const extraKeyError = Object.assign(new Error('rejected'), { [OPENAI_KEY]: 'cached' });
+      logger.info('key cache', { byKey: { [ANTHROPIC_KEY]: { uses: 3 } }, extraKeyError });
+
+      const output = infoSpy.mock.calls[0][0] as string;
+      expect(output).not.toContain(ANTHROPIC_KEY);
+      expect(output).not.toContain(OPENAI_KEY);
+
+      const parsed = JSON.parse(output);
+      expect(parsed.data.byKey).toEqual({ 'sk-[REDACTED]': { uses: 3 } });
+      expect(parsed.data.extraKeyError['sk-[REDACTED]']).toBe('cached');
+    });
+
     test('replaces deeply nested values with [Truncated]', () => {
       const logger = new Logger({ formatAsJSON: true });
       const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});

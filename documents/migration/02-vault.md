@@ -69,11 +69,11 @@ logger와 볼트는 `newscast-*` 패키지를 import하지 않는다.
 - `null`·원시값 → 그대로
 - 깊이 8 이상 → `'[Truncated]'`
 - 현재 재귀 경로(조상)에 이미 있는 객체 → `'[Circular]'`. 순환이 아닌 공유 참조는 나오는 곳마다 펼친다.
-- `Error` → `{ name, message: redactSecrets(message), stack: 문자열이면 redactSecrets(stack) 아니면 undefined, cause: 있으면 재귀 scrub 아니면 undefined }`. 그 밖의 own enumerable 속성(예: `code`·`status`)도 재귀 scrub해 함께 남기고, 이름이 겹치면 앞의 네 필드가 우선한다.
+- `Error` → `{ name: 재귀 scrub, message: redactSecrets(message), stack: 문자열이면 redactSecrets(stack) 아니면 undefined, cause: 있으면 재귀 scrub 아니면 undefined }`. 그 밖의 own enumerable 속성(예: `code`·`status`)도 이름은 `redactSecrets`, 값은 재귀 scrub해 함께 남기고, 이름이 겹치면 앞의 네 필드가 우선한다.
 - `Date` → 그대로
 - `toJSON`이 함수인 객체(예: `URL`) → `toJSON()` 결과를 재귀 scrub
 - 배열 → 원소마다 재귀
-- 객체 → 값마다 재귀
+- 객체 → 속성 이름은 `redactSecrets`, 값은 재귀
 
 ### 2.3 `sources/index.ts` — 추가할 export
 
@@ -101,6 +101,7 @@ export {
   - 순환 참조가 있어도 예외 없이 기록된다.
   - 순환이 아닌 공유 참조는 `[Circular]`가 되지 않는다.
   - `URL`은 href 문자열로, `Error`의 `code`·`status`는 그대로 남는다.
+  - 중첩 `Error`의 `name`과 객체의 속성 이름에 든 credential도 가려진다. 평범한 이름(`TypeError`)은 그대로다.
   - 접두사를 포함한 일반 단어는 그대로다.
 
 ## 3. `workers/api-key-vault-worker`

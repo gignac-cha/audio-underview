@@ -45,15 +45,16 @@ function scrubValue(value: unknown, depth: number, ancestorObjects: WeakSet<obje
   try {
     if (value instanceof Error) {
       const scrubbedError: Record<string, unknown> = {
-        name: value.name,
+        name: scrubValue(value.name, depth + 1, ancestorObjects),
         message: redactSecrets(value.message),
         stack: typeof value.stack === 'string' ? redactSecrets(value.stack) : undefined,
         cause: value.cause !== undefined ? scrubValue(value.cause, depth + 1, ancestorObjects) : undefined,
       };
       // Extra properties such as code or status are kept, but never replace the four fields above
       for (const [key, child] of Object.entries(value)) {
-        if (!Object.hasOwn(scrubbedError, key)) {
-          scrubbedError[key] = scrubValue(child, depth + 1, ancestorObjects);
+        const scrubbedKey = redactSecrets(key);
+        if (!Object.hasOwn(scrubbedError, scrubbedKey)) {
+          scrubbedError[scrubbedKey] = scrubValue(child, depth + 1, ancestorObjects);
         }
       }
       return scrubbedError;
@@ -69,9 +70,10 @@ function scrubValue(value: unknown, depth: number, ancestorObjects: WeakSet<obje
       return value.map((element) => scrubValue(element, depth + 1, ancestorObjects));
     }
 
+    // Property names are redacted too: a map keyed by token would otherwise print the token
     const scrubbed: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value)) {
-      scrubbed[key] = scrubValue(child, depth + 1, ancestorObjects);
+      scrubbed[redactSecrets(key)] = scrubValue(child, depth + 1, ancestorObjects);
     }
     return scrubbed;
   } finally {
