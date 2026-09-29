@@ -8,6 +8,66 @@ import {
   type ErrorContext,
   LOG_LEVEL_VALUES,
 } from './types.ts';
+import { redactSecrets } from './secret-redaction.ts';
+
+/**
+ * Values nested this deep or deeper are replaced with '[Truncated]' when scrubbing
+ */
+const SCRUB_MAXIMUM_DEPTH = 8;
+
+/**
+ * Recursively copy a value, redacting credentials from every string in it
+ */
+function scrubValue(value: unknown, depth: number, seenObjects: WeakSet<object>): unknown {
+  if (typeof value === 'string') {
+    return redactSecrets(value);
+  }
+
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+
+  if (depth >= SCRUB_MAXIMUM_DEPTH) {
+    return '[Truncated]';
+  }
+
+  if (seenObjects.has(value)) {
+    return '[Circular]';
+  }
+
+  if (value instanceof Error) {
+    seenObjects.add(value);
+    return {
+      name: value.name,
+      message: redactSecrets(value.message),
+      stack: typeof value.stack === 'string' ? redactSecrets(value.stack) : undefined,
+      cause: value.cause !== undefined ? scrubValue(value.cause, depth + 1, seenObjects) : undefined,
+    };
+  }
+
+  if (value instanceof Date) {
+    return value;
+  }
+
+  seenObjects.add(value);
+
+  if (Array.isArray(value)) {
+    return value.map((element) => scrubValue(element, depth + 1, seenObjects));
+  }
+
+  const scrubbed: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    scrubbed[key] = scrubValue(child, depth + 1, seenObjects);
+  }
+  return scrubbed;
+}
+
+/**
+ * Scrub a whole log entry right before it is output
+ */
+function scrubLogEntry(entry: LogEntry): LogEntry {
+  return scrubValue(entry, 0, new WeakSet()) as LogEntry;
+}
 
 /**
  * Console-based logger with structured logging support
@@ -126,10 +186,13 @@ export class Logger {
       return;
     }
 
+    // Both JSON and pretty output use the scrubbed entry
+    const scrubbedEntry = scrubLogEntry(entry);
+
     if (this.options.formatAsJSON) {
-      this.outputJSON(level, entry);
+      this.outputJSON(level, scrubbedEntry);
     } else {
-      this.outputPretty(level, entry);
+      this.outputPretty(level, scrubbedEntry);
     }
   }
 

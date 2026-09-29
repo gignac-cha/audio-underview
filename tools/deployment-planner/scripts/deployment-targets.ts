@@ -49,6 +49,7 @@ export const DEPLOYMENT_TARGETS: ReadonlyMap<string, DeploymentTarget> = new Map
     },
   ],
   ['@audio-underview/scheduler-manager-worker', { workflow: 'deploy-scheduler-worker.yml' }],
+  ['@audio-underview/api-key-vault-worker', { workflow: 'deploy-api-key-vault-worker.yml', paused: AWAITING_SECRETS }],
   ['@audio-underview/crawler-code-runner-function', { workflow: 'deploy-crawler-functions.yml', input: 'crawler_code_runner' }],
   ['@audio-underview/web', { workflow: 'deploy-web.yml' }],
 ]);

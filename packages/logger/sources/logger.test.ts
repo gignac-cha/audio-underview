@@ -377,4 +377,194 @@ describe('Logger', () => {
       expect(parsed.context.metadata.extra).toBe('val');
     });
   });
+
+  describe('credential scrubbing', () => {
+    const ANTHROPIC_KEY = 'sk-ant-api03-AAaaBBbbCCcc-99';
+    const OPENAI_KEY = 'sk-proj-abcdefghijklmnopqrstuvwxyz0123456789xyz';
+    const GOOGLE_KEY = 'AIzaSyD-1234567890abcdefgHIJKLmnop';
+    const XAI_KEY = 'xai-abcdef1234567890ABCDEF';
+    const JWT =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMTExMTExMS0xMTExLTUxMTEifQ.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk';
+
+    test('scrubs message, context, and data', () => {
+      const logger = new Logger({ formatAsJSON: true });
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+      logger.info(
+        `stored key ${ANTHROPIC_KEY}`,
+        { providerKey: OPENAI_KEY, nested: { list: [GOOGLE_KEY] } },
+        { module: 'vault', metadata: { header: `Bearer ${XAI_KEY}` } },
+      );
+
+      const output = infoSpy.mock.calls[0][0] as string;
+      expect(output).not.toContain(ANTHROPIC_KEY);
+      expect(output).not.toContain(OPENAI_KEY);
+      expect(output).not.toContain(GOOGLE_KEY);
+      expect(output).not.toContain(XAI_KEY);
+
+      const parsed = JSON.parse(output);
+      expect(parsed.message).toBe('stored key sk-[REDACTED]');
+      expect(parsed.data).toEqual({
+        providerKey: 'sk-[REDACTED]',
+        nested: { list: ['AIza[REDACTED]'] },
+      });
+      expect(parsed.context.module).toBe('vault');
+      expect(parsed.context.metadata.header).toBe('Bearer [REDACTED]');
+    });
+
+    test('removes a JWT from the log entry', () => {
+      const logger = new Logger({ formatAsJSON: true });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      logger.warn(`rejected token ${JWT}`, { token: JWT });
+
+      const output = warnSpy.mock.calls[0][0] as string;
+      expect(output).not.toContain(JWT);
+      expect(output).not.toContain('dBjftJeZ4CVP');
+
+      const parsed = JSON.parse(output);
+      expect(parsed.message).toBe('rejected token eyJ[REDACTED]');
+      expect(parsed.data.token).toBe('eyJ[REDACTED]');
+    });
+
+    test('redacts error.message but keeps the status and request id', () => {
+      const logger = new Logger({ formatAsJSON: true });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      logger.error(
+        'provider call failed',
+        new Error(`401 Unauthorized (request id req_011CXyZAbCdEf): invalid x-api-key ${ANTHROPIC_KEY}`),
+        { requestID: 'request-7f3a' },
+      );
+
+      const output = errorSpy.mock.calls[0][0] as string;
+      expect(output).not.toContain(ANTHROPIC_KEY);
+
+      const parsed = JSON.parse(output);
+      expect(parsed.error.message).toBe(
+        '401 Unauthorized (request id req_011CXyZAbCdEf): invalid x-api-key sk-[REDACTED]',
+      );
+      expect(parsed.error.message).toContain('401');
+      expect(parsed.error.message).toContain('req_011CXyZAbCdEf');
+      expect(parsed.error.stack).not.toContain(ANTHROPIC_KEY);
+      expect(parsed.context.requestID).toBe('request-7f3a');
+    });
+
+    test('expands and scrubs error.cause instead of serializing it as {}', () => {
+      const logger = new Logger({ formatAsJSON: true });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const cause = new TypeError(`upstream rejected ${OPENAI_KEY}`, {
+        cause: new Error(`inner ${GOOGLE_KEY}`),
+      });
+      logger.error('wrapped failure', new Error('outer', { cause }));
+
+      const output = errorSpy.mock.calls[0][0] as string;
+      expect(output).not.toContain(OPENAI_KEY);
+      expect(output).not.toContain(GOOGLE_KEY);
+
+      const parsed = JSON.parse(output);
+      expect(parsed.error.cause).not.toEqual({});
+      expect(parsed.error.cause.name).toBe('TypeError');
+      expect(parsed.error.cause.message).toBe('upstream rejected sk-[REDACTED]');
+      expect(typeof parsed.error.cause.stack).toBe('string');
+      expect(parsed.error.cause.cause.name).toBe('Error');
+      expect(parsed.error.cause.cause.message).toBe('inner AIza[REDACTED]');
+    });
+
+    test('scrubs request and response bodies in pretty output', () => {
+      const logger = new Logger({ formatAsJSON: false, includeTimestamp: false, includeLevel: false });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      logger.logHTTP(
+        'provider call',
+        {
+          method: 'POST',
+          url: 'https://api.openai.com/v1/chat/completions',
+          headers: { authorization: `Bearer ${OPENAI_KEY}` },
+          body: { apiKey: XAI_KEY, prompt: 'hello' },
+        },
+        {
+          status: 401,
+          body: `Incorrect API key provided: ${OPENAI_KEY}`,
+        },
+      );
+
+      const [prefix, ...additionalInfo] = errorSpy.mock.calls[0];
+      expect(prefix).toBe('provider call');
+
+      const serialized = JSON.stringify(additionalInfo);
+      expect(serialized).not.toContain(OPENAI_KEY);
+      expect(serialized).not.toContain(XAI_KEY);
+      expect(additionalInfo).toEqual([
+        {
+          request: {
+            method: 'POST',
+            url: 'https://api.openai.com/v1/chat/completions',
+            headers: { authorization: 'Bearer [REDACTED]' },
+            body: { apiKey: 'xai-[REDACTED]', prompt: 'hello' },
+          },
+        },
+        {
+          response: {
+            status: 401,
+            body: 'Incorrect API key provided: sk-[REDACTED]',
+          },
+        },
+      ]);
+    });
+
+    test('records circular references without throwing', () => {
+      const logger = new Logger({ formatAsJSON: true });
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+      const circular: Record<string, unknown> = { key: GOOGLE_KEY };
+      circular.self = circular;
+
+      expect(() => logger.info('circular data', circular)).not.toThrow();
+
+      const output = infoSpy.mock.calls[0][0] as string;
+      expect(output).not.toContain(GOOGLE_KEY);
+
+      const parsed = JSON.parse(output);
+      expect(parsed.data.key).toBe('AIza[REDACTED]');
+      expect(parsed.data.self).toBe('[Circular]');
+    });
+
+    test('replaces deeply nested values with [Truncated]', () => {
+      const logger = new Logger({ formatAsJSON: true });
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+      let deep: Record<string, unknown> = { leaf: 'bottom' };
+      for (let level = 0; level < 20; level += 1) {
+        deep = { child: deep };
+      }
+
+      expect(() => logger.info('deep data', deep)).not.toThrow();
+
+      const output = infoSpy.mock.calls[0][0] as string;
+      expect(output).toContain('[Truncated]');
+      expect(output).not.toContain('bottom');
+    });
+
+    test('leaves ordinary words that contain a credential prefix unchanged', () => {
+      const logger = new Logger({ formatAsJSON: true });
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+      const message =
+        'task-force scheduling, risk-score too high, disk-usage exceeded, desk_assignment pending';
+      const data = {
+        reason: 'stop_reason=max_tokens',
+        code: 'invalid_api_key (401)',
+        note: 'after the reorg-chart landed',
+        link: 'see the FAQ.Section2 for details',
+      };
+
+      logger.info(message, data);
+
+      const parsed = JSON.parse(infoSpy.mock.calls[0][0] as string);
+      expect(parsed.message).toBe(message);
+      expect(parsed.data).toEqual(data);
+    });
+  });
 });

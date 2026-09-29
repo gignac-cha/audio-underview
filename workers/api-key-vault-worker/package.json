@@ -1,0 +1,24 @@
+{
+  "name": "@audio-underview/api-key-vault-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./sources/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "packageManager": "pnpm@10.26.1",
+  "dependencies": {
+    "@audio-underview/logger": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "catalog:worker",
+    "@cloudflare/workers-types": "catalog:worker",
+    "@vitest/runner": "catalog:worker",
+    "@vitest/snapshot": "catalog:worker",
+    "vitest": "catalog:worker"
+  }
+}
