@@ -5,38 +5,50 @@ import { ProviderLogo } from './ProviderLogo.tsx';
 type RGBA = { red: number; green: number; blue: number; alpha: number };
 
 /**
- * Google's standard colors, and a point inside each part of the "G" in the
- * logo file's 24 × 24 viewBox. The point at the left of the bar is inside the
- * letter's counter, so it must stay empty.
+ * SHA-256 of Google's official sign-in asset (`signin-assets.zip`,
+ * `Android + Web/PNG @4x/Light/Theme=Light, Show text=No, Shape=Square,
+ * Platform=Android+Web@4x.png`).
  */
-const GOOGLE_PARTS = [
-  { part: 'blue bar', x: 17, y: 12, color: { red: 0x42, green: 0x85, blue: 0xf4 } },
-  { part: 'green bottom', x: 12, y: 21, color: { red: 0x34, green: 0xa8, blue: 0x53 } },
-  { part: 'yellow left', x: 3, y: 12, color: { red: 0xfb, green: 0xbc, blue: 0x05 } },
-  { part: 'red top', x: 12, y: 3, color: { red: 0xea, green: 0x43, blue: 0x35 } },
+const GOOGLE_ASSET_SHA256 = '2bc2ae8e4c67de66d74bf1deed12cd8f22981270266a487576b671b0b4df361c';
+
+/**
+ * Points in the 160 × 160 asset and the color there: four parts of the
+ * gradient "G", its white tile, and the tile's grey outline. A single-color
+ * or recolored mark could not match all of them.
+ */
+const GOOGLE_SAMPLES = [
+  { part: 'blue bar', x: 100, y: 80, color: { red: 50, green: 135, blue: 255 } },
+  { part: 'green bottom', x: 80, y: 115, color: { red: 15, green: 188, blue: 96 } },
+  { part: 'yellow left', x: 45, y: 80, color: { red: 255, green: 210, blue: 16 } },
+  { part: 'red top', x: 100, y: 50, color: { red: 255, green: 72, blue: 73 } },
+  { part: 'white tile', x: 20, y: 20, color: { red: 255, green: 255, blue: 255 } },
+  { part: 'grey outline', x: 1, y: 80, color: { red: 116, green: 119, blue: 117 } },
 ] as const;
 
-const GOOGLE_COUNTER = { x: 8, y: 12 } as const;
-const VIEW_BOX_SIZE = 24;
-const SAMPLE_SCALE = 10;
-const COLOR_TOLERANCE = 6;
+const COLOR_TOLERANCE = 8;
 
-/** Draws the rendered logo image onto a canvas and returns a reader for points in viewBox units. */
+/** Draws the image at its natural size onto a canvas and returns a reader for its pixels. */
 async function sampleImage(image: HTMLImageElement): Promise<(x: number, y: number) => RGBA> {
   await image.decode();
   const canvas = document.createElement('canvas');
-  canvas.width = VIEW_BOX_SIZE * SAMPLE_SCALE;
-  canvas.height = VIEW_BOX_SIZE * SAMPLE_SCALE;
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
   const context = canvas.getContext('2d', { willReadFrequently: true });
   if (context === null) {
     throw new Error('A 2D canvas context is not available');
   }
-  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  context.drawImage(image, 0, 0);
 
   return (x, y) => {
-    const [red, green, blue, alpha] = context.getImageData(x * SAMPLE_SCALE, y * SAMPLE_SCALE, 1, 1).data;
+    const [red, green, blue, alpha] = context.getImageData(x, y, 1, 1).data;
     return { red, green, blue, alpha };
   };
+}
+
+async function sha256(url: string): Promise<string> {
+  const response = await fetch(url);
+  const digest = await crypto.subtle.digest('SHA-256', await response.arrayBuffer());
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 describe('ProviderLogo', () => {
@@ -76,27 +88,65 @@ describe('ProviderLogo', () => {
     expect(naverLogo?.style.maskImage).toMatch(/^url\(/);
   });
 
-  test('draws the Google "G" in its four standard colors, not in the text color', async () => {
+  test("draws Google's official PNG from the bundle, byte for byte, never from a remote URL", async () => {
+    const screen = await render(<ProviderLogo provider="google" />);
+
+    const image = screen.container.querySelector('img');
+    expect(image).not.toBeNull();
+    const source = image?.getAttribute('src') ?? '';
+    expect(source).not.toMatch(/^https?:/);
+    expect(source).toMatch(/google\.png/);
+    expect(image?.getAttribute('alt')).toBe('');
+    expect(await sha256((image as HTMLImageElement).src)).toBe(GOOGLE_ASSET_SHA256);
+  });
+
+  test('scales the Google image to the icon sizes, the same 20px and 24px as the other marks', async () => {
     const screen = await render(
-      <span data-testid="google" style={{ color: 'rgb(255, 0, 255)' }}>
+      <div>
+        <span data-testid="regular">
+          <ProviderLogo provider="google" />
+        </span>
+        <span data-testid="large">
+          <ProviderLogo provider="google" size="large" />
+        </span>
+        <span data-testid="github">
+          <ProviderLogo provider="github" />
+        </span>
+      </div>,
+    );
+
+    const regular = screen.container.querySelector('[data-testid="regular"] img')?.getBoundingClientRect();
+    const large = screen.container.querySelector('[data-testid="large"] img')?.getBoundingClientRect();
+    const github = screen.container.querySelector('[data-testid="github"] [aria-hidden="true"]')?.getBoundingClientRect();
+    expect([regular?.width, regular?.height]).toEqual([20, 20]);
+    expect([large?.width, large?.height]).toEqual([24, 24]);
+    expect([github?.width, github?.height]).toEqual([20, 20]);
+  });
+
+  test('keeps the Google image in its own colors, not the single text color', async () => {
+    const screen = await render(
+      <span style={{ color: 'rgb(255, 0, 255)' }}>
         <ProviderLogo provider="google" size="large" />
       </span>,
     );
 
-    const image = screen.container.querySelector<HTMLImageElement>('[data-testid="google"] img');
-    expect(image).not.toBeNull();
-    expect(image?.getAttribute('alt')).toBe('');
-    expect(image?.getAttribute('src')).not.toMatch(/^https?:/);
-    expect(image?.getBoundingClientRect().width).toBe(24);
+    const image = screen.container.querySelector('img') as HTMLImageElement;
+    const style = getComputedStyle(image);
+    expect(style.filter).toBe('none');
+    expect(style.maskImage).toBe('none');
+    expect(style.mixBlendMode).toBe('normal');
+    expect(style.opacity).toBe('1');
 
-    const pixelAt = await sampleImage(image as HTMLImageElement);
-    for (const { part, x, y, color } of GOOGLE_PARTS) {
+    const pixelAt = await sampleImage(image);
+    expect([image.naturalWidth, image.naturalHeight]).toEqual([160, 160]);
+    for (const { part, x, y, color } of GOOGLE_SAMPLES) {
       const pixel = pixelAt(x, y);
       expect(pixel.alpha, part).toBe(255);
       expect(Math.abs(pixel.red - color.red), `${part} red`).toBeLessThanOrEqual(COLOR_TOLERANCE);
       expect(Math.abs(pixel.green - color.green), `${part} green`).toBeLessThanOrEqual(COLOR_TOLERANCE);
       expect(Math.abs(pixel.blue - color.blue), `${part} blue`).toBeLessThanOrEqual(COLOR_TOLERANCE);
     }
-    expect(pixelAt(GOOGLE_COUNTER.x, GOOGLE_COUNTER.y).alpha).toBe(0);
+    // The corner outside the rounded tile is transparent.
+    expect(pixelAt(0, 0).alpha).toBe(0);
   });
 });

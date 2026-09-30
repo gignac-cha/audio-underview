@@ -52,14 +52,17 @@
 OAuth 워커는 로그인 뒤 이 주소로 돌려보내며 쿼리에 `user`, `access_token`, `uuid`, `session_token`을 붙인다. 실패하면 `error`, `error_description`을 붙인다.
 
 처리 순서:
-1. `error`가 있으면 실패 처리한다. 내용은 `error_description`, 없으면 `로그인에 실패했습니다.`
+1. `error`가 있으면 실패 처리한다. 내용은 `error` 코드에 따른 고정 문구다(아래 실패 처리). `error_description`은 화면에 보이지 않는다 — URL로 누구나 넣을 수 있어 서비스 이름을 단 임의 문구가 될 수 있기 때문이다(CWE-451).
 2. `user`가 없거나, `JSON.parse(decodeURIComponent(user))`가 `oauthUserSchema`(`@audio-underview/sign-provider`)를 통과하지 못하면 실패 처리한다. 화면 안에 제공자 목록을 따로 적지 않는다.
 3. `session_token`이 없으면 실패 처리한다. `access_token`으로 대신하지 않는다.
 4. `getJWTExpiration(session_token)`으로 만료 시각(ms)을 구한다. 값이 없거나 지금보다 이르면 실패 처리한다.
 5. `loginWithProvider(user.provider, user, session_token, 만료 시각 - Date.now())`를 부른다. 성공하면 `/home`으로 간다(`replace`). 실패하면 실패 처리한다.
 
 - 실패 처리: 오류 알림(제목 `로그인 실패`)을 보여주고 `/sign/in`으로 간다(`replace`). 알림 내용은 경우마다 다르다.
-  - `error`가 있음: `error_description`, 없으면 `로그인에 실패했습니다.`
+  - `error`가 `access_denied`: `로그인을 취소했습니다.`
+  - `error`가 `invalid_state`: `로그인 요청이 만료되었습니다. 다시 시도해주세요.`
+  - `error`가 `account_unavailable`: `이 계정으로는 로그인할 수 없습니다.`
+  - `error`가 그 밖의 값: `로그인에 실패했습니다. 잠시 후 다시 시도해주세요.`
   - `user`가 없거나 잘못됨: `로그인 정보를 확인하지 못했습니다.`
   - `session_token`이 없음: `세션 토큰을 받지 못했습니다.`
   - 만료 시각이 없거나 지남: `세션 토큰이 만료되었습니다.`
@@ -67,7 +70,7 @@ OAuth 워커는 로그인 뒤 이 주소로 돌려보내며 쿼리에 `user`, `a
 - crawler-manager의 `/authentication/token`은 부르지 않는다. 그 호출 코드를 지운다.
 - 처리 중에는 `로그인하는 중입니다` 상태 화면을 보여준다. 새 디자인으로 만든다.
 - 같은 복귀를 두 번 처리하지 않는다(React StrictMode의 effect 재실행 포함).
-- 토큰과 `user` 값은 로그에 남기지 않는다.
+- 토큰과 `user` 값은 로그에 남기지 않는다. `error` 코드와 `error_description` 원문도 남기지 않고, 위 실패 경우 중 어느 것이었는지만 남긴다.
 
 ## 5. 홈 화면 `/home`
 
@@ -123,7 +126,10 @@ OAuth 워커는 로그인 뒤 이 주소로 돌려보내며 쿼리에 `user`, `a
 - **서체**는 한글 글리프가 있는 것을 쓴다. 외부 CDN 링크 대신 패키지나 시스템 서체를 쓴다.
 - **밝은 테마와 어두운 테마 중 기본을 하나 정하고** 이유를 방향 글에 적는다. 토큰은 나머지 테마를 나중에 추가할 수 있는 구조로 둔다.
 - **제공자 표시**: 버튼 모양은 하나로 통일하고 로고로 구분한다. 로고는 각 제공자의 공식 마크를 쓴다. `available` 제공자가 화면의 주된 행동이고, `preparing` 제공자는 그보다 눈에 덜 띄어야 한다.
-  - Google 마크는 [Google 브랜드 규정](https://developers.google.com/identity/branding-guidelines)대로 표준 색 G(단색 금지)를 흰 바탕 위에 둔다. 색이 있는 버튼 안에서는 로고를 흰 칩 위에 놓는다. 홈 화면에 나오는 Google 마크도 표준 색으로 쓴다.
+  - Google 마크는 [Google 브랜드 규정](https://developers.google.com/identity/branding-guidelines)의 공식 자산을 그대로 쓴다. 규정은 단색 G, 직접 만든 아이콘, 옛 G(네 가지 색 평면 G)를 금지하고 현재 표준인 그라디언트 G를 흰 바탕 위에 두라고 한다.
+    - 자산: `signin-assets.zip`의 `Android + Web/PNG @4x/Light/Theme=Light, Show text=No, Shape=Square, Platform=Android+Web@4x.png`(160px, 흰 둥근 사각형 위 G)를 `design-system/logos/google.png`로 바이트 그대로 넣는다.
+    - 로그인 버튼에서는 이 이미지를 40px 칩 자리에 그대로 쓴다. 다른 로고(GitHub)는 같은 크기·모서리·테두리의 흰 칩 위에 둔다.
+    - 홈 화면에 나오는 Google 마크도 같은 이미지를 아이콘 크기로 줄여 쓴다.
 - **반응형**: 너비 360, 768, 1280에서 각각 맞는 배치. 가로 스크롤이 생기지 않는다.
 - **접근성**
   - 글자 명암비 4.5:1 이상
@@ -157,7 +163,7 @@ OAuth 워커는 로그인 뒤 이 주소로 돌려보내며 쿼리에 `user`, `a
 **복귀 처리**
 - 올바른 `user`와 `session_token`이면 `loginWithProvider`가 그 토큰과 `exp` 기준 남은 시간으로 불리고 `/home`으로 간다.
 - `session_token`이 없으면 실패 처리되고, `access_token`이 있어도 로그인하지 않는다.
-- `error`가 있으면 `error_description`으로 알린다.
+- `error`가 있으면 코드별 고정 문구로 알린다. `error_description`은 알림·화면·로그 어디에도 나오지 않는다.
 - `user`가 잘못됐거나, 토큰이 이미 만료됐으면 실패 처리된다.
 - 실패 경우마다 알림 내용이 §4의 문구와 같다.
 - `fetch`를 한 번도 부르지 않는다.

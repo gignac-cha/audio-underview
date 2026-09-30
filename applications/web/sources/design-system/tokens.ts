@@ -29,6 +29,7 @@ type ColorRole =
   | 'skeletonBase'
   | 'skeletonHighlight'
   | 'logoBackground'
+  | 'logoOutline'
   | 'onLogoBackground';
 
 type ShadowRole = 'floating';
@@ -55,11 +56,14 @@ export interface Theme {
  * Skeleton bars are dark enough (1.55:1 on `surface`) to read as content that
  * is on its way rather than an empty box.
  *
- * `logoBackground` is the white of the logo chip inside a filled button:
- * Google's brand rules put the standard color "G" on white only. Every theme
- * keeps it white, and `onLogoBackground` (the color of single-color marks such
- * as GitHub's on that chip) keeps it dark (14.0:1), so the chip reads the same
- * whatever the theme around it.
+ * The logo chip inside a filled sign-in button copies Google's official
+ * sign-in image, which is a white rounded square with a thin grey outline
+ * around the "G". The chips drawn for other providers take their white
+ * (`logoBackground`) and outline (`logoOutline`, #747775, measured from that
+ * image, 4.5:1 on the white) from it, so every chip looks like the Google
+ * one. `onLogoBackground` is the color of single-color marks such as GitHub's
+ * on that chip (14.0:1). Every theme keeps these three as they are, because
+ * the Google image does not change with the theme.
  */
 export const lightTheme: Theme = {
   colorScheme: 'light',
@@ -85,6 +89,7 @@ export const lightTheme: Theme = {
     skeletonBase: '#C6CFC9',
     skeletonHighlight: '#D9E0DB',
     logoBackground: '#FFFFFF',
+    logoOutline: '#747775',
     onLogoBackground: '#18302B',
   },
   shadow: {
@@ -272,9 +277,11 @@ export const space = {
  * as a row that holds only text. Lists reserve room in multiples of it so the
  * content below does not move when rows arrive.
  * `logoChip` is the white tile that holds a provider mark inside a large
- * button: a fixed `iconLarge` mark with `space[2]` of white on every side
- * (8 + 24 + 8). In the 56px `controlLarge` button it sits `space[2]` from the
- * top, bottom, and start edges.
+ * button. Google's official sign-in image fills it as is (160px at @4x, drawn
+ * at 40px); a drawn chip matches that image: a `borderWidth` outline and an
+ * `iconRegular` mark centered on the white, as the 20px "G" sits in the
+ * image (1 + 9 + 20 + 9 + 1). In the 56px `controlLarge` button it sits
+ * `space[2]` from the top, bottom, and start edges.
  */
 export const size = {
   touchTarget: '2.75rem',
@@ -293,8 +300,8 @@ export const size = {
 
 /**
  * Rounded corners: small for things you press, larger for things that hold
- * content. `logoChip` is tighter than `control` because the chip sits just
- * inside a button's corner.
+ * content. `logoChip` is the corner of Google's official sign-in image
+ * (16px at @4x, so 4px at 40px); drawn chips use it to match that image.
  */
 export const radius = {
   control: '0.375rem',

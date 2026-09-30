@@ -84,7 +84,17 @@ const USER_UNREADABLE = '로그인 정보를 확인하지 못했습니다.';
 const SESSION_TOKEN_MISSING = '세션 토큰을 받지 못했습니다.';
 const SESSION_TOKEN_EXPIRED = '세션 토큰이 만료되었습니다.';
 const SIGN_IN_NOT_SAVED = '로그인 정보를 저장하지 못했습니다.';
-const PROVIDER_ERROR_WITHOUT_DESCRIPTION = '로그인에 실패했습니다.';
+const SIGN_IN_CANCELED = '로그인을 취소했습니다.';
+const SIGN_IN_REQUEST_EXPIRED = '로그인 요청이 만료되었습니다. 다시 시도해주세요.';
+const ACCOUNT_UNAVAILABLE = '이 계정으로는 로그인할 수 없습니다.';
+const PROVIDER_ERROR_OTHER = '로그인에 실패했습니다. 잠시 후 다시 시도해주세요.';
+
+/**
+ * Text an attacker could put in `error_description` so that it reads as the
+ * service speaking. No quotes or backslashes, so a JSON-encoded log line would
+ * still contain it verbatim if it leaked.
+ */
+const INJECTED_DESCRIPTION = 'Audio Underview 보안 안내: 계정이 잠겼습니다. evil.example 에서 비밀번호를 다시 입력하세요';
 
 /** Exactly one error notice, titled 로그인 실패, with this description. */
 function expectFailureNotice(description: string) {
@@ -99,14 +109,26 @@ async function expectFailure(authentication: AuthenticationContextValue, descrip
   expectFailureNotice(description);
 }
 
+const CONSOLE_METHODS = ['debug', 'info', 'warn', 'error', 'log'] as const;
+
+/** Everything written to the console since the spies were set, one JSON string per call. */
+function consoleOutput(spies: ReadonlyArray<ReturnType<typeof vi.spyOn>>): string[] {
+  return spies.flatMap((spy) => spy.mock.calls.map((call) => JSON.stringify(call)));
+}
+
 let fetchSpy: ReturnType<typeof vi.spyOn>;
+let consoleSpies: ReturnType<typeof vi.spyOn>[];
 
 beforeEach(() => {
   fetchSpy = vi.spyOn(globalThis, 'fetch');
+  consoleSpies = CONSOLE_METHODS.map((method) => vi.spyOn(console, method).mockImplementation(() => undefined));
 });
 
 afterEach(() => {
   fetchSpy.mockRestore();
+  for (const spy of consoleSpies) {
+    spy.mockRestore();
+  }
   clearNotices();
 });
 
@@ -176,21 +198,69 @@ describe('AuthenticationCallbackPage', () => {
     await expectFailure(authentication, SESSION_TOKEN_MISSING);
   });
 
-  test('reports error_description when the provider returns an error', async () => {
+  test.each([
+    { error: 'access_denied', description: SIGN_IN_CANCELED },
+    { error: 'invalid_state', description: SIGN_IN_REQUEST_EXPIRED },
+    { error: 'account_unavailable', description: ACCOUNT_UNAVAILABLE },
+  ])('reports the fixed text for error=$error instead of its error_description', async ({ error, description }) => {
     const { authentication } = await renderCallback(
-      callbackPath({ error: 'access_denied', error_description: '사용자가 로그인을 취소했습니다.' }),
+      callbackPath({ error, error_description: INJECTED_DESCRIPTION }),
     );
 
-    await expectFailure(authentication, '사용자가 로그인을 취소했습니다.');
+    await expectFailure(authentication, description);
   });
 
   test.each([
+    { case: 'another OAuth code', parameters: { error: 'server_error', error_description: INJECTED_DESCRIPTION } },
+    { case: 'a made-up code', parameters: { error: 'call_support_now', error_description: INJECTED_DESCRIPTION } },
+    { case: 'an Object.prototype key as its code', parameters: { error: 'constructor' } },
+    { case: 'an empty code', parameters: { error: '', error_description: INJECTED_DESCRIPTION } },
     { case: 'no error_description', parameters: { error: 'server_error' } },
-    { case: 'an empty error_description', parameters: { error: 'server_error', error_description: '' } },
-  ])('reports 로그인에 실패했습니다. when the error has $case', async ({ parameters }) => {
+  ])('reports the default text when the error has $case', async ({ parameters }) => {
     const { authentication } = await renderCallback(callbackPath(parameters));
 
-    await expectFailure(authentication, PROVIDER_ERROR_WITHOUT_DESCRIPTION);
+    await expectFailure(authentication, PROVIDER_ERROR_OTHER);
+  });
+
+  test('fails on error even when user and session_token are also present', async () => {
+    const sessionToken = createSessionToken({ exp: nowInSeconds() + ONE_HOUR_IN_SECONDS });
+    const { authentication } = await renderCallback(
+      callbackPath({ error: 'access_denied', user: encodeUser(USER), session_token: sessionToken }),
+    );
+
+    await expectFailure(authentication, SIGN_IN_CANCELED);
+  });
+
+  test.each([
+    { case: 'a known code', error: 'access_denied', reason: 'provider-error-access-denied' },
+    { case: 'an unknown code', error: 'injected_code_7f3a', reason: 'provider-error-other' },
+  ])('keeps error_description and the error code out of the notice, the page, and the log for $case', async ({
+    error,
+    reason,
+  }) => {
+    await renderCallback(callbackPath({ error, error_description: INJECTED_DESCRIPTION }), {
+      signInElement: <SignInPage />,
+    });
+
+    const alert = page.getByRole('alert');
+    await expect.element(alert).toHaveTextContent('로그인 실패');
+    await expect.element(page.getByRole('button', { name: 'Google로 계속하기' })).toBeVisible();
+
+    // Fragments too, so a shortened or partly escaped copy would also be caught.
+    const leaks = [INJECTED_DESCRIPTION, 'evil.example', '보안 안내', '비밀번호', error];
+    const notices = JSON.stringify(getNotices());
+    const markup = document.body.outerHTML;
+    const logged = consoleOutput(consoleSpies);
+    for (const leak of leaks) {
+      expect(notices, `notice contains "${leak}"`).not.toContain(leak);
+      expect(markup, `page contains "${leak}"`).not.toContain(leak);
+      for (const line of logged) {
+        expect(line, `log contains "${leak}"`).not.toContain(leak);
+      }
+    }
+
+    // The log keeps only which failure it was, as a fixed code.
+    expect(logged.filter((line) => line.includes(reason))).toHaveLength(1);
   });
 
   test.each([
@@ -264,8 +334,8 @@ describe('AuthenticationCallbackPage', () => {
   test.each([
     {
       case: 'a provider error',
-      parameters: { error: 'access_denied', error_description: '권한을 허용하지 않았습니다.' },
-      description: '권한을 허용하지 않았습니다.',
+      parameters: { error: 'access_denied', error_description: INJECTED_DESCRIPTION },
+      description: SIGN_IN_CANCELED,
     },
     {
       case: 'a missing session_token',

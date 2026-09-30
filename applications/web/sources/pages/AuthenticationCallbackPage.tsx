@@ -19,31 +19,57 @@ const callbackLogger = createBrowserLogger({
 const SERVICE_NAME = 'Audio Underview';
 const SIGNING_IN_MESSAGE = '로그인하는 중입니다';
 const FAILURE_TITLE = '로그인 실패';
-const DEFAULT_PROVIDER_ERROR_DESCRIPTION = '로그인에 실패했습니다.';
 
+/**
+ * What went wrong, as a fixed code. This is the only thing the page logs about
+ * a failure. The provider's own `error` code and `error_description` never
+ * reach the log or the screen: anyone can put them in the URL.
+ */
 type FailureReason =
-  | 'provider-error'
+  | 'provider-error-access-denied'
+  | 'provider-error-invalid-state'
+  | 'provider-error-account-unavailable'
+  | 'provider-error-other'
   | 'missing-user'
   | 'invalid-user'
   | 'missing-session-token'
   | 'invalid-session-token-expiration'
   | 'login-failed';
 
-/** Notice text for each failure the page detects itself. A provider error brings its own description. */
+/** Notice text for each failure. Every one is fixed text; none is taken from the URL. */
 const FAILURE_DESCRIPTIONS = {
+  'provider-error-access-denied': '로그인을 취소했습니다.',
+  'provider-error-invalid-state': '로그인 요청이 만료되었습니다. 다시 시도해주세요.',
+  'provider-error-account-unavailable': '이 계정으로는 로그인할 수 없습니다.',
+  'provider-error-other': '로그인에 실패했습니다. 잠시 후 다시 시도해주세요.',
   'missing-user': '로그인 정보를 확인하지 못했습니다.',
   'invalid-user': '로그인 정보를 확인하지 못했습니다.',
   'missing-session-token': '세션 토큰을 받지 못했습니다.',
   'invalid-session-token-expiration': '세션 토큰이 만료되었습니다.',
   'login-failed': '로그인 정보를 저장하지 못했습니다.',
-} as const satisfies Record<Exclude<FailureReason, 'provider-error'>, string>;
+} as const satisfies Record<FailureReason, string>;
 
-type CallbackOutcome =
-  | { kind: 'signed-in' }
-  | { kind: 'failed'; reason: FailureReason; description: string };
+type CallbackOutcome = { kind: 'signed-in' } | { kind: 'failed'; reason: FailureReason };
 
-function failed(reason: keyof typeof FAILURE_DESCRIPTIONS): CallbackOutcome {
-  return { kind: 'failed', reason, description: FAILURE_DESCRIPTIONS[reason] };
+function failed(reason: FailureReason): CallbackOutcome {
+  return { kind: 'failed', reason };
+}
+
+/**
+ * Maps the OAuth worker's `error` code to one of the fixed failure reasons.
+ * Any other code, the empty one included, is `provider-error-other`.
+ */
+function providerErrorReason(errorCode: string): FailureReason {
+  switch (errorCode) {
+    case 'access_denied':
+      return 'provider-error-access-denied';
+    case 'invalid_state':
+      return 'provider-error-invalid-state';
+    case 'account_unavailable':
+      return 'provider-error-account-unavailable';
+    default:
+      return 'provider-error-other';
+  }
 }
 
 function parseUser(userParameter: string): OAuthUser | undefined {
@@ -58,21 +84,18 @@ function parseUser(userParameter: string): OAuthUser | undefined {
 /**
  * Reads what the OAuth worker appended to the callback URL and signs in with
  * the service session token. Never calls the network. On failure it returns a
- * reason code and the notice text; neither carries a token or user value, and
- * only the reason is logged.
+ * fixed reason code, which carries no token, user value, or text from the URL.
  */
 function completeSignIn(
   parameters: URLSearchParams,
   loginWithProvider: AuthenticationContextValue['loginWithProvider'],
 ): CallbackOutcome {
-  if (parameters.has('error')) {
-    const errorDescription = parameters.get('error_description');
-    const hasErrorDescription = errorDescription !== null && errorDescription.length > 0;
-    return {
-      kind: 'failed',
-      reason: 'provider-error',
-      description: hasErrorDescription ? errorDescription : DEFAULT_PROVIDER_ERROR_DESCRIPTION,
-    };
+  // `error_description` is never read: it is free text anyone can put in the
+  // URL, and shown under the service's name it could pass for the service's
+  // own words (CWE-451). The notice says only what the `error` code means.
+  const errorCode = parameters.get('error');
+  if (errorCode !== null) {
+    return failed(providerErrorReason(errorCode));
   }
 
   const userParameter = parameters.get('user');
@@ -162,7 +185,7 @@ export function AuthenticationCallbackPage() {
     }
 
     callbackLogger.warn('Sign-in callback failed', { reason: outcome.reason }, { function: 'completeSignIn' });
-    showNotice({ title: FAILURE_TITLE, description: outcome.description });
+    showNotice({ title: FAILURE_TITLE, description: FAILURE_DESCRIPTIONS[outcome.reason] });
     navigate('/sign/in', { replace: true });
   }, [searchParameters, loginWithProvider, navigate]);
 

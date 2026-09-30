@@ -157,6 +157,36 @@ describe('HomePage — 계정', () => {
     await expect.element(accountRegion()).not.toHaveTextContent('@');
     await waitForEmptyList();
   });
+
+  test("draws Google's official image at icon size in 계정 and 연결된 로그인; other marks stay single-color", async () => {
+    respondWithAccounts(GOOGLE_WORKER_URL, () =>
+      HttpResponse.json({
+        accounts: [
+          { provider: 'google', linkedAt: '2026-08-03T12:00:00.000Z' },
+          { provider: 'github', linkedAt: null },
+        ],
+      }),
+    );
+    await renderHome(GOOGLE_USER);
+
+    const items = linkedAccountsRegion().getByRole('listitem');
+    await expect.poll(() => items.elements()).toHaveLength(2);
+    const [googleRow, githubRow] = items.elements();
+    const signedInLine = accountRegion().getByText('Google로 로그인함').element().parentElement as HTMLElement;
+
+    for (const container of [signedInLine, googleRow]) {
+      const mark = container.querySelector('img');
+      expect(mark?.getAttribute('src')).not.toMatch(/^https?:/);
+      expect(mark?.getAttribute('src')).toMatch(/google\.png/);
+      expect(mark?.getAttribute('alt')).toBe('');
+      const box = mark?.getBoundingClientRect();
+      expect([box?.width, box?.height]).toEqual([20, 20]);
+      expect(mark === null ? undefined : getComputedStyle(mark).filter).toBe('none');
+    }
+
+    expect(githubRow.querySelector('img')).toBeNull();
+    expect(githubRow.querySelector('svg')?.getAttribute('fill')).toBe('currentColor');
+  });
 });
 
 describe('HomePage — 연결된 로그인', () => {
