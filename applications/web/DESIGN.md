@@ -402,32 +402,6 @@ showNotice({ title: '로그인 실패', description: '세션 토큰을 받지 �
 4. 수치로 확인한다: 너비마다 `scrollWidth === clientWidth`, 누르는 대상 44px, reduced motion에서 전환·애니메이션 0개, 명암비.
 5. 고친 뒤 다시 찍는다. 한 번 이상.
 
-### 미리보기 빌드
-
-PR 단계에서 실제 빌드를 브라우저로 보려면 Cloudflare Pages 미리보기를 쓴다(`.github/workflows/deploy-web.yml`).
-
-**만드는 법**
-- `main`을 향한 PR에 `/deploy:preview` 라벨을 붙인다(`gh pr edit <번호> --add-label "/deploy:preview"`).
-- 라벨을 붙일 때, 그리고 라벨이 붙은 PR에 push할 때마다(`labeled`, `synchronize`) 돈다. 단 `applications/web/**`나 `packages/**`가 바뀐 PR만 대상이다.
-- 순서: `Quality check` → `Deploy to Cloudflare Pages`. 운영과 같은 방식으로 빌드하고(운영용 `VITE_*` 값), `pages deploy … --branch=<PR 브랜치>`로 올린다. 운영 배포(`main`)에는 영향이 없다.
-- 라벨을 떼면 다음 push부터 미리보기를 만들지 않는다.
-
-**주소**
-- 커밋마다 새 주소: `https://<배포 id>.audio-underview.pages.dev`. 그 커밋의 빌드가 그대로 남는다.
-- 브랜치 주소: `https://<브랜치 이름의 /를 -로 바꾼 것>.audio-underview.pages.dev`(예: `feature/web-sign-in-and-home` → `https://feature-web-sign-in-and-home.audio-underview.pages.dev`). 항상 그 브랜치의 최신 미리보기다.
-- 찾는 곳: PR의 `preview` 환경 배포, Actions run 요약(`Deployment` 표의 `URL`), 또는
-  ```bash
-  gh api "repos/gignac-cha/audio-underview/deployments?environment=preview&ref=<브랜치>&per_page=1" --jq '.[0].id'
-  gh api "repos/gignac-cha/audio-underview/deployments/<id>/statuses" --jq '.[0].environment_url'
-  ```
-
-**미리보기에서 볼 수 있는 것과 없는 것**
-- 볼 수 있다: 로그인 화면 전체(버튼 상태, 준비 중 목록, 너비별 배치), 워커 설정이 없을 때나 복귀 실패 뒤의 알림, 서체·로고 같은 실제 자산.
-- 볼 수 없다: **실제 로그인.** OAuth 워커의 `ALLOWED_ORIGINS`는 `http://localhost:5173`과 운영 주소 `https://audio-underview.pages.dev` 두 개뿐이고(`workers/*-oauth-provider-worker/wrangler.toml`), 워커는 로그인 복귀 주소(`redirect_uri`)와 CORS를 이 목록과 **정확히 같은** origin으로만 허용한다. 미리보기 주소(`<배포 id>.audio-underview.pages.dev`, 브랜치 주소)는 목록에 없으므로 로그인을 끝까지 할 수 없고, 홈 화면도 미리보기에서는 볼 수 없다.
-  - 홈 화면을 보려고 `localStorage`에 로그인 상태를 넣어도, 워커가 미리보기 origin에 CORS 헤더를 주지 않아 브라우저가 `/accounts` 응답을 막는다. 화면은 `연결된 로그인을 불러오지 못했습니다` 상태가 된다.
-  - 미리보기 origin을 워커 허용 목록에 더하지 않는다. 배포마다 주소가 바뀌고, 허용 목록이 넓어지면 로그인 복귀 주소 검사가 약해진다.
-  - 홈 화면과 실제 로그인은 로컬(`localhost:5173`)이나 머지 뒤 운영 도메인에서 확인한다. 상태별 모양은 위의 Playwright 절차(`/accounts`를 route로 대신)로 본다.
-
 ## 15. 새 화면 체크리스트
 
 - [ ] `PageLayout`으로 감쌌고, 안에서 `<main>`을 만들지 않았다.
@@ -439,4 +413,3 @@ PR 단계에서 실제 빌드를 브라우저로 보려면 Cloudflare Pages 미�
 - [ ] 모든 상태(불러오는 중, 빈 목록, 실패)를 만들었고, 상태가 바뀌어도 아래 내용이 움직이지 않는다.
 - [ ] 문구는 한국어이고, 바깥에서 온 문자열을 그대로 보여 주지 않는다.
 - [ ] 360·768·1280에서 스크린샷으로 검토했고 가로 스크롤이 없다.
-- [ ] PR에 `/deploy:preview`를 붙여 미리보기 주소에서 실제 빌드를 확인했다(로그인이 필요 없는 화면과 상태).
