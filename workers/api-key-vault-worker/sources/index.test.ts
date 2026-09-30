@@ -188,6 +188,15 @@ function expectNoPlaintextKey(texts: string[]) {
   }
 }
 
+describe('entry module', () => {
+  it('exports only the default handler, as the Workers runtime requires', async () => {
+    // The runtime treats every named value export of the entry module as an entrypoint and
+    // refuses to start on anything that is not a handler, so a stray constant breaks startup.
+    const entry = await import('./index.ts');
+    expect(Object.keys(entry)).toEqual(['default']);
+  });
+});
+
 describe('request handling', () => {
   it('returns 404 for GET', async () => {
     const result = await call('/internal/keys/status', undefined, { method: 'GET' });

@@ -21,12 +21,14 @@ import { isWellFormedProviderKey, validateProviderKey } from './validation.ts';
 
 export type { Environment } from './environment.ts';
 
-export const INTERNAL_TOKEN_HEADER_NAME = 'x-provider-key-vault-token';
-export const USER_ID_MAXIMUM_LENGTH = 200;
-export const DEFAULT_AUDIT_EVENT_LIMIT = 50;
-export const PROXY_TIMEOUT_MILLISECONDS = 240_000;
-export const PROXY_BODY_BASE64_MAXIMUM_LENGTH = 16_000_000;
-export const PROXY_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+// This is the worker entry module: the Workers runtime registers every named value export
+// as an entrypoint and refuses to start on a number or string, so only default is exported.
+const INTERNAL_TOKEN_HEADER_NAME = 'x-provider-key-vault-token';
+const USER_ID_MAXIMUM_LENGTH = 200;
+const DEFAULT_AUDIT_EVENT_LIMIT = 50;
+const PROXY_TIMEOUT_MILLISECONDS = 240_000;
+const PROXY_BODY_BASE64_MAXIMUM_LENGTH = 16_000_000;
+const PROXY_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 
 const REDACTED_KEY_MARKER = '[REDACTED]';
 
@@ -350,7 +352,7 @@ const ROUTES: Readonly<Record<string, RouteHandler>> = {
   '/internal/proxy': handleProxy,
 };
 
-export async function handleRequest(request: Request, environment: Environment): Promise<Response> {
+async function handleRequest(request: Request, environment: Environment): Promise<Response> {
   if (request.method !== 'POST') {
     return jsonResponse(404, { error: 'not_found' });
   }
