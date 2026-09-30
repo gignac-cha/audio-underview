@@ -1,5 +1,5 @@
 {
-  "name": "@audio-underview/api-key-vault-worker",
+  "name": "@audio-underview/user-vault-worker",
   "version": "1.0.0",
   "private": true,
   "type": "module",

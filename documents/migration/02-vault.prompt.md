@@ -1,16 +1,16 @@
-# 작업: API 키 볼트 워커 · logger scrubber (Linear TES-135)
+# 작업: 사용자 볼트 워커 · logger scrubber (Linear TES-135)
 
 메인 체크아웃(브랜치 `main`)에서 작업한다. `documents/migration/02-vault.md`를 전문 읽고, 그 명세대로 구현한다. 명세 밖의 브랜치·커밋·파일은 참고하지 않는다. 명세가 모호하거나 메인 코드와 맞지 않으면 임의로 정하지 말고 멈춰서 보고한다.
 
 ## 브랜치·커밋
 
-- 브랜치 `feature/api-key-vault-migration`.
-- 첫 커밋은 문서 두 개(`02-vault.md`·`02-vault.prompt.md`)만: `document: add the API key vault design`.
-- 작업 커밋: `feature: add the API key vault worker and the logger credential scrubber`.
+- 브랜치 `feature/api-key-vault`.
+- 첫 커밋은 문서 두 개(`02-vault.md`·`02-vault.prompt.md`)만: `document: add the user vault design`.
+- 작업 커밋: `feature: add the user vault worker and the logger credential scrubber`.
 - 커밋, feature 브랜치 push, draft PR 생성까지 한다. main push·merge·draft 해제·배포·시크릿 등록·D1 생성은 하지 않는다.
 - `git add`는 파일 이름을 지정해서만 한다. 루트의 `production-oauth-secrets.env`는 읽지도 커밋하지도 않는다.
 - 커밋 전 `git diff --cached`에서 두 가지를 grep으로 확인한다. 32자 hex 계정 id가 0건이어야 한다. 테스트 파일 밖에서 `sk-`·`ghp_`·`AIza`·`-----BEGIN`이 0건이어야 한다.
-- PR: `gh pr create --draft --base main --title "feature: add the API key vault worker and the logger credential scrubber"`. 본문에 TES-135와 완료 판정 결과를 적는다.
+- PR: `gh pr create --draft --base main --title "feature: add the user vault worker and the logger credential scrubber"`. 본문에 TES-135와 완료 판정 결과를 적는다.
 - CI가 RED면 고쳐서 push한다. CodeRabbit 지적은 보고에 옮기고 HIGH만 반영한다.
 
 ## 실행 방식 — dynamic workflow agent team (opus 5.5 and sonnet 5 only)
@@ -20,7 +20,7 @@
 | 레인 | 파일 소유 | 명세 | `model` | `effort` | `schema` |
 | -- | -- | -- | -- | -- | -- |
 | A (TES-140) | `packages/logger/**` | 02 §2 | `'opus'` | 생략 | `LANE_SCHEMA` |
-| B (TES-141) | `workers/api-key-vault-worker/**` | 02 §3, §2.3 export | `'opus'` | 생략 | `LANE_SCHEMA` |
+| B (TES-141) | `workers/user-vault-worker/**` | 02 §3, §2.3 export | `'opus'` | 생략 | `LANE_SCHEMA` |
 | C (TES-142) | 새 워크플로, `deployment-targets.ts` | 02 §4 | `'sonnet'` | 생략 | `LANE_SCHEMA` |
 | D 검증 | 수정 없음 | 아래 검증 항목 | `'opus'` | `'high'` | `VERIFY_SCHEMA` |
 | 수정(HIGH만) | 해당 파일 | — | `'opus'` | 생략 | `LANE_SCHEMA` |
@@ -110,8 +110,8 @@ return { outcome: recheck?.verdict ?? 'RED', laneA, laneB, laneC, verification, 
 pnpm install
 pnpm --filter @audio-underview/logger typecheck
 pnpm --filter @audio-underview/logger test
-pnpm --filter @audio-underview/api-key-vault-worker typecheck
-pnpm --filter @audio-underview/api-key-vault-worker test
+pnpm --filter @audio-underview/user-vault-worker typecheck
+pnpm --filter @audio-underview/user-vault-worker test
 pnpm --filter @audio-underview/deployment-planner test
 pnpm typecheck
 ```

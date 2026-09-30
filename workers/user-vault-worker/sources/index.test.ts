@@ -5,7 +5,7 @@ import { FakeDatabase, type FakeProviderKeyRow } from './fake-database.ts';
 import worker from './index.ts';
 import type { ProviderName } from './providers.ts';
 
-const WORKER_ORIGIN = 'https://api-key-vault.internal';
+const WORKER_ORIGIN = 'https://user-vault.internal';
 const CURRENT_SECRET = 'current-key-encryption-secret';
 const PREVIOUS_SECRET = 'previous-key-encryption-secret';
 const INTERNAL_TOKEN = 'internal-token-for-tests';
@@ -248,20 +248,20 @@ describe('request handling', () => {
       json: { error: 'unauthorized' },
     });
     await expect(
-      call('/internal/keys/status', { userId: 'user-1' }, { headers: { 'x-provider-key-vault-token': 'wrong' } }),
+      call('/internal/keys/status', { userId: 'user-1' }, { headers: { 'x-user-vault-token': 'wrong' } }),
     ).resolves.toEqual({ status: 401, json: { error: 'unauthorized' } });
     await expect(
       call(
         '/internal/keys/status',
         { userId: 'user-1' },
-        { headers: { 'x-provider-key-vault-token': `${INTERNAL_TOKEN}x` } },
+        { headers: { 'x-user-vault-token': `${INTERNAL_TOKEN}x` } },
       ),
     ).resolves.toEqual({ status: 401, json: { error: 'unauthorized' } });
     await expect(
-      call('/internal/unknown', { userId: 'user-1' }, { headers: { 'x-provider-key-vault-token': 'wrong' } }),
+      call('/internal/unknown', { userId: 'user-1' }, { headers: { 'x-user-vault-token': 'wrong' } }),
     ).resolves.toEqual({ status: 401, json: { error: 'unauthorized' } });
     await expect(
-      call('/internal/keys/status', { userId: 'user-1' }, { headers: { 'x-provider-key-vault-token': INTERNAL_TOKEN } }),
+      call('/internal/keys/status', { userId: 'user-1' }, { headers: { 'x-user-vault-token': INTERNAL_TOKEN } }),
     ).resolves.toMatchObject({ status: 200 });
   });
 });

@@ -23,7 +23,7 @@ export type { Environment } from './environment.ts';
 
 // This is the worker entry module: the Workers runtime registers every named value export
 // as an entrypoint and refuses to start on a number or string, so only default is exported.
-const INTERNAL_TOKEN_HEADER_NAME = 'x-provider-key-vault-token';
+const INTERNAL_TOKEN_HEADER_NAME = 'x-user-vault-token';
 const USER_ID_MAXIMUM_LENGTH = 200;
 const DEFAULT_AUDIT_EVENT_LIMIT = 50;
 const PROXY_TIMEOUT_MILLISECONDS = 240_000;
@@ -34,7 +34,7 @@ const REDACTED_KEY_MARKER = '[REDACTED]';
 
 const logger = createWorkerLogger({
   defaultContext: {
-    module: 'api-key-vault-worker',
+    module: 'user-vault-worker',
   },
 });
 

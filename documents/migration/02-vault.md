@@ -1,12 +1,12 @@
-# 02 API 키 볼트 워커 · logger scrubber
+# 02 사용자 볼트 워커 · logger scrubber
 
 ## 1. 만들 것
 
 | 대상 | 내용 |
 | -- | -- |
 | `packages/logger` | `sources/secret-redaction.ts`·`secret-redaction.test.ts` 신규, `logger.ts`에 scrub 추가, `index.ts`에 export 추가. 기존 export·시그니처는 바꾸지 않는다 |
-| `workers/api-key-vault-worker` | 신규 워커. 사용자의 AI 모델 제공자(anthropic·openai·google·xai) API 키를 암호화해 보관하고, 그 키로 제공자를 대신 호출한다. service binding으로만 호출된다 |
-| `.github/workflows/deploy-api-key-vault-worker.yml` | 신규 |
+| `workers/user-vault-worker` | 신규 워커. 사용자의 AI 모델 제공자(anthropic·openai·google·xai) API 키를 암호화해 보관하고, 그 키로 제공자를 대신 호출한다. service binding으로만 호출된다 |
+| `.github/workflows/deploy-user-vault-worker.yml` | 신규 |
 | `tools/deployment-planner/scripts/deployment-targets.ts` | 항목 1개 추가 |
 
 logger와 볼트는 `newscast-*` 패키지를 import하지 않는다.
@@ -104,23 +104,23 @@ export {
   - 중첩 `Error`의 `name`과 객체의 속성 이름에 든 credential도 가려진다. 평범한 이름(`TypeError`)은 그대로다.
   - 접두사를 포함한 일반 단어는 그대로다.
 
-## 3. `workers/api-key-vault-worker`
+## 3. `workers/user-vault-worker`
 
 ### 3.1 패키지·설정
 
-- `package.json`: `pnpm init` 후 `name: "@audio-underview/api-key-vault-worker"`, `private: true`, `type: "module"`, `main: "./sources/index.ts"`, scripts `dev: wrangler dev`·`deploy: wrangler deploy`·`test: vitest run`·`typecheck: tsc --noEmit`. 의존성은 `pnpm add @audio-underview/logger@workspace:*`. devDependencies는 `workers/crawler-manager-worker`와 같은 `catalog:worker` 항목을 `pnpm add -D <이름>@catalog:worker`로 추가한다.
+- `package.json`: `pnpm init` 후 `name: "@audio-underview/user-vault-worker"`, `private: true`, `type: "module"`, `main: "./sources/index.ts"`, scripts `dev: wrangler dev`·`deploy: wrangler deploy`·`test: vitest run`·`typecheck: tsc --noEmit`. 의존성은 `pnpm add @audio-underview/logger@workspace:*`. devDependencies는 `workers/crawler-manager-worker`와 같은 `catalog:worker` 항목을 `pnpm add -D <이름>@catalog:worker`로 추가한다.
 - `tsconfig.json`: `workers/crawler-manager-worker`와 같은 형태.
 - `wrangler.toml`:
   ```toml
-  name = "audio-underview-api-key-vault-worker"
+  name = "audio-underview-user-vault-worker"
   main = "sources/index.ts"
   compatibility_date = "<다른 메인 워커와 같은 값>"
   workers_dev = false
 
   [[d1_databases]]
   binding = "DB"
-  database_name = "audio-underview-provider-keys"
-  database_id = "<wrangler d1 create audio-underview-provider-keys 출력의 id>"
+  database_name = "audio-underview-user-vault"
+  database_id = "<wrangler d1 create audio-underview-user-vault 출력의 id>"
 
   [vars]
   PROVIDER_KEY_KEK_VERSION = "1"
@@ -149,7 +149,7 @@ KEK 목록: `[PROVIDER_KEY_KEK]`, `PROVIDER_KEY_KEK_PREVIOUS`가 있고 현재�
 ### 3.3 요청 처리 순서
 
 1. `POST`가 아니면 404 `{ error: 'not_found' }`.
-2. `VAULT_INTERNAL_TOKEN`이 설정돼 있으면 `x-provider-key-vault-token` 헤더를 상수 시간으로 비교한다. 없거나 다르면 401 `{ error: 'unauthorized' }`.
+2. `VAULT_INTERNAL_TOKEN`이 설정돼 있으면 `x-user-vault-token` 헤더를 상수 시간으로 비교한다. 없거나 다르면 401 `{ error: 'unauthorized' }`.
 3. 경로가 §3.7의 6개가 아니면 404 `{ error: 'not_found' }`.
 4. 본문이 JSON 객체가 아니면 400 `{ error: 'invalid_request' }`.
 5. `userId`가 1~200자 문자열이 아니면 400 `{ error: 'invalid_request' }`.
@@ -297,7 +297,7 @@ provider 순서는 `anthropic, openai, google, xai`로 고정한다. 키는 URL�
 
 ### 3.9 로그
 
-- `createWorkerLogger({ defaultContext: { module: 'api-key-vault-worker' } })`.
+- `createWorkerLogger({ defaultContext: { module: 'user-vault-worker' } })`.
 - 평문 키·DEK·KEK·검증 응답 본문은 로그·응답·오류 메시지에 넣지 않는다. 키 조각은 `last4`만.
 - 외부에서 온 오류 문자열은 `redactAndTruncate`를 거쳐 기록한다.
 - 로그를 남기는 곳:
@@ -391,12 +391,12 @@ provider 순서는 `anthropic, openai, google, xai`로 고정한다. 키는 URL�
 
 ## 4. 배포 wiring
 
-- `.github/workflows/deploy-api-key-vault-worker.yml`: `deploy-scheduler-worker.yml`과 같은 형태로 만든다.
-  - `name: "Deploy: API Key Vault Worker"`, job 이름 `Deploy API Key Vault Worker`
+- `.github/workflows/deploy-user-vault-worker.yml`: `deploy-scheduler-worker.yml`과 같은 형태로 만든다.
+  - `name: "Deploy: User Vault Worker"`, job 이름 `Deploy User Vault Worker`
   - `on: workflow_dispatch:`, 입력 없음
-  - `workingDirectory: workers/api-key-vault-worker`, `command: deploy`
+  - `workingDirectory: workers/user-vault-worker`, `command: deploy`
   - `apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}`, `accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}`
   - `secrets:`·`env:`는 넣지 않는다.
   - 최상위 `permissions: contents: read`, checkout 단계에 `persist-credentials: false`.
-- `deployment-targets.ts`: `DEPLOYMENT_TARGETS`에 `['@audio-underview/api-key-vault-worker', { workflow: 'deploy-api-key-vault-worker.yml', paused: AWAITING_SECRETS }]`를 추가한다.
+- `deployment-targets.ts`: `DEPLOYMENT_TARGETS`에 `['@audio-underview/user-vault-worker', { workflow: 'deploy-user-vault-worker.yml', paused: AWAITING_SECRETS }]`를 추가한다.
 - 확인: `pnpm --filter @audio-underview/deployment-planner test`.

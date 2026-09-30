@@ -119,7 +119,7 @@ describe('recordAuditEvent', () => {
     database.brokenTables.add('key_audit_log');
     const storage = createUserVaultStorage(database.asD1Database(), 'user-1');
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const logger = createWorkerLogger({ defaultContext: { module: 'api-key-vault-worker' } });
+    const logger = createWorkerLogger({ defaultContext: { module: 'user-vault-worker' } });
     await expect(
       recordAuditEvent({
         storage,
