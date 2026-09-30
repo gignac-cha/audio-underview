@@ -3,29 +3,24 @@ name: "Deploy: Web"
 on:
   # Production deploys on main are started by deploy-affected-workspaces.yml.
   workflow_dispatch:
+  # Every push to a pull request deploys a new preview, unless the pull request
+  # changes documents only.
   pull_request:
     branches: [main]
-    types: [labeled, synchronize]
-    paths:
-      - 'applications/web/**'
-      - 'packages/**'
+    types: [opened, synchronize, reopened]
+    paths-ignore:
+      - '**/*.md'
+      - 'documents/**'
 
+# One group per commit, so a later push never cancels an earlier push's preview.
 concurrency:
-  group: deploy-web-${{ github.event.pull_request.number || github.ref }}
+  group: deploy-web-${{ github.event.pull_request.head.sha || github.ref }}
   cancel-in-progress: true
 
 jobs:
   quality:
     runs-on: ubuntu-latest
     name: Quality check
-    # A label event deploys only when the label itself is /deploy:preview, so
-    # adding an unrelated label does not redeploy and post another comment.
-    if: >-
-      github.event_name != 'pull_request'
-      || (
-        contains(github.event.pull_request.labels.*.name, '/deploy:preview')
-        && (github.event.action != 'labeled' || github.event.label.name == '/deploy:preview')
-      )
     permissions:
       contents: read
 
@@ -55,12 +50,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: quality
     name: Deploy to Cloudflare Pages
+    # A pull request from a fork has no secrets, so it only runs the quality check.
     if: >-
       github.event_name != 'pull_request'
-      || (
-        contains(github.event.pull_request.labels.*.name, '/deploy:preview')
-        && (github.event.action != 'labeled' || github.event.label.name == '/deploy:preview')
-      )
+      || github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
       deployments: write
