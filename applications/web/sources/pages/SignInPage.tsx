@@ -6,6 +6,7 @@ import { AVAILABLE_PROVIDERS, PREPARING_PROVIDERS } from '../constants/provider-
 import { PageLayout } from '../design-system/components/PageLayout.tsx';
 import { Button } from '../design-system/components/Button.tsx';
 import { ProviderLogo } from '../design-system/components/ProviderLogo.tsx';
+import { ProviderLogoChip } from '../design-system/components/ProviderLogoChip.tsx';
 import { VisuallyHidden } from '../design-system/components/VisuallyHidden.tsx';
 import { showNotice } from '../design-system/notice-store.ts';
 import { color, layout, media, size, space, textStyle } from '../design-system/tokens.ts';
@@ -165,7 +166,7 @@ export function SignInPage() {
                   variant="primary"
                   size="large"
                   fullWidth
-                  leading={<ProviderLogo provider={providerID} size="large" />}
+                  leading={<ProviderLogoChip provider={providerID} />}
                   onClick={() => startSignIn(providerID)}
                 >
                   {continueLabel(providerID)}

@@ -29,12 +29,21 @@ type FailureReason =
   | 'invalid-session-token-expiration'
   | 'login-failed';
 
+/** Notice text for each failure the page detects itself. A provider error brings its own description. */
+const FAILURE_DESCRIPTIONS = {
+  'missing-user': '로그인 정보를 확인하지 못했습니다.',
+  'invalid-user': '로그인 정보를 확인하지 못했습니다.',
+  'missing-session-token': '세션 토큰을 받지 못했습니다.',
+  'invalid-session-token-expiration': '세션 토큰이 만료되었습니다.',
+  'login-failed': '로그인 정보를 저장하지 못했습니다.',
+} as const satisfies Record<Exclude<FailureReason, 'provider-error'>, string>;
+
 type CallbackOutcome =
   | { kind: 'signed-in' }
-  | { kind: 'failed'; reason: FailureReason; description?: string };
+  | { kind: 'failed'; reason: FailureReason; description: string };
 
-function failed(reason: FailureReason, description?: string): CallbackOutcome {
-  return { kind: 'failed', reason, description };
+function failed(reason: keyof typeof FAILURE_DESCRIPTIONS): CallbackOutcome {
+  return { kind: 'failed', reason, description: FAILURE_DESCRIPTIONS[reason] };
 }
 
 function parseUser(userParameter: string): OAuthUser | undefined {
@@ -48,8 +57,9 @@ function parseUser(userParameter: string): OAuthUser | undefined {
 
 /**
  * Reads what the OAuth worker appended to the callback URL and signs in with
- * the service session token. Never calls the network. Returns a reason code
- * on failure; the reason carries no token or user value, so it is safe to log.
+ * the service session token. Never calls the network. On failure it returns a
+ * reason code and the notice text; neither carries a token or user value, and
+ * only the reason is logged.
  */
 function completeSignIn(
   parameters: URLSearchParams,
@@ -58,7 +68,11 @@ function completeSignIn(
   if (parameters.has('error')) {
     const errorDescription = parameters.get('error_description');
     const hasErrorDescription = errorDescription !== null && errorDescription.length > 0;
-    return failed('provider-error', hasErrorDescription ? errorDescription : DEFAULT_PROVIDER_ERROR_DESCRIPTION);
+    return {
+      kind: 'failed',
+      reason: 'provider-error',
+      description: hasErrorDescription ? errorDescription : DEFAULT_PROVIDER_ERROR_DESCRIPTION,
+    };
   }
 
   const userParameter = parameters.get('user');

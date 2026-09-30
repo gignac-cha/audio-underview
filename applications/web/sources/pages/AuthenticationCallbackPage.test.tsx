@@ -80,10 +80,23 @@ async function renderCallback(
   return { authentication, screen };
 }
 
-async function expectFailure(authentication: AuthenticationContextValue, description?: string) {
+const USER_UNREADABLE = '로그인 정보를 확인하지 못했습니다.';
+const SESSION_TOKEN_MISSING = '세션 토큰을 받지 못했습니다.';
+const SESSION_TOKEN_EXPIRED = '세션 토큰이 만료되었습니다.';
+const SIGN_IN_NOT_SAVED = '로그인 정보를 저장하지 못했습니다.';
+const PROVIDER_ERROR_WITHOUT_DESCRIPTION = '로그인에 실패했습니다.';
+
+/** Exactly one error notice, titled 로그인 실패, with this description. */
+function expectFailureNotice(description: string) {
+  expect(getNotices()).toEqual([
+    expect.objectContaining({ tone: 'error', title: '로그인 실패', description }),
+  ]);
+}
+
+async function expectFailure(authentication: AuthenticationContextValue, description: string) {
   await expect.element(page.getByText('로그인 화면')).toBeVisible();
   expect(authentication.loginWithProvider).not.toHaveBeenCalled();
-  expect(getNotices()).toEqual([expect.objectContaining({ tone: 'error', title: '로그인 실패', description })]);
+  expectFailureNotice(description);
 }
 
 let fetchSpy: ReturnType<typeof vi.spyOn>;
@@ -148,7 +161,19 @@ describe('AuthenticationCallbackPage', () => {
       callbackPath({ user: encodeUser(USER), access_token: createSessionToken({ exp: nowInSeconds() + 3600 }) }),
     );
 
-    await expectFailure(authentication);
+    await expectFailure(authentication, SESSION_TOKEN_MISSING);
+  });
+
+  test('fails when session_token is empty', async () => {
+    const { authentication } = await renderCallback(
+      callbackPath({
+        user: encodeUser(USER),
+        access_token: createSessionToken({ exp: nowInSeconds() + ONE_HOUR_IN_SECONDS }),
+        session_token: '',
+      }),
+    );
+
+    await expectFailure(authentication, SESSION_TOKEN_MISSING);
   });
 
   test('reports error_description when the provider returns an error', async () => {
@@ -159,10 +184,13 @@ describe('AuthenticationCallbackPage', () => {
     await expectFailure(authentication, '사용자가 로그인을 취소했습니다.');
   });
 
-  test('reports 로그인에 실패했습니다. when the error has no description', async () => {
-    const { authentication } = await renderCallback(callbackPath({ error: 'server_error' }));
+  test.each([
+    { case: 'no error_description', parameters: { error: 'server_error' } },
+    { case: 'an empty error_description', parameters: { error: 'server_error', error_description: '' } },
+  ])('reports 로그인에 실패했습니다. when the error has $case', async ({ parameters }) => {
+    const { authentication } = await renderCallback(callbackPath(parameters));
 
-    await expectFailure(authentication, '로그인에 실패했습니다.');
+    await expectFailure(authentication, PROVIDER_ERROR_WITHOUT_DESCRIPTION);
   });
 
   test.each([
@@ -180,7 +208,7 @@ describe('AuthenticationCallbackPage', () => {
 
     const { authentication } = await renderCallback(callbackPath(parameters));
 
-    await expectFailure(authentication);
+    await expectFailure(authentication, USER_UNREADABLE);
   });
 
   test.each([
@@ -192,7 +220,7 @@ describe('AuthenticationCallbackPage', () => {
       callbackPath({ user: encodeUser(USER), session_token: sessionToken }),
     );
 
-    await expectFailure(authentication);
+    await expectFailure(authentication, SESSION_TOKEN_EXPIRED);
   });
 
   test('fails when saving the sign-in fails', async () => {
@@ -204,7 +232,7 @@ describe('AuthenticationCallbackPage', () => {
 
     await expect.element(page.getByText('로그인 화면')).toBeVisible();
     expect(authentication.loginWithProvider).toHaveBeenCalledOnce();
-    expect(getNotices()).toEqual([expect.objectContaining({ tone: 'error', title: '로그인 실패' })]);
+    expectFailureNotice(SIGN_IN_NOT_SAVED);
   });
 
   test('never calls fetch, on success or on failure', async () => {
@@ -233,14 +261,27 @@ describe('AuthenticationCallbackPage', () => {
     expect(authentication.loginWithProvider).toHaveBeenCalledOnce();
   });
 
-  test('shows the failure notice on the sign-in screen after it redirects', async () => {
-    await renderCallback(callbackPath({ error: 'access_denied', error_description: '권한을 허용하지 않았습니다.' }), {
-      signInElement: <SignInPage />,
-    });
+  test.each([
+    {
+      case: 'a provider error',
+      parameters: { error: 'access_denied', error_description: '권한을 허용하지 않았습니다.' },
+      description: '권한을 허용하지 않았습니다.',
+    },
+    {
+      case: 'a missing session_token',
+      parameters: { user: encodeUser(USER), access_token: 'provider-access-token' },
+      description: SESSION_TOKEN_MISSING,
+    },
+  ])('shows the failure notice for $case on the sign-in screen after it redirects', async ({
+    parameters,
+    description,
+  }) => {
+    await renderCallback(callbackPath(parameters), { signInElement: <SignInPage /> });
 
     const alert = page.getByRole('alert');
     await expect.element(alert).toHaveTextContent('로그인 실패');
-    await expect.element(alert).toHaveTextContent('권한을 허용하지 않았습니다.');
+    await expect.element(alert).toHaveTextContent(description);
+    await expect.element(alert).not.toHaveTextContent('provider-access-token');
     await expect.element(page.getByRole('button', { name: 'Google로 계속하기' })).toBeVisible();
   });
 });

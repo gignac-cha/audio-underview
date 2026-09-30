@@ -27,7 +27,9 @@ type ColorRole =
   | 'dangerSoft'
   | 'focusRing'
   | 'skeletonBase'
-  | 'skeletonHighlight';
+  | 'skeletonHighlight'
+  | 'logoBackground'
+  | 'onLogoBackground';
 
 type ShadowRole = 'floating';
 
@@ -52,6 +54,12 @@ export interface Theme {
  * ring uses the ink color, not the accent, so it stands apart from teal fills.
  * Skeleton bars are dark enough (1.55:1 on `surface`) to read as content that
  * is on its way rather than an empty box.
+ *
+ * `logoBackground` is the white of the logo chip inside a filled button:
+ * Google's brand rules put the standard color "G" on white only. Every theme
+ * keeps it white, and `onLogoBackground` (the color of single-color marks such
+ * as GitHub's on that chip) keeps it dark (14.0:1), so the chip reads the same
+ * whatever the theme around it.
  */
 export const lightTheme: Theme = {
   colorScheme: 'light',
@@ -76,6 +84,8 @@ export const lightTheme: Theme = {
     focusRing: '#18302B',
     skeletonBase: '#C6CFC9',
     skeletonHighlight: '#D9E0DB',
+    logoBackground: '#FFFFFF',
+    onLogoBackground: '#18302B',
   },
   shadow: {
     floating: '0 0.75rem 2rem -0.5rem rgba(24, 48, 43, 0.22), 0 0.125rem 0.25rem rgba(24, 48, 43, 0.08)',
@@ -261,6 +271,10 @@ export const space = {
  * `space[2]` above and below, so a row that holds a button is exactly as tall
  * as a row that holds only text. Lists reserve room in multiples of it so the
  * content below does not move when rows arrive.
+ * `logoChip` is the white tile that holds a provider mark inside a large
+ * button: a fixed `iconLarge` mark with `space[2]` of white on every side
+ * (8 + 24 + 8). In the 56px `controlLarge` button it sits `space[2]` from the
+ * top, bottom, and start edges.
  */
 export const size = {
   touchTarget: '2.75rem',
@@ -268,6 +282,7 @@ export const size = {
   listRow: '3.75rem',
   iconRegular: '1.25rem',
   iconLarge: '1.5rem',
+  logoChip: '2.5rem',
   avatarSmall: '2rem',
   avatarLarge: '4.5rem',
   borderWidth: '1px',
@@ -276,9 +291,14 @@ export const size = {
   currentIndicator: '0.1875rem',
 } as const;
 
-/** Rounded corners: small for things you press, larger for things that hold content. */
+/**
+ * Rounded corners: small for things you press, larger for things that hold
+ * content. `logoChip` is tighter than `control` because the chip sits just
+ * inside a button's corner.
+ */
 export const radius = {
   control: '0.375rem',
+  logoChip: '0.25rem',
   container: '0.625rem',
   round: '50%',
 } as const;

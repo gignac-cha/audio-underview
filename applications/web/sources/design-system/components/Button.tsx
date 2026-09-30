@@ -11,7 +11,11 @@ export interface ButtonProps extends ComponentPropsWithRef<'button'> {
   variant?: ButtonVariant;
   /** `regular` is 44px tall, `large` is 56px tall. */
   size?: ButtonSize;
-  /** An icon or logo shown before the label. It is hidden from screen readers. */
+  /**
+   * An icon or logo shown before the label. It is hidden from screen readers.
+   * A `ProviderLogoChip` in a large button sits as far from the start edge as
+   * from the top and bottom.
+   */
   leading?: ReactNode;
   /** Fills the container width and aligns the content to the start edge, so stacked buttons line up. */
   fullWidth?: boolean;
@@ -44,6 +48,13 @@ const StyledButton = styled.button`
     padding: 0 ${space[5]};
     gap: ${space[4]};
     font-size: ${textStyle.lead.fontSize};
+  }
+
+  /* The 40px logo chip in the 56px button: the same 8px from the outer start
+     edge as from the top and bottom (the 1px border counts toward it), so the
+     chip reads as a slot set into the button. */
+  &[data-size='large']:has(> [data-button-leading] > [data-logo-chip]) {
+    padding-inline-start: calc(${space[2]} - ${size.borderWidth});
   }
 
   &[data-full-width='true'] {
@@ -149,7 +160,11 @@ export function Button({
       data-size={buttonSize}
       data-full-width={fullWidth ? 'true' : undefined}
     >
-      {leading !== undefined && <Leading aria-hidden="true">{leading}</Leading>}
+      {leading !== undefined && (
+        <Leading aria-hidden="true" data-button-leading="">
+          {leading}
+        </Leading>
+      )}
       <Label data-button-label="">{children}</Label>
     </StyledButton>
   );
