@@ -12,9 +12,9 @@ on:
       - '**/*.md'
       - 'documents/**'
 
-# One group per commit, so a later push never cancels an earlier push's preview.
+# One group per branch, so a new push cancels the earlier push's run.
 concurrency:
-  group: deploy-web-${{ github.event.pull_request.head.sha || github.ref }}
+  group: deploy-web-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
