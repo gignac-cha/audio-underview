@@ -1,7 +1,9 @@
 import {
+  SYSTEM_USER_UUID,
   createCrawler,
   listCrawlersByUser,
   getCrawler,
+  getSystemCrawlerByName,
   updateCrawler,
   deleteCrawler,
 } from './crawlers.ts';
@@ -97,6 +99,52 @@ describe('getCrawler', () => {
 
     const result = await getCrawler(client, 'crawler-1', 'uuid-1');
     expect(result).toBeUndefined();
+  });
+});
+
+describe('SYSTEM_USER_UUID', () => {
+  test('is the system user seeded by migration 010', () => {
+    expect(SYSTEM_USER_UUID).toBe('00000000-0000-0000-0000-000000000001');
+  });
+});
+
+describe('getSystemCrawlerByName', () => {
+  const systemCrawler = { ...sampleCrawler, user_uuid: SYSTEM_USER_UUID, name: 'geeknews-list' };
+
+  test('queries crawlers by the system user and name', async () => {
+    const client = createMockClient({ crawlers: { data: systemCrawler, error: null } });
+
+    await getSystemCrawlerByName(client, 'geeknews-list');
+
+    expect(client.from).toHaveBeenCalledWith('crawlers');
+    const chain = client.from.mock.results[0].value;
+    expect(chain.eq).toHaveBeenCalledWith('user_uuid', SYSTEM_USER_UUID);
+    expect(chain.eq).toHaveBeenCalledWith('name', 'geeknews-list');
+    expect(chain.maybeSingle).toHaveBeenCalled();
+  });
+
+  test('returns crawler when found', async () => {
+    const client = createMockClient({ crawlers: { data: systemCrawler, error: null } });
+
+    const result = await getSystemCrawlerByName(client, 'geeknews-list');
+    expect(result).toEqual(systemCrawler);
+  });
+
+  test('returns undefined when not found', async () => {
+    const client = createMockClient({ crawlers: { data: null, error: null } });
+
+    const result = await getSystemCrawlerByName(client, 'missing');
+    expect(result).toBeUndefined();
+  });
+
+  test('throws on error', async () => {
+    const client = createMockClient({
+      crawlers: { data: null, error: { code: 'OTHER', message: 'fail' } },
+    });
+
+    await expect(getSystemCrawlerByName(client, 'geeknews-list')).rejects.toThrow(
+      'Failed to get system crawler: fail',
+    );
   });
 });
 

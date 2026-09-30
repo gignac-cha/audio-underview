@@ -481,6 +481,66 @@ describe('crawler-code-runner-function', () => {
     });
   });
 
+  describe('POST /run request headers', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('sends the request headers when fetching the target URL for web type', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        status: 200,
+        text: () => Promise.resolve('hello'),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const event = createEvent({
+        method: 'POST',
+        path: '/run',
+        origin: 'https://example.com',
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'web',
+          mode: 'run',
+          url: 'https://target.example.com/data',
+          code: '(text) => text',
+        }),
+      });
+      const response = await handler(event);
+
+      expect(response.statusCode).toBe(200);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [fetchedURL, requestOptions] = fetchMock.mock.calls[0];
+      expect(fetchedURL).toBe('https://target.example.com/data');
+      expect(Object.fromEntries(new Headers(requestOptions.headers))).toEqual({
+        'user-agent': 'AudioUnderviewBot/1.0 (+https://audio-underview.pages.dev)',
+        accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'accept-language': 'ko,en;q=0.8',
+      });
+    });
+
+    it('does not call fetch for data type', async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const event = createEvent({
+        method: 'POST',
+        path: '/run',
+        origin: 'https://example.com',
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'data',
+          mode: 'run',
+          data: 'hello',
+          code: '(data) => data',
+        }),
+      });
+      const response = await handler(event);
+
+      expect(response.statusCode).toBe(200);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
   describe('POST /run data type - successful execution', () => {
     it('executes code against provided data object', async () => {
       const event = createEvent({

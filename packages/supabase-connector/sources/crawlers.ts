@@ -14,6 +14,9 @@ export interface PaginatedCrawlers {
   total: number;
 }
 
+/** Owner of the system crawlers (migration 010). It has no accounts row, so nobody can sign in as it. */
+export const SYSTEM_USER_UUID = '00000000-0000-0000-0000-000000000001';
+
 /**
  * Creates a new crawler.
  *
@@ -126,6 +129,41 @@ export async function getCrawlerByID(
 
       span.setAttribute('db.rows_affected', 1);
       return data as CrawlerRow;
+    }
+  );
+}
+
+/**
+ * Gets a system crawler by name.
+ * Only crawlers owned by the system user are looked up; names are unique among them.
+ *
+ * @param client - Supabase client
+ * @param name - System crawler name
+ * @returns Crawler row if found, undefined otherwise
+ */
+export async function getSystemCrawlerByName(
+  client: SupabaseClientType,
+  name: string,
+): Promise<CrawlerRow | undefined> {
+  return traceDatabaseOperation(
+    { serviceName: 'supabase-connector', operation: 'select', table: 'crawlers' },
+    async (span) => {
+      span.setAttribute('db.query.name', name);
+
+      const { data, error } = await client
+        .from('crawlers')
+        .select('*')
+        .eq('user_uuid', SYSTEM_USER_UUID)
+        .eq('name', name)
+        .maybeSingle();
+
+      if (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw new Error(`Failed to get system crawler: ${error.message}`);
+      }
+
+      span.setAttribute('db.rows_affected', data === null ? 0 : 1);
+      return (data as CrawlerRow | null) ?? undefined;
     }
   );
 }
