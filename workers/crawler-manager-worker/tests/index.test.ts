@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from 'vitest';
 import { env, fetchMock, SELF } from 'cloudflare:test';
 import { signJWT } from '@audio-underview/worker-tools';
+import { SYSTEM_USER_UUID } from '@audio-underview/supabase-connector';
+import type CrawlerManagerWorker from '../sources/index.ts';
 
 const WORKER_URL = 'https://worker.example.com';
 const MOCK_USER_UUID = '00000000-0000-0000-0000-000000000001';
@@ -819,6 +821,92 @@ describe('crawler-manager-worker', () => {
       expect(response.status).toBe(404);
       const body = await response.json();
       expect(body.error).toBe('not_found');
+    });
+  });
+
+  describe('executeCrawlerByName RPC', () => {
+    const crawlerManager = SELF as unknown as Service<typeof CrawlerManagerWorker>;
+    const INVALID_NAME_MESSAGE = 'Crawler name must be a non-empty string of at most 255 characters';
+    let fetchSpy: MockInstance<typeof fetch>;
+
+    function requestedOrigins(): string[] {
+      return fetchSpy.mock.calls.map(([input]) => new URL(input instanceof Request ? input.url : input).origin);
+    }
+
+    beforeEach(() => {
+      fetchSpy = vi.spyOn(globalThis, 'fetch');
+    });
+
+    afterEach(() => {
+      fetchSpy.mockRestore();
+    });
+
+    it('runs the system crawler code on the input URL and returns the result', async () => {
+      const crawler = mockCrawlerResponse({
+        user_uuid: SYSTEM_USER_UUID,
+        name: 'geeknews-list',
+        url_pattern: '^https://news\\.hada\\.io.*$',
+        code: '(body) => [{ title: body }]',
+      });
+
+      let supabasePath: string | undefined;
+      fetchMock
+        .get('https://supabase.example.com')
+        .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
+        .reply((options) => {
+          supabasePath = options.path;
+          return { statusCode: 200, data: JSON.stringify([crawler]) };
+        });
+
+      let codeRunnerBody: unknown;
+      fetchMock
+        .get('https://code-runner.example.com')
+        .intercept({ path: '/run', method: 'POST' })
+        .reply((options) => {
+          codeRunnerBody = JSON.parse(String(options.body));
+          return { statusCode: 200, data: JSON.stringify({ type: 'web', mode: 'run', result: [{ title: 'First' }] }) };
+        });
+
+      const result = await crawlerManager.executeCrawlerByName('geeknews-list', { url: 'https://news.hada.io/' });
+
+      expect(result).toEqual({ type: 'web', result: [{ title: 'First' }] });
+      expect(codeRunnerBody).toEqual({ type: 'web', mode: 'run', url: 'https://news.hada.io/', code: crawler.code });
+      expect(supabasePath).toContain(`user_uuid=eq.${SYSTEM_USER_UUID}`);
+      expect(supabasePath).toContain('name=eq.geeknews-list');
+      expect(requestedOrigins()).toEqual(['https://supabase.example.com', 'https://code-runner.example.com']);
+    });
+
+    it('throws without calling the code runner when the system crawler does not exist', async () => {
+      fetchMock
+        .get('https://supabase.example.com')
+        .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
+        .reply(200, JSON.stringify([]));
+
+      await expect(
+        crawlerManager.executeCrawlerByName('missing-crawler', { url: 'https://news.hada.io/' }),
+      ).rejects.toThrow("System crawler 'missing-crawler' not found");
+      expect(requestedOrigins()).toEqual(['https://supabase.example.com']);
+    });
+
+    it('throws without querying the database for an empty name', async () => {
+      await expect(
+        crawlerManager.executeCrawlerByName('', { url: 'https://news.hada.io/' }),
+      ).rejects.toThrow(INVALID_NAME_MESSAGE);
+      expect(requestedOrigins()).toEqual([]);
+    });
+
+    it('throws without querying the database for a 256-character name', async () => {
+      await expect(
+        crawlerManager.executeCrawlerByName('x'.repeat(256), { url: 'https://news.hada.io/' }),
+      ).rejects.toThrow(INVALID_NAME_MESSAGE);
+      expect(requestedOrigins()).toEqual([]);
+    });
+
+    it('throws without querying the database for a non-string name', async () => {
+      await expect(
+        crawlerManager.executeCrawlerByName(42 as unknown as string, { url: 'https://news.hada.io/' }),
+      ).rejects.toThrow(INVALID_NAME_MESSAGE);
+      expect(requestedOrigins()).toEqual([]);
     });
   });
 });

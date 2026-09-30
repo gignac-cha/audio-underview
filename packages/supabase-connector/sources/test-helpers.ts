@@ -136,6 +136,7 @@ export function createMockClient(
           promise[method] = vi.fn().mockReturnValue(promise);
         }
         promise.single = vi.fn().mockImplementation(() => Promise.resolve(result));
+        promise.maybeSingle = vi.fn().mockImplementation(() => Promise.resolve(result));
         return promise;
       };
 

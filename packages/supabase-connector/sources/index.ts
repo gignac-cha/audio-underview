@@ -125,10 +125,12 @@ export {
 // Crawler operations
 export type { PaginatedCrawlers } from './crawlers.ts';
 export {
+  SYSTEM_USER_UUID,
   createCrawler,
   listCrawlersByUser,
   getCrawler,
   getCrawlerByID,
+  getSystemCrawlerByName,
   updateCrawler,
   deleteCrawler,
 } from './crawlers.ts';

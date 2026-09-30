@@ -44,6 +44,13 @@ const FETCH_TIMEOUT_MILLISECONDS = 10_000;
 const CODE_EXECUTION_TIMEOUT_MILLISECONDS = 5_000;
 const MAX_CODE_LENGTH = 10_000;
 
+// news.hada.io returns 403 to library default user agents (node, undici, curl) and to values containing 'crawler'.
+const WEB_REQUEST_HEADERS = {
+  'user-agent': 'AudioUnderviewBot/1.0 (+https://audio-underview.pages.dev)',
+  accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'accept-language': 'ko,en;q=0.8',
+};
+
 const BLOCKED_IP_RANGES = [
   /^127\./, // loopback IPv4
   /^10\./, // RFC1918 Class A
@@ -274,7 +281,7 @@ async function handleRun(body: string | undefined, context: ResponseContext): Pr
     try {
       const signal = AbortSignal.timeout(FETCH_TIMEOUT_MILLISECONDS);
       logger.info('Fetching target URL', { url: targetURL.toString() }, { function: 'handleRun' });
-      const fetchResponse = await fetch(targetURL.toString(), { signal });
+      const fetchResponse = await fetch(targetURL.toString(), { signal, headers: WEB_REQUEST_HEADERS });
       responseText = await fetchResponse.text();
       logger.info('Target URL fetched', {
         status: fetchResponse.status,

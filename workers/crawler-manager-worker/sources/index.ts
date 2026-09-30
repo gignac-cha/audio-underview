@@ -14,6 +14,7 @@ import {
   listCrawlersByUser,
   getCrawler,
   getCrawlerByID,
+  getSystemCrawlerByName,
   updateCrawler,
   deleteCrawler,
   createCrawlerPermission,
@@ -296,6 +297,8 @@ async function handleDeleteCrawler(
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const MAX_SYSTEM_CRAWLER_NAME_LENGTH = 255;
+
 function parseCrawlerID(pathname: string): string | undefined {
   const match = pathname.match(/^\/crawlers\/([0-9a-f-]+)$/i);
   const id = match?.[1];
@@ -435,6 +438,32 @@ export default class CrawlerManagerWorker extends WorkerEntrypoint<Environment> 
     const crawler = await getCrawlerByID(supabaseClient, crawlerID);
     if (!crawler) {
       throw new Error(`Crawler ${crawlerID} not found`);
+    }
+
+    const codeRunnerClient = new HTTPCodeRunnerClient(this.env.CODE_RUNNER_FUNCTION_URL);
+    return executeCrawler(codeRunnerClient, crawler, input, rpcLogger);
+  }
+
+  // Service Binding RPC — resolves crawlers owned by the system user only.
+  // User crawlers are never looked up by name.
+  async executeCrawlerByName(name: string, input: unknown): Promise<CrawlerExecuteResult> {
+    if (typeof name !== 'string' || name.length === 0 || name.length > MAX_SYSTEM_CRAWLER_NAME_LENGTH) {
+      throw new Error('Crawler name must be a non-empty string of at most 255 characters');
+    }
+
+    const rpcLogger = logger.createChild({
+      function: 'executeCrawlerByName',
+      metadata: { name },
+    });
+
+    const supabaseClient = createSupabaseClient({
+      supabaseURL: this.env.SUPABASE_URL,
+      supabaseSecretKey: this.env.SUPABASE_SECRET_KEY,
+    });
+
+    const crawler = await getSystemCrawlerByName(supabaseClient, name);
+    if (!crawler) {
+      throw new Error(`System crawler '${name}' not found`);
     }
 
     const codeRunnerClient = new HTTPCodeRunnerClient(this.env.CODE_RUNNER_FUNCTION_URL);
