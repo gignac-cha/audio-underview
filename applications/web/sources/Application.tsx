@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
 import { AuthenticationProvider } from './contexts/AuthenticationContext.tsx';
 import { useAuthentication } from './hooks/use-authentication.ts';
-import { type OAuthProviderID } from '@audio-underview/sign-provider';
 import { SignInPage } from './pages/SignInPage.tsx';
 import { HomePage } from './pages/HomePage.tsx';
 import { CrawlersPage } from './pages/CrawlersPage.tsx';
@@ -10,17 +9,7 @@ import { SchedulersPage } from './pages/SchedulersPage.tsx';
 import { SchedulerDetailPage } from './pages/SchedulerDetailPage.tsx';
 import { AuthenticationCallbackPage } from './pages/AuthenticationCallbackPage.tsx';
 import { ProtectedRoute } from './components/ProtectedRoute.tsx';
-
-const ENABLED_PROVIDERS: OAuthProviderID[] = [
-  'google',
-  'apple',
-  'microsoft',
-  'facebook',
-  'github',
-  'discord',
-  'kakao',
-  'naver',
-];
+import { AVAILABLE_PROVIDERS } from './constants/provider-statuses.ts';
 
 function RootRedirect() {
   const { isAuthenticated, isLoading } = useAuthentication();
@@ -103,7 +92,7 @@ export function Application({ googleClientID, googleWorkerURL, githubWorkerURL }
         googleClientID={googleClientID}
         googleWorkerURL={googleWorkerURL}
         githubWorkerURL={githubWorkerURL}
-        enabledProviders={ENABLED_PROVIDERS}
+        enabledProviders={AVAILABLE_PROVIDERS}
       >
         <ApplicationRoutes />
       </AuthenticationProvider>

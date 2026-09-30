@@ -1,9 +1,14 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { z } from 'zod';
-import { useAuthentication } from '../hooks/use-authentication.ts';
-import { useToast } from '../hooks/use-toast.ts';
+import styled from '@emotion/styled';
+import { getJWTExpiration, oauthUserSchema, type OAuthUser } from '@audio-underview/sign-provider';
 import { createBrowserLogger } from '@audio-underview/logger';
+import { useAuthentication } from '../hooks/use-authentication.ts';
+import type { AuthenticationContextValue } from '../contexts/authentication-context-value.ts';
+import { PageLayout } from '../design-system/components/PageLayout.tsx';
+import { ActivityIndicator } from '../design-system/components/ActivityIndicator.tsx';
+import { showNotice } from '../design-system/notice-store.ts';
+import { color, fontSize, fontWeight, space, textStyle } from '../design-system/tokens.ts';
 
 const callbackLogger = createBrowserLogger({
   defaultContext: {
@@ -11,186 +16,151 @@ const callbackLogger = createBrowserLogger({
   },
 });
 
+const SERVICE_NAME = 'Audio Underview';
+const SIGNING_IN_MESSAGE = '로그인하는 중입니다';
+const FAILURE_TITLE = '로그인 실패';
+const DEFAULT_PROVIDER_ERROR_DESCRIPTION = '로그인에 실패했습니다.';
+
+type FailureReason =
+  | 'provider-error'
+  | 'missing-user'
+  | 'invalid-user'
+  | 'missing-session-token'
+  | 'invalid-session-token-expiration'
+  | 'login-failed';
+
+type CallbackOutcome =
+  | { kind: 'signed-in' }
+  | { kind: 'failed'; reason: FailureReason; description?: string };
+
+function failed(reason: FailureReason, description?: string): CallbackOutcome {
+  return { kind: 'failed', reason, description };
+}
+
+function parseUser(userParameter: string): OAuthUser | undefined {
+  try {
+    const result = oauthUserSchema.safeParse(JSON.parse(decodeURIComponent(userParameter)));
+    return result.success ? result.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
- * Schema for validating OAuth user data from callback
+ * Reads what the OAuth worker appended to the callback URL and signs in with
+ * the service session token. Never calls the network. Returns a reason code
+ * on failure; the reason carries no token or user value, so it is safe to log.
  */
-const oAuthUserSchema = z.object({
-  id: z.string().min(1),
-  email: z.email(),
-  name: z.string().min(1),
-  picture: z.url().optional(),
-  provider: z.enum(['google', 'github', 'apple', 'microsoft', 'facebook', 'discord', 'kakao', 'naver', 'linkedin', 'x']),
-  uuid: z.uuid().optional(),
-});
+function completeSignIn(
+  parameters: URLSearchParams,
+  loginWithProvider: AuthenticationContextValue['loginWithProvider'],
+): CallbackOutcome {
+  if (parameters.has('error')) {
+    const errorDescription = parameters.get('error_description');
+    const hasErrorDescription = errorDescription !== null && errorDescription.length > 0;
+    return failed('provider-error', hasErrorDescription ? errorDescription : DEFAULT_PROVIDER_ERROR_DESCRIPTION);
+  }
+
+  const userParameter = parameters.get('user');
+  if (userParameter === null) {
+    return failed('missing-user');
+  }
+
+  const user = parseUser(userParameter);
+  if (user === undefined) {
+    return failed('invalid-user');
+  }
+
+  // Only the service session token signs a person in. `access_token` is the
+  // provider's own token and never stands in for it.
+  const sessionToken = parameters.get('session_token');
+  if (sessionToken === null || sessionToken.length === 0) {
+    return failed('missing-session-token');
+  }
+
+  const expiresAt = getJWTExpiration(sessionToken);
+  const now = Date.now();
+  if (expiresAt === undefined || expiresAt <= now) {
+    return failed('invalid-session-token-expiration');
+  }
+
+  const result = loginWithProvider(user.provider, user, sessionToken, expiresAt - now);
+  if (!result.success) {
+    return failed('login-failed');
+  }
+
+  return { kind: 'signed-in' };
+}
+
+/**
+ * Left-aligned on the same page edge as the sign-in screen's service name, and
+ * vertically centered like it, so returning from the provider feels like the
+ * same place. The service name in small type says which service is signing in.
+ */
+const Content = styled.div`
+  display: grid;
+  row-gap: ${space[3]};
+  justify-items: start;
+`;
+
+const ServiceName = styled.p`
+  ${textStyle.label};
+  font-weight: ${fontWeight.semibold};
+  color: ${color.inkSecondary};
+`;
+
+/**
+ * The level meter stands on the text baseline and rises to the top of the
+ * Hangul glyphs, so meter and words read as one line. Its size is taken from
+ * this row's font size.
+ */
+const Status = styled.div`
+  display: flex;
+  align-items: baseline;
+  gap: ${space[3]};
+  font-size: ${fontSize.heading3};
+`;
+
+const Message = styled.h1`
+  ${textStyle.heading3};
+  color: ${color.ink};
+`;
 
 export function AuthenticationCallbackPage() {
   const navigate = useNavigate();
   const [searchParameters] = useSearchParams();
   const { loginWithProvider } = useAuthentication();
-  const { showError } = useToast();
-  const [isProcessing, setIsProcessing] = useState(true);
-  const processingRef = useRef(false);
+  const hasHandledCallbackRef = useRef(false);
 
   useEffect(() => {
-    const processCallback = async () => {
-      // Prevent re-entrancy
-      if (processingRef.current) {
-        return;
-      }
-      processingRef.current = true;
-      setIsProcessing(true);
+    // React StrictMode runs this effect twice on mount and keeps the ref
+    // between the runs, so the same callback is handled once.
+    if (hasHandledCallbackRef.current) {
+      return;
+    }
+    hasHandledCallbackRef.current = true;
 
-      callbackLogger.info('Processing OAuth callback', {
-        hasUser: searchParameters.has('user'),
-        hasAccessToken: searchParameters.has('access_token'),
-        hasError: searchParameters.has('error'),
-      }, { function: 'processCallback' });
+    const outcome = completeSignIn(searchParameters, loginWithProvider);
 
-      try {
-        // Check for error from OAuth provider
-        const error = searchParameters.get('error');
-        if (error) {
-          const errorDescription = searchParameters.get('error_description') ?? 'Authentication failed';
-          callbackLogger.error('OAuth provider returned error', new Error(error), {
-            function: 'processCallback',
-            metadata: { error, errorDescription },
-          });
-          showError('로그인 실패', errorDescription);
-          navigate('/sign/in', { replace: true });
-          return;
-        }
+    if (outcome.kind === 'signed-in') {
+      navigate('/home', { replace: true });
+      return;
+    }
 
-        // Get user data and access token
-        const userParameter = searchParameters.get('user');
-        const accessToken = searchParameters.get('access_token');
+    callbackLogger.warn('Sign-in callback failed', { reason: outcome.reason }, { function: 'completeSignIn' });
+    showNotice({ title: FAILURE_TITLE, description: outcome.description });
+    navigate('/sign/in', { replace: true });
+  }, [searchParameters, loginWithProvider, navigate]);
 
-        if (!userParameter || !accessToken) {
-          callbackLogger.error('Missing authentication data in callback', undefined, {
-            function: 'processCallback',
-            metadata: { hasUser: !!userParameter, hasAccessToken: !!accessToken },
-          });
-          showError('로그인 실패', 'Missing authentication data');
-          navigate('/sign/in', { replace: true });
-          return;
-        }
-
-        // Parse and validate user data with Zod schema
-        const parsedUserData = JSON.parse(decodeURIComponent(userParameter));
-        const validationResult = oAuthUserSchema.safeParse(parsedUserData);
-
-        if (!validationResult.success) {
-          const errors = validationResult.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
-          callbackLogger.error('User data validation failed', new Error(errors), {
-            function: 'processCallback',
-            metadata: { validationErrors: validationResult.error.issues },
-          });
-          throw new Error(`Invalid user data: ${errors}`);
-        }
-
-        const user = validationResult.data;
-
-        callbackLogger.info('OAuth callback data validated successfully', {
-          provider: user.provider,
-          userID: user.id,
-        }, { function: 'processCallback' });
-
-        // Exchange OAuth access token for a self-issued JWT
-        const crawlerManagerURL = import.meta.env.VITE_CRAWLER_MANAGER_WORKER_URL;
-        if (!crawlerManagerURL) {
-          throw new Error('Crawler manager worker URL is not configured');
-        }
-
-        const tokenResponse = await fetch(`${crawlerManagerURL}/authentication/token`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider: user.provider, access_token: accessToken }),
-          signal: AbortSignal.timeout(10_000),
-        });
-
-        if (!tokenResponse.ok) {
-          const errorBody = await tokenResponse.json().catch(() => ({})) as Record<string, unknown>;
-          const errorDescription = String(errorBody.error_description ?? errorBody.error ?? 'Token exchange failed');
-          callbackLogger.error('Token exchange failed', new Error(errorDescription), {
-            function: 'processCallback',
-            metadata: { provider: user.provider, status: tokenResponse.status },
-          });
-          throw new Error(errorDescription);
-        }
-
-        const tokenData = await tokenResponse.json() as Record<string, unknown>;
-
-        if (typeof tokenData.token !== 'string' || typeof tokenData.expires_in !== 'number') {
-          throw new Error('Invalid token exchange response format');
-        }
-
-        // Login with the JWT (not the OAuth access token)
-        const result = loginWithProvider(user.provider, user, tokenData.token, (tokenData.expires_in as number) * 1000);
-
-        if (result.success) {
-          callbackLogger.info('OAuth login successful, redirecting to home', {
-            provider: user.provider,
-            userID: user.id,
-          }, { function: 'processCallback' });
-          navigate('/home', { replace: true });
-        } else {
-          callbackLogger.error('Failed to save authentication', new Error(result.error ?? 'Unknown error'), {
-            function: 'processCallback',
-            metadata: { provider: user.provider },
-          });
-          showError('로그인 실패', result.error ?? 'Failed to save authentication');
-          navigate('/sign/in', { replace: true });
-        }
-      } catch (error) {
-        callbackLogger.error('Failed to process OAuth callback', error, {
-          function: 'processCallback',
-        });
-        showError('로그인 실패', 'Invalid authentication response');
-        navigate('/sign/in', { replace: true });
-      } finally {
-        setIsProcessing(false);
-        processingRef.current = false;
-      }
-    };
-
-    processCallback();
-
-    return () => {
-      processingRef.current = false;
-    };
-  }, [searchParameters, loginWithProvider, navigate, showError]);
-
-  if (isProcessing) {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          height: '100vh',
-          flexDirection: 'column',
-          gap: '1rem',
-        }}
-      >
-        <div
-          style={{
-            width: '40px',
-            height: '40px',
-            border: '3px solid #e2e8f0',
-            borderTop: '3px solid #3b82f6',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite',
-          }}
-        />
-        <p style={{ color: '#64748b' }}>로그인 처리 중...</p>
-        <style>{`
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-        `}</style>
-      </div>
-    );
-  }
-
-  return null;
+  return (
+    <PageLayout arrangement="vertically-centered">
+      <Content>
+        <ServiceName>{SERVICE_NAME}</ServiceName>
+        <Status role="status">
+          <ActivityIndicator size="text" />
+          <Message>{SIGNING_IN_MESSAGE}</Message>
+        </Status>
+      </Content>
+    </PageLayout>
+  );
 }

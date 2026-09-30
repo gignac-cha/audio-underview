@@ -1,196 +1,193 @@
-import { useEffect } from 'react';
-import { useNavigate } from 'react-router';
+import { Navigate } from 'react-router';
 import styled from '@emotion/styled';
-import { keyframes } from '@emotion/react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
-import { faHeadphones } from '@fortawesome/free-solid-svg-icons';
-import {
-  faApple,
-  faMicrosoft,
-  faFacebook,
-  faGithub,
-  faDiscord,
-  faGoogle,
-} from '@fortawesome/free-brands-svg-icons';
-import {
-  type OAuthProviderID,
-  type ProviderDisplayConfiguration,
-} from '@audio-underview/sign-provider';
+import { PROVIDER_DISPLAY_CONFIGURATIONS, type OAuthProviderID } from '@audio-underview/sign-provider';
 import { useAuthentication } from '../hooks/use-authentication.ts';
-import { SignInButtons } from '../components/SignInButtons.tsx';
-import { useToast } from '../hooks/use-toast.ts';
+import { AVAILABLE_PROVIDERS, PREPARING_PROVIDERS } from '../constants/provider-statuses.ts';
+import { PageLayout } from '../design-system/components/PageLayout.tsx';
+import { Button } from '../design-system/components/Button.tsx';
+import { ProviderLogo } from '../design-system/components/ProviderLogo.tsx';
+import { VisuallyHidden } from '../design-system/components/VisuallyHidden.tsx';
+import { showNotice } from '../design-system/notice-store.ts';
+import { color, layout, media, size, space, textStyle } from '../design-system/tokens.ts';
 
-const PROVIDER_ICONS: Partial<Record<OAuthProviderID, IconDefinition>> = {
-  google: faGoogle,
-  apple: faApple,
-  microsoft: faMicrosoft,
-  facebook: faFacebook,
-  github: faGithub,
-  discord: faDiscord,
-};
+const SERVICE_NAME = 'Audio Underview';
+const INTRODUCTION = '웹에서 모은 소식을 오디오 뉴스캐스트로 듣습니다';
+const PREPARING_HEADING = '준비 중인 로그인';
+const PREPARING_LABEL = '준비 중';
+const PREPARING_HEADING_ID = 'preparing-sign-in-heading';
+const START_FAILURE_NOTICE = {
+  title: '로그인을 시작하지 못했습니다',
+  description: '잠시 후 다시 시도해주세요.',
+} as const;
 
-const fadeUp = keyframes`
-  from {
-    opacity: 0;
-    transform: translateY(10px);
+function continueLabel(providerID: OAuthProviderID): string {
+  return `${PROVIDER_DISPLAY_CONFIGURATIONS[providerID].displayName}로 계속하기`;
+}
+
+/**
+ * One column on phones. From `medium` up, the service name and the sign-in
+ * list sit side by side with their top edges aligned. The name gets the wider
+ * share, so the introduction stays on one line at 768px and the buttons do not
+ * stretch past their labels on wide screens. The page layout centers the whole
+ * arrangement vertically, so it reads as one band across the middle rather
+ * than a cluster at the top.
+ */
+const Arrangement = styled.div`
+  display: grid;
+  row-gap: ${space[7]};
+  align-items: start;
+
+  ${media.medium} {
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    column-gap: ${space[7]};
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+
+  ${media.large} {
+    column-gap: ${space[8]};
   }
 `;
 
-const PageContainer = styled.div`
+const Introduction = styled.div`
+  display: grid;
+  row-gap: ${space[4]};
+
+  ${media.medium} {
+    row-gap: ${space[5]};
+  }
+`;
+
+/**
+ * The one loud element on the screen. `min-content` stacks the two words into
+ * a wordmark at every width; `overflow-wrap: normal` keeps each word whole
+ * while the layout measures that width. Trimming the top of the text box to
+ * the cap height lines the letters up with the top of the first button.
+ */
+const ServiceName = styled.h1`
+  ${textStyle.display};
+  width: min-content;
+  overflow-wrap: normal;
+  color: ${color.ink};
+  text-box: trim-start cap alphabetic;
+`;
+
+const Tagline = styled.p`
+  ${textStyle.lead};
+  max-width: ${layout.readingMaxWidth};
+  color: ${color.inkSecondary};
+`;
+
+const SignInColumn = styled.div`
+  display: grid;
+  row-gap: ${space[6]};
+
+  ${media.medium} {
+    row-gap: ${space[7]};
+  }
+`;
+
+const AvailableList = styled.ul`
+  display: grid;
+  row-gap: ${space[3]};
+  padding: 0;
+  list-style: none;
+`;
+
+const PreparingSection = styled.section`
+  display: grid;
+  row-gap: ${space[4]};
+`;
+
+const PreparingHeading = styled.h2`
+  ${textStyle.label};
+  padding-block-end: ${space[3]};
+  border-block-end: ${size.borderWidth} solid ${color.line};
+  color: ${color.inkSecondary};
+`;
+
+/** Plain text, not boxes: nothing here looks pressable, and muted ink keeps it behind the buttons. */
+const PreparingList = styled.ul`
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: ${space[3]} ${space[4]};
+  padding: 0;
+  list-style: none;
+  color: ${color.inkMuted};
+
+  ${media.extraLarge} {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+`;
+
+/** One step smaller than the button labels, so the list stays behind the two actions. */
+const PreparingItem = styled.li`
   display: flex;
-  justify-content: center;
   align-items: center;
-  min-height: 100vh;
-  padding: 1rem;
-  position: relative;
-  background: radial-gradient(
-    circle at 50% 100%,
-    var(--bg-accent-dark) 0%,
-    var(--bg-deep) 50%
-  );
-`;
-
-const Container = styled.div`
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: 16px;
-  padding: 2.5rem 1.5rem;
-  width: 100%;
-  max-width: 420px;
-  text-align: center;
-  box-shadow: var(--shadow-md);
-  animation: ${fadeUp} 0.4s ease-out;
-`;
-
-const Header = styled.div`
-  margin-bottom: 1.5rem;
-
-  h1 {
-    font-size: 1.5rem;
-    font-weight: 600;
-    margin: 0 0 0.5rem 0;
-    color: var(--text-primary);
-  }
-
-  p {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    margin: 0;
-  }
-`;
-
-const SignInIcon = styled.span`
-  font-size: 2.5rem;
-  color: var(--accent-primary);
-  margin-bottom: 1rem;
-  display: inline-block;
-`;
-
-const ButtonContainer = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  align-items: stretch;
-`;
-
-const SocialIcon = styled.span`
-  font-size: 1.25rem;
-  width: 1.25rem;
-
-  svg {
-    font-size: 1.25rem;
-    width: 1.25rem;
-  }
-`;
-
-const SocialIconText = styled.span`
-  font-size: 1rem;
-  font-weight: 700;
-  width: 1.25rem;
-  text-align: center;
+  gap: ${space[2]};
+  min-width: 0;
+  ${textStyle.small};
 `;
 
 export function SignInPage() {
-  const navigate = useNavigate();
-  const { isAuthenticated } = useAuthentication();
-  const { showError, showToast } = useToast();
+  const { isAuthenticated, isGoogleConfigured, isGitHubConfigured, loginWithGoogle, loginWithGitHub } =
+    useAuthentication();
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      navigate('/home', { replace: true });
-    }
-  }, [isAuthenticated, navigate]);
+  if (isAuthenticated) {
+    return <Navigate to="/home" replace />;
+  }
 
-  const handleError = (error: string, providerID: OAuthProviderID) => {
-    console.error(`${providerID} login failed:`, error);
-    showError('로그인에 실패했습니다.', error.length === 0 ? '다시 시도해주세요.' : error);
+  const starters: Partial<Record<OAuthProviderID, { isConfigured: boolean; start: () => void }>> = {
+    google: { isConfigured: isGoogleConfigured, start: loginWithGoogle },
+    github: { isConfigured: isGitHubConfigured, start: loginWithGitHub },
   };
 
-  const handleProviderClick = (providerID: OAuthProviderID) => {
-    showToast(`${providerID} 로그인`, '아직 구현되지 않았습니다.', 'info');
-    console.log(`Login with ${providerID} requested`);
-  };
-
-  const renderIcon = (providerID: OAuthProviderID, configuration: ProviderDisplayConfiguration) => {
-    const icon = PROVIDER_ICONS[providerID];
-
-    if (icon) {
-      return (
-        <SocialIcon>
-          <FontAwesomeIcon icon={icon} />
-        </SocialIcon>
-      );
+  const startSignIn = (providerID: OAuthProviderID) => {
+    const starter = starters[providerID];
+    if (starter === undefined || !starter.isConfigured) {
+      showNotice(START_FAILURE_NOTICE);
+      return;
     }
-
-    if (configuration.iconType === 'svg') {
-      return (
-        <SocialIcon>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox={configuration.svgViewBox}
-            fill="currentColor"
-            width="1.25em"
-            height="1.25em"
-            role="img"
-            aria-label={`${configuration.displayName} logo`}
-          >
-            <path d={configuration.svgPath} />
-          </svg>
-        </SocialIcon>
-      );
-    }
-
-    if (configuration.iconType === 'text') {
-      return <SocialIconText>{configuration.iconText}</SocialIconText>;
-    }
-
-    return <SocialIconText>{configuration.displayName[0]}</SocialIconText>;
+    starter.start();
   };
 
   return (
-    <PageContainer>
-      <Container>
-        <Header>
-          <SignInIcon>
-            <FontAwesomeIcon icon={faHeadphones} />
-          </SignInIcon>
-          <h1>Audio Underview</h1>
-          <p>Sign in to continue</p>
-        </Header>
+    <PageLayout arrangement="vertically-centered">
+      <Arrangement>
+        <Introduction>
+          <ServiceName>{SERVICE_NAME}</ServiceName>
+          <Tagline>{INTRODUCTION}</Tagline>
+        </Introduction>
 
-        <ButtonContainer>
-          <SignInButtons
-            onError={handleError}
-            onProviderClick={handleProviderClick}
-            renderIcon={renderIcon}
-          />
-        </ButtonContainer>
-      </Container>
-    </PageContainer>
+        <SignInColumn>
+          <AvailableList>
+            {AVAILABLE_PROVIDERS.map((providerID) => (
+              <li key={providerID}>
+                <Button
+                  variant="primary"
+                  size="large"
+                  fullWidth
+                  leading={<ProviderLogo provider={providerID} size="large" />}
+                  onClick={() => startSignIn(providerID)}
+                >
+                  {continueLabel(providerID)}
+                </Button>
+              </li>
+            ))}
+          </AvailableList>
+
+          <PreparingSection aria-labelledby={PREPARING_HEADING_ID}>
+            <PreparingHeading id={PREPARING_HEADING_ID}>{PREPARING_HEADING}</PreparingHeading>
+            <PreparingList>
+              {PREPARING_PROVIDERS.map((providerID) => (
+                <PreparingItem key={providerID}>
+                  <ProviderLogo provider={providerID} />
+                  <span>{PROVIDER_DISPLAY_CONFIGURATIONS[providerID].displayName}</span>
+                  <VisuallyHidden>{` ${PREPARING_LABEL}`}</VisuallyHidden>
+                </PreparingItem>
+              ))}
+            </PreparingList>
+          </PreparingSection>
+        </SignInColumn>
+      </Arrangement>
+    </PageLayout>
   );
 }
