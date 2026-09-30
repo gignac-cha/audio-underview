@@ -5,8 +5,8 @@ workers_dev = false
 
 [[d1_databases]]
 binding = "DB"
-database_name = "audio-underview-api-keys"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_name = "audio-underview-provider-keys"
+database_id = "3fe746d3-ca33-48df-8bf9-d7f3e4312a3b"
 
 [vars]
 PROVIDER_KEY_KEK_VERSION = "1"

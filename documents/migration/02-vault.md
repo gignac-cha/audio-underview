@@ -119,8 +119,8 @@ export {
 
   [[d1_databases]]
   binding = "DB"
-  database_name = "audio-underview-api-keys"
-  database_id = "00000000-0000-0000-0000-000000000000"
+  database_name = "audio-underview-provider-keys"
+  database_id = "<wrangler d1 create audio-underview-provider-keys 출력의 id>"
 
   [vars]
   PROVIDER_KEY_KEK_VERSION = "1"
