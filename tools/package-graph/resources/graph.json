@@ -222,6 +222,14 @@
       "depth": 1
     },
     {
+      "name": "@audio-underview/deployment-planner",
+      "label": "deployment-planner",
+      "path": "tools/deployment-planner",
+      "kind": "developer-tool",
+      "category": "developer-tools",
+      "depth": 0
+    },
+    {
       "name": "@audio-underview/environment-generator",
       "label": "environment-generator",
       "path": "tools/environment-generator",
@@ -380,6 +388,14 @@
       "kind": "worker",
       "category": "oauth-workers",
       "depth": 2
+    },
+    {
+      "name": "@audio-underview/user-vault-worker",
+      "label": "user-vault-worker",
+      "path": "workers/user-vault-worker",
+      "kind": "worker",
+      "category": "platform-workers",
+      "depth": 1
     },
     {
       "name": "@audio-underview/x-oauth-provider-worker",
@@ -944,6 +960,11 @@
     {
       "source": "@audio-underview/twitch-oauth-provider-worker",
       "target": "@audio-underview/worker-tools",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/user-vault-worker",
+      "target": "@audio-underview/logger",
       "development": false
     },
     {

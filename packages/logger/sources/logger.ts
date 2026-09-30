@@ -8,6 +8,85 @@ import {
   type ErrorContext,
   LOG_LEVEL_VALUES,
 } from './types.ts';
+import { redactSecrets } from './secret-redaction.ts';
+
+/**
+ * Values nested this deep or deeper are replaced with '[Truncated]' when scrubbing
+ */
+const SCRUB_MAXIMUM_DEPTH = 8;
+
+/**
+ * Recursively copy a value, redacting credentials from every string in it.
+ * ancestorObjects holds only the objects on the current recursion path, so a shared
+ * reference is expanded wherever it appears and only a real cycle becomes '[Circular]'
+ */
+function scrubValue(value: unknown, depth: number, ancestorObjects: WeakSet<object>): unknown {
+  if (typeof value === 'string') {
+    return redactSecrets(value);
+  }
+
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+
+  if (depth >= SCRUB_MAXIMUM_DEPTH) {
+    return '[Truncated]';
+  }
+
+  if (ancestorObjects.has(value)) {
+    return '[Circular]';
+  }
+
+  if (value instanceof Date) {
+    return value;
+  }
+
+  ancestorObjects.add(value);
+  try {
+    if (value instanceof Error) {
+      const scrubbedError: Record<string, unknown> = {
+        name: scrubValue(value.name, depth + 1, ancestorObjects),
+        message: redactSecrets(value.message),
+        stack: typeof value.stack === 'string' ? redactSecrets(value.stack) : undefined,
+        cause: value.cause !== undefined ? scrubValue(value.cause, depth + 1, ancestorObjects) : undefined,
+      };
+      // Extra properties such as code or status are kept, but never replace the four fields above
+      for (const [key, child] of Object.entries(value)) {
+        const scrubbedKey = redactSecrets(key);
+        if (!Object.hasOwn(scrubbedError, scrubbedKey)) {
+          scrubbedError[scrubbedKey] = scrubValue(child, depth + 1, ancestorObjects);
+        }
+      }
+      return scrubbedError;
+    }
+
+    // Objects such as URL are scrubbed in the form JSON.stringify would write them
+    const toJSON = (value as { toJSON?: unknown }).toJSON;
+    if (typeof toJSON === 'function') {
+      return scrubValue(toJSON.call(value), depth + 1, ancestorObjects);
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((element) => scrubValue(element, depth + 1, ancestorObjects));
+    }
+
+    // Property names are redacted too: a map keyed by token would otherwise print the token
+    const scrubbed: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value)) {
+      scrubbed[redactSecrets(key)] = scrubValue(child, depth + 1, ancestorObjects);
+    }
+    return scrubbed;
+  } finally {
+    ancestorObjects.delete(value);
+  }
+}
+
+/**
+ * Scrub a whole log entry right before it is output
+ */
+function scrubLogEntry(entry: LogEntry): LogEntry {
+  return scrubValue(entry, 0, new WeakSet()) as LogEntry;
+}
 
 /**
  * Console-based logger with structured logging support
@@ -126,10 +205,13 @@ export class Logger {
       return;
     }
 
+    // Both JSON and pretty output use the scrubbed entry
+    const scrubbedEntry = scrubLogEntry(entry);
+
     if (this.options.formatAsJSON) {
-      this.outputJSON(level, entry);
+      this.outputJSON(level, scrubbedEntry);
     } else {
-      this.outputPretty(level, entry);
+      this.outputPretty(level, scrubbedEntry);
     }
   }
 

@@ -1,0 +1,24 @@
+name = "audio-underview-user-vault-worker"
+main = "sources/index.ts"
+compatibility_date = "2025-11-25"
+workers_dev = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "audio-underview-user-vault"
+database_id = "f52de732-d798-4165-8ee8-76153afba0d2"
+
+[vars]
+PROVIDER_KEY_KEK_VERSION = "1"
+
+# Secrets (set via wrangler secret put):
+# PROVIDER_KEY_KEK           required; key encryption key (KEK) that wraps every data encryption key
+# PROVIDER_KEY_KEK_PREVIOUS  optional; previous KEK, tried after PROVIDER_KEY_KEK when unwrapping
+# VAULT_INTERNAL_TOKEN       optional; value callers must send in the x-user-vault-token header
+# AI_GATEWAY_BASE_URL        optional; when non-empty after trimming, provider calls go through this AI Gateway
+# AI_GATEWAY_TOKEN           optional; sent as "cf-aig-authorization: Bearer <value>" on gateway calls
+# AUDIT_HASH_SALT            optional; salt for the audit log IP and user agent hashes
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
