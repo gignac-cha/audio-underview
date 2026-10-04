@@ -9,6 +9,7 @@ import {
 } from '@audio-underview/supabase-connector';
 import type { CrawlerExecutionClient } from './crawler-execution-client.ts';
 import {
+  type CrawlerStageRow,
   executeStage,
   executeFanOut,
   resolveDefaultInput,
@@ -26,11 +27,16 @@ export interface PipelineStageResult {
   partiallyFailed: boolean;
 }
 
+function hasCrawler(stage: SchedulerStageRow): stage is CrawlerStageRow {
+  return stage.crawler_id !== null;
+}
+
 /**
- * Runs one stage of a pipeline run (fan-out or normal) and records its stage run.
+ * Runs one crawler stage of a pipeline run (fan-out or normal) and records its stage run.
  * Shared by the manual execution and the scheduled run.
  *
- * @throws when the stage fails, or when every fan-out item fails
+ * @throws when the stage fails, or when every fan-out item fails; also for a task group stage,
+ * which only a Workflow instance can run
  */
 export async function executePipelineStage(
   dependencies: ExecutorDependencies,
@@ -40,6 +46,14 @@ export async function executePipelineStage(
   signal?: AbortSignal,
 ): Promise<PipelineStageResult> {
   const { supabaseClient } = dependencies;
+
+  // Only reached when a task group stage was added after the manual execution read the stages
+  if (stage.stage_type === 'task_group') {
+    throw new Error(`Stage ${stage.stage_order}: a task group stage cannot run in a direct execution`);
+  }
+  if (!hasCrawler(stage)) {
+    throw new Error(`Stage ${stage.stage_order}: crawler is missing`);
+  }
 
   const stageRunnerDependencies = {
     supabaseClient: dependencies.supabaseClient,
@@ -133,12 +147,18 @@ export async function executePipelineStage(
   return { stageRunID: stageResult.stageRun.id, output: stageResult.output, partiallyFailed: false };
 }
 
+/**
+ * Runs a manual run inside the request.
+ *
+ * @param loadedStages - the stages the caller already read; read here when not given
+ */
 export async function executeScheduler(
   dependencies: ExecutorDependencies,
   schedulerID: string,
   userUUID: string,
   runID: string,
   signal?: AbortSignal,
+  loadedStages?: SchedulerStageRow[],
 ): Promise<void> {
   const { supabaseClient, logger } = dependencies;
 
@@ -149,7 +169,7 @@ export async function executeScheduler(
       started_at: new Date().toISOString(),
     });
 
-    const stages = await listSchedulerStages(supabaseClient, schedulerID);
+    const stages = loadedStages ?? await listSchedulerStages(supabaseClient, schedulerID);
 
     if (stages.length === 0) {
       await updateSchedulerRun(supabaseClient, runID, schedulerID, {

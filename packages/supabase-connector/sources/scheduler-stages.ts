@@ -46,7 +46,13 @@ export async function createSchedulerStage(
     { serviceName: 'supabase-connector', operation: 'insert', table: 'scheduler_stages' },
     async (span) => {
       span.setAttribute('db.insert.scheduler_id', input.scheduler_id);
-      span.setAttribute('db.insert.crawler_id', input.crawler_id);
+      // A task group stage has no crawler
+      if (typeof input.crawler_id === 'string') {
+        span.setAttribute('db.insert.crawler_id', input.crawler_id);
+      }
+      if (typeof input.task_group_id === 'string') {
+        span.setAttribute('db.insert.task_group_id', input.task_group_id);
+      }
       span.setAttribute('db.insert.stage_order', input.stage_order);
 
       const { data, error } = await client

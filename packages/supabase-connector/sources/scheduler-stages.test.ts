@@ -38,6 +38,35 @@ describe('createSchedulerStage', () => {
     expect(result).toEqual(sampleStage);
   });
 
+  test('creates a task group stage without a crawler', async () => {
+    const taskGroupStage = {
+      ...sampleStage,
+      stage_type: 'task_group',
+      crawler_id: null,
+      task_group_id: 'newscast',
+      task_group_version: 1,
+      settings: { voice: 'a' },
+      input_schema: {},
+    };
+    const client = createMockClient({ scheduler_stages: { data: taskGroupStage, error: null } });
+    const input = {
+      scheduler_id: 'scheduler-1',
+      stage_type: 'task_group' as const,
+      crawler_id: null,
+      task_group_id: 'newscast',
+      task_group_version: 1,
+      settings: { voice: 'a' },
+      stage_order: 0,
+      input_schema: {},
+    };
+
+    const result = await createSchedulerStage(client, input);
+
+    expect(result).toEqual(taskGroupStage);
+    const chain = client.from.mock.results[0].value;
+    expect(chain.insert).toHaveBeenCalledWith(input);
+  });
+
   test('throws on error', async () => {
     const client = createMockClient({
       scheduler_stages: { data: null, error: { code: 'OTHER', message: 'fail' } },

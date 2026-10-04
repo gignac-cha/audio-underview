@@ -4,15 +4,18 @@ import {
 } from '@audio-underview/worker-tools';
 import {
   type SchedulerRunStatus,
+  type SchedulerStageRow,
   createSupabaseClient,
   createSchedulerRun,
   getSchedulerRun,
   updateSchedulerRun,
+  listSchedulerStages,
 } from '@audio-underview/supabase-connector';
 import { createWorkerLogger } from '@audio-underview/logger';
 import type { Environment } from '../index.ts';
 import { ServiceBindingCrawlerExecutionClient } from '../crawler-execution-client.ts';
 import { executeScheduler } from '../scheduler-executor.ts';
+import { manualRunInstanceID } from '../schedule.ts';
 import { verifySchedulerOwnership } from './tools.ts';
 
 export function resolveHTTPStatus(status: string, error: string | null | undefined): number {
@@ -66,6 +69,49 @@ export async function handleExecuteScheduler(
     throw error;
   }
 
+  // A failed read counts as no task group stage: the request then runs as before, and
+  // executeScheduler reads the stages again and records its own failure
+  let stages: SchedulerStageRow[] | undefined;
+  try {
+    stages = await listSchedulerStages(supabaseClient, schedulerID);
+  } catch (error: unknown) {
+    logger.warn('Stages could not be read before the execution', error, {
+      function: 'handleExecuteScheduler',
+      metadata: { schedulerID, runID: run.id },
+    });
+  }
+
+  // A task group stage can take tens of minutes, so a Workflow instance runs the whole run
+  if (stages !== undefined && stages.some((stage) => stage.stage_type === 'task_group')) {
+    try {
+      await environment.SCHEDULER_RUN_WORKFLOW.create({
+        id: manualRunInstanceID(run.id),
+        params: { schedulerID, runID: run.id },
+      });
+    } catch (error: unknown) {
+      await updateSchedulerRun(supabaseClient, run.id, schedulerID, {
+        status: 'failed',
+        completed_at: new Date().toISOString(),
+        error: 'Run could not be started',
+      }, { onlyIfStatus: ['pending'] satisfies SchedulerRunStatus[] }).catch((updateError: unknown) => {
+        logger.error('Failed to update run status after the instance could not be created', updateError, {
+          function: 'handleExecuteScheduler',
+          metadata: { schedulerID, runID: run.id },
+        });
+      });
+      throw error;
+    }
+
+    return jsonResponse({
+      run_id: run.id,
+      status: 'pending',
+      result: null,
+      error: null,
+      started_at: null,
+      completed_at: null,
+    }, 202, context);
+  }
+
   const crawlerExecutionClient = new ServiceBindingCrawlerExecutionClient(environment.CRAWLER_MANAGER);
 
   // Pipeline timeout: 5 minutes. Prevents run stuck in 'running' on client disconnect or hang.
@@ -81,6 +127,7 @@ export async function handleExecuteScheduler(
         userUUID,
         run.id,
         abortController.signal,
+        stages,
       ),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Pipeline execution timed out after 5 minutes')), PIPELINE_TIMEOUT_MILLISECONDS),

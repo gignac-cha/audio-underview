@@ -28,11 +28,14 @@ import {
   handleGetRun,
 } from './handlers/scheduler-runs.ts';
 import { handleExecuteScheduler } from './handlers/scheduler-execution.ts';
+import { handleListTaskGroups } from './handlers/task-groups.ts';
 import { UUID_PATTERN } from './handlers/tools.ts';
 import { runScheduleTick } from './schedule-tick.ts';
 
 // The Workers runtime only accepts classes and types as named exports of the entry module.
 export { SchedulerRunWorkflow } from './scheduler-run-workflow.ts';
+// The entrypoint the workers of task groups bind to, to report on their stage runs
+export { TaskGroupReports } from './task-group-reports-entrypoint.ts';
 
 export interface Environment {
   ALLOWED_ORIGINS: string;
@@ -68,6 +71,7 @@ const HELP = {
     { method: 'GET', path: '/schedulers/:id/runs', description: 'List runs for a scheduler' },
     { method: 'GET', path: '/schedulers/:id/runs/:runID', description: 'Get a run by ID' },
     { method: 'POST', path: '/schedulers/:id/execute', description: 'Execute a scheduler pipeline' },
+    { method: 'GET', path: '/task-groups', description: 'List registered task groups and their formats' },
   ],
 };
 
@@ -80,6 +84,7 @@ interface ParsedRoute {
     | 'stages_reorder'
     | 'runs_collection'
     | 'run_single'
+    | 'task_groups_collection'
     | null;
   schedulerID?: string;
   stageID?: string;
@@ -87,6 +92,11 @@ interface ParsedRoute {
 }
 
 function parseRoute(pathname: string): ParsedRoute {
+  // /task-groups
+  if (pathname === '/task-groups') {
+    return { type: 'task_groups_collection' };
+  }
+
   // /schedulers
   if (pathname === '/schedulers') {
     return { type: 'schedulers_collection' };
@@ -207,8 +217,8 @@ export default {
         return await handleTokenExchange(request, supabaseClient, environment.JWT_SECRET, context);
       }
 
-      // All /schedulers routes require JWT authentication
-      if (url.pathname === '/schedulers' || url.pathname.startsWith('/schedulers/')) {
+      // All /schedulers routes and /task-groups require JWT authentication
+      if (url.pathname === '/schedulers' || url.pathname.startsWith('/schedulers/') || url.pathname === '/task-groups') {
         const authorizationHeader = request.headers.get('Authorization');
         if (!authorizationHeader?.startsWith('Bearer ')) {
           return errorResponse('unauthorized', 'Valid authentication is required', 401, context);
@@ -311,6 +321,15 @@ export default {
           case 'run_single': {
             if (request.method === 'GET') {
               return await handleGetRun(environment, context, route.schedulerID!, route.runID!, userUUID);
+            }
+            const response = errorResponse('method_not_allowed', 'Method not allowed', 405, context);
+            response.headers.set('Allow', 'GET');
+            return response;
+          }
+
+          case 'task_groups_collection': {
+            if (request.method === 'GET') {
+              return await handleListTaskGroups(environment, context);
             }
             const response = errorResponse('method_not_allowed', 'Method not allowed', 405, context);
             response.headers.set('Allow', 'GET');

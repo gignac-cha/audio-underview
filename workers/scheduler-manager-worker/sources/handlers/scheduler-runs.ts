@@ -7,6 +7,7 @@ import {
   createSupabaseClient,
   getSchedulerRun,
   listSchedulerRuns,
+  listSchedulerStageRunSummaries,
 } from '@audio-underview/supabase-connector';
 import type { Environment } from '../index.ts';
 import { verifySchedulerOwnership } from './tools.ts';
@@ -76,5 +77,8 @@ export async function handleGetRun(
     return errorResponse('not_found', 'Run not found', 404, context);
   }
 
-  return jsonResponse(run, 200, context);
+  // Without their input and output, which can be large; a task group's progress is in each one
+  const stageRuns = await listSchedulerStageRunSummaries(supabaseClient, runID);
+
+  return jsonResponse({ ...run, stage_runs: stageRuns }, 200, context);
 }

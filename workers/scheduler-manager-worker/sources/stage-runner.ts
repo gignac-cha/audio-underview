@@ -10,6 +10,9 @@ import {
 } from '@audio-underview/supabase-connector';
 import type { CrawlerExecutionClient } from './crawler-execution-client.ts';
 
+/** A stage that runs a crawler: every stage the functions of this file run */
+export type CrawlerStageRow = SchedulerStageRow & { crawler_id: string };
+
 export interface StageRunnerDependencies {
   supabaseClient: SupabaseClient;
   crawlerExecutionClient: CrawlerExecutionClient;
@@ -45,7 +48,7 @@ export function resolveDefaultInput(inputSchema: unknown): Record<string, unknow
 export async function executeStage(
   dependencies: StageRunnerDependencies,
   runID: string,
-  stage: SchedulerStageRow,
+  stage: CrawlerStageRow,
   input: unknown,
   signal?: AbortSignal,
 ): Promise<StageResult> {
@@ -101,7 +104,7 @@ const FAN_OUT_FAILED = Symbol('fan-out-failed');
 
 export async function executeFanOut(
   dependencies: StageRunnerDependencies,
-  stage: SchedulerStageRow,
+  stage: CrawlerStageRow,
   items: unknown[],
   concurrency: number = 1,
   signal?: AbortSignal,

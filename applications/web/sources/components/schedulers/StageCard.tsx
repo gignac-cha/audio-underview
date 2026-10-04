@@ -92,6 +92,20 @@ interface StageCardProperties {
   onDelete: (stageID: string) => void;
 }
 
+/**
+ * What the stage runs: the task group and its version, or the crawler's name
+ * (the start of its ID while the crawlers are loading).
+ */
+function resolveStageDisplayName(stage: SchedulerStageRow, crawlerMap: Map<string, CrawlerRow>): string {
+  if (stage.stage_type === 'task_group') {
+    return `Task group ${stage.task_group_id} v${stage.task_group_version}`;
+  }
+  if (stage.crawler_id === null) {
+    return 'Unknown stage';
+  }
+  return crawlerMap.get(stage.crawler_id)?.name ?? stage.crawler_id.slice(0, 8) + '...';
+}
+
 export function StageCard({ stage, crawlerMap, onDelete }: StageCardProperties) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: stage.id,
@@ -104,8 +118,7 @@ export function StageCard({ stage, crawlerMap, onDelete }: StageCardProperties) 
     zIndex: isDragging ? 10 : undefined,
   };
 
-  const crawler = crawlerMap.get(stage.crawler_id);
-  const crawlerDisplayName = crawler?.name ?? stage.crawler_id.slice(0, 8) + '...';
+  const crawlerDisplayName = resolveStageDisplayName(stage, crawlerMap);
 
   return (
     <Card ref={setNodeRef} style={style}>

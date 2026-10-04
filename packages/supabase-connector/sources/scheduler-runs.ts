@@ -76,6 +76,36 @@ export async function getSchedulerRun(
 }
 
 /**
+ * Gets one run by ID whatever its scheduler, if it exists.
+ * The task group reports only know the run through its stage run.
+ */
+export async function getSchedulerRunByID(
+  client: SupabaseClientType,
+  id: string,
+): Promise<SchedulerRunRow | undefined> {
+  return traceDatabaseOperation(
+    { serviceName: 'supabase-connector', operation: 'select', table: 'scheduler_runs' },
+    async (span) => {
+      span.setAttribute('db.query.id', id);
+
+      const { data, error } = await client
+        .from('scheduler_runs')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw new Error(`Failed to get scheduler run by ID: ${error.message}`);
+      }
+
+      span.setAttribute('db.rows_affected', data === null ? 0 : 1);
+      return (data as SchedulerRunRow | null) ?? undefined;
+    },
+  );
+}
+
+/**
  * Gets the run of one scheduled occurrence, if it exists.
  */
 export async function getSchedulerRunByOccurrence(

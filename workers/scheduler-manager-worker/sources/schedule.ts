@@ -1,4 +1,4 @@
-import type { SchedulerRow } from '@audio-underview/supabase-connector';
+import type { SchedulerRow, SchedulerRunRow } from '@audio-underview/supabase-connector';
 import { findNextOccurrence, parseCronExpression } from './cron-expression.ts';
 
 export const DEFAULT_TIMEZONE = 'Asia/Seoul';
@@ -92,4 +92,22 @@ export function resolveNextRunAt(
  */
 export function schedulerRunInstanceID(schedulerID: string, scheduledFor: Date): string {
   return `${schedulerID}-${Math.floor(scheduledFor.getTime() / 60000)}`;
+}
+
+/**
+ * Workflow instance ID of a manual run that has a task group stage.
+ */
+export function manualRunInstanceID(runID: string): string {
+  return `manual-${runID}`;
+}
+
+/**
+ * Workflow instance ID of any run: the occurrence's ID for a scheduled run, the manual one otherwise.
+ * A manual run executed inside its request has no instance under this ID.
+ */
+export function runInstanceID(run: Pick<SchedulerRunRow, 'id' | 'scheduler_id' | 'triggered_by' | 'scheduled_for'>): string {
+  if (run.triggered_by === 'schedule' && run.scheduled_for !== null) {
+    return schedulerRunInstanceID(run.scheduler_id, new Date(run.scheduled_for));
+  }
+  return manualRunInstanceID(run.id);
 }

@@ -18,7 +18,7 @@ service = "audio-underview-crawler-manager-worker"
 [triggers]
 crons = ["*/10 * * * *"]
 
-# One instance runs one scheduled occurrence
+# One instance runs one scheduled occurrence, or one manual run of a scheduler that has a task group stage
 [[workflows]]
 name = "audio-underview-scheduler-run-workflow"
 binding = "SCHEDULER_RUN_WORKFLOW"
