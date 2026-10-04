@@ -5,6 +5,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useNavigate } from 'react-router';
 import { useToast } from '../../hooks/use-toast.ts';
 import { useCreateScheduler } from '../../hooks/use-scheduler-manager.ts';
+import { isScheduleMinuteAllowed } from './schedule-minute.ts';
 
 const Overlay = styled(Dialog.Overlay)`
   position: fixed;
@@ -73,6 +74,12 @@ const TextInput = styled.input`
   &:focus {
     border-color: var(--border-focus);
   }
+`;
+
+const FieldHint = styled.p`
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0.375rem 0 0 0;
 `;
 
 const CheckboxRow = styled.label`
@@ -182,8 +189,13 @@ export function SchedulerCreateDialog({ open, onOpenChange }: SchedulerCreateDia
       return;
     }
 
+    const trimmedCron = cronExpression.trim();
+    if (trimmedCron.length > 0 && !isScheduleMinuteAllowed(trimmedCron)) {
+      showToast('Validation Error', 'Cron minute must be 0, 10, 20, 30, 40 or 50.', 'error');
+      return;
+    }
+
     try {
-      const trimmedCron = cronExpression.trim();
       const scheduler = await createScheduler({
         name: name.trim(),
         cron_expression: trimmedCron.length > 0 ? trimmedCron : undefined,
@@ -228,6 +240,7 @@ export function SchedulerCreateDialog({ open, onOpenChange }: SchedulerCreateDia
                 onChange={(event) => setCronExpression(event.target.value)}
                 disabled={isSubmitting}
               />
+              <FieldHint>Runs at minute 0, 10, 20, 30, 40 or 50 · Asia/Seoul time</FieldHint>
             </FieldGroup>
 
             <FieldGroup>

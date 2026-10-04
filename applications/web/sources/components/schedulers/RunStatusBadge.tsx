@@ -7,6 +7,7 @@ const STATUS_COLORS: Record<SchedulerRunStatus, string> = {
   completed: 'var(--color-success)',
   failed: 'var(--color-error)',
   partially_failed: '#f59e0b',
+  skipped: 'var(--text-muted)',
 };
 
 const Badge = styled('span', {
@@ -35,6 +36,7 @@ const LABELS: Record<SchedulerRunStatus, string> = {
   completed: 'Completed',
   failed: 'Failed',
   partially_failed: 'Partial',
+  skipped: 'Skipped',
 };
 
 interface RunStatusBadgeProperties {

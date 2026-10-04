@@ -1,6 +1,8 @@
 import {
   createSchedulerRun,
   getSchedulerRun,
+  getSchedulerRunByOccurrence,
+  listActiveSchedulerRunsBefore,
   updateSchedulerRun,
   listSchedulerRuns,
 } from './scheduler-runs.ts';
@@ -20,7 +22,17 @@ const sampleRun = {
   completed_at: null,
   result: null,
   error: null,
+  triggered_by: 'manual',
+  scheduled_for: null,
   created_at: '2024-01-01T00:00:00Z',
+};
+
+const scheduledRun = {
+  ...sampleRun,
+  id: 'run-2',
+  status: 'running',
+  triggered_by: 'schedule',
+  scheduled_for: '2026-10-05T22:00:00.000Z',
 };
 
 describe('createSchedulerRun', () => {
@@ -57,6 +69,85 @@ describe('getSchedulerRun', () => {
 
     const result = await getSchedulerRun(client, 'run-1', 'scheduler-1');
     expect(result).toBeUndefined();
+  });
+});
+
+describe('getSchedulerRunByOccurrence', () => {
+  test('queries runs by scheduler and scheduled occurrence', async () => {
+    const client = createMockClient({ scheduler_runs: { data: scheduledRun, error: null } });
+
+    await getSchedulerRunByOccurrence(client, 'scheduler-1', '2026-10-05T22:00:00.000Z');
+
+    expect(client.from).toHaveBeenCalledWith('scheduler_runs');
+    const chain = client.from.mock.results[0].value;
+    expect(chain.eq.mock.calls).toEqual([
+      ['scheduler_id', 'scheduler-1'],
+      ['scheduled_for', '2026-10-05T22:00:00.000Z'],
+    ]);
+    expect(chain.maybeSingle).toHaveBeenCalled();
+  });
+
+  test('returns run when found', async () => {
+    const client = createMockClient({ scheduler_runs: { data: scheduledRun, error: null } });
+
+    const result = await getSchedulerRunByOccurrence(client, 'scheduler-1', '2026-10-05T22:00:00.000Z');
+    expect(result).toEqual(scheduledRun);
+  });
+
+  test('returns undefined when not found', async () => {
+    const client = createMockClient({ scheduler_runs: { data: null, error: null } });
+
+    const result = await getSchedulerRunByOccurrence(client, 'scheduler-1', '2026-10-05T22:00:00.000Z');
+    expect(result).toBeUndefined();
+  });
+
+  test('throws on error', async () => {
+    const client = createMockClient({
+      scheduler_runs: { data: null, error: { code: 'OTHER', message: 'fail' } },
+    });
+
+    await expect(
+      getSchedulerRunByOccurrence(client, 'scheduler-1', '2026-10-05T22:00:00.000Z'),
+    ).rejects.toThrow('Failed to get scheduler run by occurrence: fail');
+  });
+});
+
+describe('listActiveSchedulerRunsBefore', () => {
+  test('queries pending or running runs created before the given time, oldest first', async () => {
+    const client = createMockClient({ scheduler_runs: { data: [scheduledRun], error: null } });
+
+    await listActiveSchedulerRunsBefore(client, '2026-10-05T21:50:00.000Z', 200);
+
+    expect(client.from).toHaveBeenCalledWith('scheduler_runs');
+    const chain = client.from.mock.results[0].value;
+    expect(chain.in).toHaveBeenCalledWith('status', ['pending', 'running']);
+    expect(chain.lt).toHaveBeenCalledWith('created_at', '2026-10-05T21:50:00.000Z');
+    expect(chain.order).toHaveBeenCalledWith('created_at', { ascending: true });
+    expect(chain.limit).toHaveBeenCalledWith(200);
+  });
+
+  test('returns active runs', async () => {
+    const client = createMockClient({ scheduler_runs: { data: [scheduledRun], error: null } });
+
+    const result = await listActiveSchedulerRunsBefore(client, '2026-10-05T21:50:00.000Z', 200);
+    expect(result).toEqual([scheduledRun]);
+  });
+
+  test('returns an empty array when none is found', async () => {
+    const client = createMockClient({ scheduler_runs: { data: [], error: null } });
+
+    const result = await listActiveSchedulerRunsBefore(client, '2026-10-05T21:50:00.000Z', 200);
+    expect(result).toEqual([]);
+  });
+
+  test('throws on error', async () => {
+    const client = createMockClient({
+      scheduler_runs: { data: null, error: { code: 'OTHER', message: 'fail' } },
+    });
+
+    await expect(
+      listActiveSchedulerRunsBefore(client, '2026-10-05T21:50:00.000Z', 200),
+    ).rejects.toThrow('Failed to list active scheduler runs: fail');
   });
 });
 

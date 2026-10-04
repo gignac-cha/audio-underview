@@ -38,6 +38,35 @@ export async function createSchedulerStageRun(
   );
 }
 
+export async function getSchedulerStageRun(
+  client: SupabaseClientType,
+  id: string,
+  runID: string,
+): Promise<SchedulerStageRunRow | undefined> {
+  return traceDatabaseOperation(
+    { serviceName: 'supabase-connector', operation: 'select', table: 'scheduler_stage_runs' },
+    async (span) => {
+      span.setAttribute('db.query.id', id);
+      span.setAttribute('db.query.run_id', runID);
+
+      const { data, error } = await client
+        .from('scheduler_stage_runs')
+        .select('*')
+        .eq('id', id)
+        .eq('run_id', runID)
+        .maybeSingle();
+
+      if (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw new Error(`Failed to get scheduler stage run: ${error.message}`);
+      }
+
+      span.setAttribute('db.rows_affected', data === null ? 0 : 1);
+      return (data as SchedulerStageRunRow | null) ?? undefined;
+    },
+  );
+}
+
 export async function updateSchedulerStageRun(
   client: SupabaseClientType,
   id: string,

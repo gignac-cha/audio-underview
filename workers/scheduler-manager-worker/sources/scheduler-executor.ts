@@ -1,4 +1,4 @@
-import type { SupabaseClient } from '@audio-underview/supabase-connector';
+import type { SupabaseClient, SchedulerStageRow } from '@audio-underview/supabase-connector';
 import type { Logger } from '@audio-underview/logger';
 import {
   listSchedulerStages,
@@ -20,6 +20,119 @@ export interface ExecutorDependencies {
   logger: Logger;
 }
 
+export interface PipelineStageResult {
+  stageRunID: string;
+  output: unknown;
+  partiallyFailed: boolean;
+}
+
+/**
+ * Runs one stage of a pipeline run (fan-out or normal) and records its stage run.
+ * Shared by the manual execution and the scheduled run.
+ *
+ * @throws when the stage fails, or when every fan-out item fails
+ */
+export async function executePipelineStage(
+  dependencies: ExecutorDependencies,
+  runID: string,
+  stage: SchedulerStageRow,
+  input: unknown,
+  signal?: AbortSignal,
+): Promise<PipelineStageResult> {
+  const { supabaseClient } = dependencies;
+
+  const stageRunnerDependencies = {
+    supabaseClient: dependencies.supabaseClient,
+    crawlerExecutionClient: dependencies.crawlerExecutionClient,
+    logger: dependencies.logger,
+  };
+
+  // Fan-out check
+  if (stage.fan_out_field) {
+    if (input !== null && input !== undefined && typeof input !== 'object') {
+      throw new Error(
+        `Stage ${stage.stage_order}: fan_out_field "${stage.fan_out_field}" requires object input, got ${typeof input}`,
+      );
+    }
+    const inputObject = input as Record<string, unknown> | null;
+    const fanOutItems = inputObject?.[stage.fan_out_field];
+
+    if (fanOutItems === undefined || fanOutItems === null) {
+      throw new Error(
+        `Stage ${stage.stage_order}: fan_out_field "${stage.fan_out_field}" not found in input`,
+      );
+    }
+
+    if (!Array.isArray(fanOutItems)) {
+      throw new Error(
+        `Stage ${stage.stage_order}: fan_out_field "${stage.fan_out_field}" is not an array`,
+      );
+    }
+
+    // Create stage_run record for the fan-out stage
+    const stageRun = await createSchedulerStageRun(supabaseClient, {
+      run_id: runID,
+      stage_id: stage.id,
+      stage_order: stage.stage_order,
+      status: 'running',
+      started_at: new Date().toISOString(),
+      input,
+    });
+
+    if (fanOutItems.length === 0) {
+      await updateSchedulerStageRun(supabaseClient, stageRun.id, runID, {
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        output: [],
+        items_total: 0,
+        items_succeeded: 0,
+        items_failed: 0,
+      });
+      return { stageRunID: stageRun.id, output: [], partiallyFailed: false };
+    }
+
+    const fanOutResult = await executeFanOut(
+      stageRunnerDependencies,
+      stage,
+      fanOutItems,
+      1,
+      signal,
+    );
+
+    await updateSchedulerStageRun(supabaseClient, stageRun.id, runID, {
+      status: fanOutResult.status,
+      completed_at: new Date().toISOString(),
+      output: fanOutResult.results,
+      items_total: fanOutResult.itemsTotal,
+      items_succeeded: fanOutResult.itemsSucceeded,
+      items_failed: fanOutResult.itemsFailed,
+    });
+
+    if (fanOutResult.status === 'failed') {
+      throw new Error(
+        `Stage ${stage.stage_order}: all fan-out items failed`,
+      );
+    }
+
+    return {
+      stageRunID: stageRun.id,
+      output: fanOutResult.results,
+      partiallyFailed: fanOutResult.status === 'partially_failed',
+    };
+  }
+
+  // Normal stage execution
+  const stageResult = await executeStage(
+    stageRunnerDependencies,
+    runID,
+    stage,
+    input,
+    signal,
+  );
+
+  return { stageRunID: stageResult.stageRun.id, output: stageResult.output, partiallyFailed: false };
+}
+
 export async function executeScheduler(
   dependencies: ExecutorDependencies,
   schedulerID: string,
@@ -28,12 +141,6 @@ export async function executeScheduler(
   signal?: AbortSignal,
 ): Promise<void> {
   const { supabaseClient, logger } = dependencies;
-
-  const stageRunnerDependencies = {
-    supabaseClient: dependencies.supabaseClient,
-    crawlerExecutionClient: dependencies.crawlerExecutionClient,
-    logger: dependencies.logger,
-  };
 
   try {
     // Mark run as running
@@ -60,94 +167,20 @@ export async function executeScheduler(
     for (const stage of stages) {
       if (signal?.aborted) break;
 
-      // Fan-out check
-      if (stage.fan_out_field) {
-        if (currentInput !== null && currentInput !== undefined && typeof currentInput !== 'object') {
-          throw new Error(
-            `Stage ${stage.stage_order}: fan_out_field "${stage.fan_out_field}" requires object input, got ${typeof currentInput}`,
-          );
-        }
-        const inputObject = currentInput as Record<string, unknown> | null;
-        const fanOutItems = inputObject?.[stage.fan_out_field];
+      const stageResult = await executePipelineStage(
+        dependencies,
+        runID,
+        stage,
+        currentInput,
+        signal,
+      );
 
-        if (fanOutItems === undefined || fanOutItems === null) {
-          throw new Error(
-            `Stage ${stage.stage_order}: fan_out_field "${stage.fan_out_field}" not found in input`,
-          );
-        }
-
-        if (!Array.isArray(fanOutItems)) {
-          throw new Error(
-            `Stage ${stage.stage_order}: fan_out_field "${stage.fan_out_field}" is not an array`,
-          );
-        }
-
-        // Create stage_run record for the fan-out stage
-        const stageRun = await createSchedulerStageRun(supabaseClient, {
-          run_id: runID,
-          stage_id: stage.id,
-          stage_order: stage.stage_order,
-          status: 'running',
-          started_at: new Date().toISOString(),
-          input: currentInput,
-        });
-
-        if (fanOutItems.length === 0) {
-          await updateSchedulerStageRun(supabaseClient, stageRun.id, runID, {
-            status: 'completed',
-            completed_at: new Date().toISOString(),
-            output: [],
-            items_total: 0,
-            items_succeeded: 0,
-            items_failed: 0,
-          });
-          currentInput = [];
-          lastOutput = [];
-          continue;
-        }
-
-        const fanOutResult = await executeFanOut(
-          stageRunnerDependencies,
-          stage,
-          fanOutItems,
-          1,
-          signal,
-        );
-
-        await updateSchedulerStageRun(supabaseClient, stageRun.id, runID, {
-          status: fanOutResult.status,
-          completed_at: new Date().toISOString(),
-          output: fanOutResult.results,
-          items_total: fanOutResult.itemsTotal,
-          items_succeeded: fanOutResult.itemsSucceeded,
-          items_failed: fanOutResult.itemsFailed,
-        });
-
-        if (fanOutResult.status === 'failed') {
-          throw new Error(
-            `Stage ${stage.stage_order}: all fan-out items failed`,
-          );
-        }
-
-        if (fanOutResult.status === 'partially_failed') {
-          hasPartialFailure = true;
-        }
-
-        currentInput = fanOutResult.results;
-        lastOutput = fanOutResult.results;
-      } else {
-        // Normal stage execution
-        const stageResult = await executeStage(
-          stageRunnerDependencies,
-          runID,
-          stage,
-          currentInput,
-          signal,
-        );
-
-        currentInput = stageResult.output;
-        lastOutput = stageResult.output;
+      if (stageResult.partiallyFailed) {
+        hasPartialFailure = true;
       }
+
+      currentInput = stageResult.output;
+      lastOutput = stageResult.output;
     }
 
     // Pipeline completed successfully — skip if handler already timed out

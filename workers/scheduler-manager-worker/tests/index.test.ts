@@ -30,8 +30,10 @@ function mockSchedulerResponse(overrides: Record<string, unknown> = {}) {
     user_uuid: MOCK_USER_UUID,
     name: 'Test Scheduler',
     cron_expression: null,
+    timezone: 'Asia/Seoul',
     is_enabled: true,
     last_run_at: null,
+    next_run_at: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     ...overrides,
@@ -72,6 +74,34 @@ function mockSupabaseSchedulerCreate(overrides: Record<string, unknown> = {}) {
     .get('https://supabase.example.com')
     .intercept({ path: /^\/rest\/v1\/schedulers/, method: 'POST' })
     .reply(201, JSON.stringify(mockSchedulerResponse(overrides)));
+}
+
+interface CapturedRequestBody {
+  body: Record<string, unknown> | undefined;
+}
+
+function captureSupabaseSchedulerCreate(): CapturedRequestBody {
+  const captured: CapturedRequestBody = { body: undefined };
+  fetchMock
+    .get('https://supabase.example.com')
+    .intercept({ path: /^\/rest\/v1\/schedulers/, method: 'POST' })
+    .reply((options) => {
+      captured.body = JSON.parse(String(options.body)) as Record<string, unknown>;
+      return { statusCode: 201, data: JSON.stringify(mockSchedulerResponse(captured.body)) };
+    });
+  return captured;
+}
+
+function captureSupabaseSchedulerUpdate(current: Record<string, unknown> = {}): CapturedRequestBody {
+  const captured: CapturedRequestBody = { body: undefined };
+  fetchMock
+    .get('https://supabase.example.com')
+    .intercept({ path: /^\/rest\/v1\/schedulers/, method: 'PATCH' })
+    .reply((options) => {
+      captured.body = JSON.parse(String(options.body)) as Record<string, unknown>;
+      return { statusCode: 200, data: JSON.stringify(mockSchedulerResponse({ ...current, ...captured.body })) };
+    });
+  return captured;
 }
 
 function mockSupabaseSchedulerList(data: unknown[] = [mockSchedulerResponse()], total: number = 1) {
@@ -297,6 +327,140 @@ describe('scheduler-manager-worker', () => {
 
       expect(response.status).toBe(400);
     });
+
+    it('returns 400 when timezone is not a string', async () => {
+      const request = await authenticatedRequest('/schedulers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Test Scheduler', timezone: 9 }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toBe("Field 'timezone' must be a string");
+    });
+
+    it('returns 400 when timezone is not a valid IANA time zone', async () => {
+      const request = await authenticatedRequest('/schedulers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Test Scheduler', timezone: 'Not/AZone' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toBe("Field 'timezone' must be a valid IANA time zone");
+    });
+
+    it('returns 400 when the cron minute is not a 10-minute value', async () => {
+      const request = await authenticatedRequest('/schedulers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Test Scheduler', cron_expression: '5 9 * * *' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toBe("Field 'cron_expression' minute must be 0, 10, 20, 30, 40 or 50");
+    });
+
+    it('returns 400 when the cron expression has no next run', async () => {
+      // February 31 passes the field format check but never occurs.
+      const request = await authenticatedRequest('/schedulers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Test Scheduler', cron_expression: '0 0 31 2 *' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toBe("Field 'cron_expression' must be a valid cron expression");
+    });
+
+    it('stores the default timezone and the next run for a cron expression', async () => {
+      const captured = captureSupabaseSchedulerCreate();
+
+      const request = await authenticatedRequest('/schedulers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Test Scheduler', cron_expression: '0 7 * * *' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(201);
+      expect(captured.body).toBeDefined();
+      expect(captured.body!.timezone).toBe('Asia/Seoul');
+      expect(captured.body!.next_run_at).not.toBeNull();
+      // 07:00 in Asia/Seoul is 22:00 UTC on the previous day.
+      expect(captured.body!.next_run_at).toMatch(/T22:00:00\.000Z$/);
+      expect(new Date(captured.body!.next_run_at as string).getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it('stores the requested timezone and evaluates the cron expression in it', async () => {
+      const captured = captureSupabaseSchedulerCreate();
+
+      const request = await authenticatedRequest('/schedulers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Test Scheduler', cron_expression: '0 7 * * *', timezone: 'UTC' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(201);
+      expect(captured.body!.timezone).toBe('UTC');
+      expect(captured.body!.next_run_at).toMatch(/T07:00:00\.000Z$/);
+    });
+
+    it('stores next_run_at null when there is no cron expression', async () => {
+      const captured = captureSupabaseSchedulerCreate();
+
+      const request = await authenticatedRequest('/schedulers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Test Scheduler' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(201);
+      expect(captured.body!.timezone).toBe('Asia/Seoul');
+      expect(captured.body!.next_run_at).toBeNull();
+    });
+
+    it('stores next_run_at null when created disabled', async () => {
+      const captured = captureSupabaseSchedulerCreate();
+
+      const request = await authenticatedRequest('/schedulers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Test Scheduler', cron_expression: '0 7 * * *', is_enabled: false }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(201);
+      expect(captured.body!.next_run_at).toBeNull();
+    });
+
+    it('ignores next_run_at in the request body', async () => {
+      const captured = captureSupabaseSchedulerCreate();
+
+      const request = await authenticatedRequest('/schedulers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Test Scheduler', next_run_at: '2026-10-05T22:00:00.000Z' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(201);
+      expect(captured.body!.next_run_at).toBeNull();
+    });
   });
 
   describe('GET /schedulers', () => {
@@ -377,6 +541,116 @@ describe('scheduler-manager-worker', () => {
       const response = await worker.fetch(request, env);
 
       expect(response.status).toBe(404);
+    });
+
+    it('sets next_run_at to null when the scheduler is disabled', async () => {
+      const current = { cron_expression: '0 7 * * *', next_run_at: '2026-10-05T22:00:00.000Z' };
+      mockSupabaseSchedulerGet(mockSchedulerResponse(current));
+      const captured = captureSupabaseSchedulerUpdate(current);
+
+      const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_enabled: false }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(200);
+      expect(captured.body).toEqual({ is_enabled: false, next_run_at: null });
+    });
+
+    it('recomputes next_run_at from the current cron expression when only timezone changes', async () => {
+      const current = { cron_expression: '0 7 * * *', timezone: 'Asia/Seoul' };
+      mockSupabaseSchedulerGet(mockSchedulerResponse(current));
+      const captured = captureSupabaseSchedulerUpdate(current);
+
+      const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timezone: 'UTC' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(200);
+      expect(captured.body).toBeDefined();
+      expect(Object.keys(captured.body!).sort()).toEqual(['next_run_at', 'timezone']);
+      expect(captured.body!.timezone).toBe('UTC');
+      // The stored 07:00 now means 07:00 UTC.
+      expect(captured.body!.next_run_at).toMatch(/T07:00:00\.000Z$/);
+    });
+
+    it('does not read the current row or send next_run_at when only name changes', async () => {
+      // Only the PATCH is mocked and net connect is disabled, so reading the current row would fail the request.
+      const captured = captureSupabaseSchedulerUpdate();
+
+      const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Updated Scheduler' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(200);
+      expect(captured.body).toEqual({ name: 'Updated Scheduler' });
+    });
+
+    it('returns 404 when the current row is missing', async () => {
+      mockSupabaseSchedulerNotFound();
+
+      const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_enabled: false }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(404);
+      const body = await response.json();
+      expect(body.error).toBe('not_found');
+      expect(body.error_description).toBe('Scheduler not found or not owned by you');
+    });
+
+    it('returns 400 when timezone is null', async () => {
+      const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timezone: null }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toBe("Field 'timezone' must be a string");
+    });
+
+    it('returns 400 when the cron minute is not a 10-minute value', async () => {
+      const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cron_expression: '5 9 * * *' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error_description).toBe("Field 'cron_expression' minute must be 0, 10, 20, 30, 40 or 50");
+    });
+
+    it('returns 400 when the cron expression has no next run in the stored timezone', async () => {
+      mockSupabaseSchedulerGet(mockSchedulerResponse({ cron_expression: '0 7 * * *' }));
+
+      const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cron_expression: '0 0 31 2 *' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toBe("Field 'cron_expression' must be a valid cron expression");
     });
   });
 

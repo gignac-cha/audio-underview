@@ -5,6 +5,7 @@ import { faPen } from '@fortawesome/free-solid-svg-icons';
 import type { SchedulerRow } from '@audio-underview/supabase-connector';
 import { useUpdateScheduler } from '../../hooks/use-scheduler-manager.ts';
 import { useToast } from '../../hooks/use-toast.ts';
+import { isScheduleMinuteAllowed } from './schedule-minute.ts';
 
 const Container = styled.section`
   margin-bottom: 2rem;
@@ -190,9 +191,13 @@ export function SchedulerInfoSection({ scheduler }: SchedulerInfoSectionProperti
     setEditingCron(false);
     const trimmed = cronValue.trim();
     const newValue = trimmed || null;
-    if (newValue !== scheduler.cron_expression) {
-      saveField('cron_expression', newValue);
+    if (newValue === scheduler.cron_expression) return;
+    if (newValue !== null && !isScheduleMinuteAllowed(newValue)) {
+      showToast('Validation Error', 'Cron minute must be 0, 10, 20, 30, 40 or 50.', 'error');
+      setCronValue(scheduler.cron_expression ?? '');
+      return;
     }
+    saveField('cron_expression', newValue);
   };
 
   const handleToggleEnabled = () => {
@@ -296,6 +301,18 @@ export function SchedulerInfoSection({ scheduler }: SchedulerInfoSectionProperti
             />
             <MetaValue>{scheduler.is_enabled ? 'Yes' : 'No'}</MetaValue>
           </EnabledRow>
+        </MetaItem>
+
+        <MetaItem>
+          <MetaLabel>Timezone</MetaLabel>
+          <MetaValue>{scheduler.timezone}</MetaValue>
+        </MetaItem>
+
+        <MetaItem>
+          <MetaLabel>Next Run</MetaLabel>
+          <MetaValue>
+            {scheduler.next_run_at === null ? 'Not scheduled' : formatDateTime(scheduler.next_run_at)}
+          </MetaValue>
         </MetaItem>
 
         <MetaItem>

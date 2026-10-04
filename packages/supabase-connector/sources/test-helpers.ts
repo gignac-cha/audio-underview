@@ -132,7 +132,22 @@ export function createMockClient(
 
       const createChain = () => {
         const promise = Promise.resolve(result) as any;
-        for (const method of ['select', 'insert', 'update', 'delete', 'eq', 'range', 'order']) {
+        for (const method of [
+          'select',
+          'insert',
+          'update',
+          'delete',
+          'eq',
+          'is',
+          'not',
+          'or',
+          'in',
+          'lt',
+          'lte',
+          'range',
+          'order',
+          'limit',
+        ]) {
           promise[method] = vi.fn().mockReturnValue(promise);
         }
         promise.single = vi.fn().mockImplementation(() => Promise.resolve(result));

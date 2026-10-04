@@ -212,7 +212,7 @@ export function RunHistorySection({ schedulerID }: RunHistorySectionProperties) 
                   <Cell>
                     <RunStatusBadge status={run.status} />
                   </Cell>
-                  <Cell>{formatDateTime(run.started_at)}</Cell>
+                  <Cell>{formatDateTime(run.started_at ?? run.scheduled_for)}</Cell>
                   <Cell>{formatDuration(run.started_at, run.completed_at)}</Cell>
                 </TableRow>
                 {expandedRunID === run.id && (

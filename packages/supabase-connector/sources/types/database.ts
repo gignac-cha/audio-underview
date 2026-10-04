@@ -86,6 +86,8 @@ export interface SchedulerRow {
   cron_expression: string | null;
   is_enabled: boolean;
   last_run_at: string | null;
+  timezone: string;
+  next_run_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -118,12 +120,25 @@ export interface SchedulerStageRow {
 
 /**
  * Scheduler run status enum matching the database enum
+ * 'skipped' marks a scheduled occurrence that did not start because the previous run was still in progress
  */
-export type SchedulerRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'partially_failed';
+export type SchedulerRunStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'partially_failed'
+  | 'skipped';
+
+/**
+ * What started a scheduler run: an API call or a cron occurrence
+ */
+export type SchedulerRunTrigger = 'manual' | 'schedule';
 
 /**
  * Scheduler run table row type
- * Tracks top-level execution status for a scheduler pipeline (update-in-place)
+ * Tracks top-level execution status for a scheduler pipeline (update-in-place).
+ * scheduled_for is the cron occurrence a scheduled run belongs to; null for manual runs.
  */
 export interface SchedulerRunRow {
   [key: string]: unknown;
@@ -134,6 +149,8 @@ export interface SchedulerRunRow {
   completed_at: string | null;
   result: unknown;
   error: string | null;
+  triggered_by: SchedulerRunTrigger;
+  scheduled_for: string | null;
   created_at: string;
 }
 
@@ -250,6 +267,8 @@ export interface Database {
           name: string;
           cron_expression?: string | null;
           is_enabled?: boolean;
+          timezone?: string;
+          next_run_at?: string | null;
         };
         Update: Partial<Omit<SchedulerRow, 'created_at' | 'updated_at'>>;
         Relationships: [
@@ -304,6 +323,8 @@ export interface Database {
           completed_at?: string | null;
           result?: unknown;
           error?: string | null;
+          triggered_by?: SchedulerRunTrigger;
+          scheduled_for?: string | null;
         };
         Update: Partial<Omit<SchedulerRunRow, 'id' | 'scheduler_id' | 'created_at'>>;
         Relationships: [
