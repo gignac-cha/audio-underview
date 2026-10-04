@@ -9,9 +9,13 @@ export type {
   CrawlerRow,
   SchedulerRow,
   FanOutStrategy,
+  SchedulerStageType,
   SchedulerStageRow,
+  TaskGroupRow,
   SchedulerRunRow,
+  SchedulerStageRunProgress,
   SchedulerStageRunRow,
+  SchedulerStageRunSummary,
   UsersInsert,
   AccountsInsert,
   CrawlersInsert,
@@ -172,6 +176,7 @@ export type { PaginatedSchedulerRuns } from './scheduler-runs.ts';
 export {
   createSchedulerRun,
   getSchedulerRun,
+  getSchedulerRunByID,
   getSchedulerRunByOccurrence,
   listActiveSchedulerRunsBefore,
   failSchedulerRuns,
@@ -183,6 +188,17 @@ export {
 export {
   createSchedulerStageRun,
   getSchedulerStageRun,
+  getSchedulerStageRunByID,
+  getSchedulerStageRunByStage,
   updateSchedulerStageRun,
   listSchedulerStageRunsByRun,
+  listSchedulerStageRunSummaries,
+  setSchedulerStageRunProgress,
+  failActiveSchedulerStageRuns,
 } from './scheduler-stage-runs.ts';
+
+// Task group operations
+export {
+  listTaskGroups,
+  getTaskGroup,
+} from './task-groups.ts';

@@ -4,6 +4,8 @@ import {
   errorResponse,
 } from '@audio-underview/worker-tools';
 import {
+  type SupabaseClient,
+  type SchedulerStageRow,
   createSupabaseClient,
   getCrawlerPermission,
   createSchedulerStage,
@@ -12,31 +14,177 @@ import {
   updateSchedulerStage,
   deleteSchedulerStage,
   reorderSchedulerStages,
+  getTaskGroup,
 } from '@audio-underview/supabase-connector';
+import { createWorkerLogger } from '@audio-underview/logger';
 import type { Environment } from '../index.ts';
+import { UnsupportedSchemaError, validateAgainstSchema } from '../schema-validation.ts';
 import { verifySchedulerOwnership, UUID_PATTERN } from './tools.ts';
 
 type FanOutStrategy = 'compact' | 'preserve';
 
 interface CreateStageRequestBody {
+  stage_type?: 'crawler' | 'task_group';
   crawler_id: string;
   stage_order: number;
   input_schema: Record<string, unknown>;
   output_schema?: Record<string, unknown>;
   fan_out_field?: string;
   fan_out_strategy?: FanOutStrategy;
+  task_group_id?: string;
+  task_group_version?: number;
+  settings?: Record<string, unknown>;
 }
 
 interface UpdateStageRequestBody {
+  stage_type?: unknown;
+  task_group_id?: unknown;
   crawler_id?: string;
   input_schema?: Record<string, unknown>;
   output_schema?: Record<string, unknown>;
   fan_out_field?: string | null;
   fan_out_strategy?: FanOutStrategy;
+  task_group_version?: number;
+  settings?: Record<string, unknown>;
 }
+
+const logger = createWorkerLogger({
+  defaultContext: {
+    module: 'scheduler-stages-handler',
+  },
+});
+
+// Fields of a task group stage, in the order they are checked
+const TASK_GROUP_STAGE_FIELDS = ['task_group_id', 'task_group_version', 'settings'] as const;
+// Fields of a crawler stage a task group stage does not have, in the order they are checked
+const CRAWLER_STAGE_FIELDS = ['crawler_id', 'input_schema', 'output_schema', 'fan_out_field', 'fan_out_strategy'] as const;
+
+const TASK_GROUP_ID_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+const MAXIMUM_TASK_GROUP_ID_LENGTH = 63;
+// task_groups.version is an INTEGER column, so no registered version is larger
+const MAXIMUM_TASK_GROUP_VERSION = 2_147_483_647;
+const STAGE_TYPE_CONSTRAINT = 'scheduler_stages_type_check';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isTaskGroupID(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= MAXIMUM_TASK_GROUP_ID_LENGTH && TASK_GROUP_ID_PATTERN.test(value);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1;
+}
+
+/**
+ * The first of the fields present in the body, if any. A field is present unless it is undefined.
+ */
+function findPresentField(body: object, fields: readonly string[]): string | undefined {
+  return fields.find((field) => (body as Record<string, unknown>)[field] !== undefined);
+}
+
+function notRegisteredDescription(taskGroupID: string, taskGroupVersion: number): string {
+  return `Task group '${taskGroupID}' version ${taskGroupVersion} is not registered`;
+}
+
+/**
+ * Checks settings against the settings format of a registered task group version.
+ *
+ * @returns an error response, or null when the settings are valid
+ */
+async function verifyTaskGroupSettings(
+  supabaseClient: SupabaseClient,
+  context: ResponseContext,
+  taskGroupID: string,
+  taskGroupVersion: number,
+  settings: Record<string, unknown>,
+): Promise<Response | null> {
+  const taskGroup = taskGroupVersion > MAXIMUM_TASK_GROUP_VERSION
+    ? undefined
+    : await getTaskGroup(supabaseClient, taskGroupID, taskGroupVersion);
+  if (taskGroup === undefined) {
+    return errorResponse('invalid_request', notRegisteredDescription(taskGroupID, taskGroupVersion), 400, context);
+  }
+
+  let validation;
+  try {
+    validation = validateAgainstSchema(taskGroup.settings_schema, settings);
+  } catch (error) {
+    if (!(error instanceof UnsupportedSchemaError)) throw error;
+    // A problem of the registration, not of the request
+    logger.error('Task group settings format cannot be read', error, {
+      function: 'verifyTaskGroupSettings',
+      metadata: { taskGroupID, taskGroupVersion },
+    });
+    return errorResponse('server_error', 'Task group format cannot be read', 500, context);
+  }
+
+  if (!validation.valid) {
+    return errorResponse(
+      'invalid_request',
+      `Field 'settings' does not match the task group settings format: ${validation.path} ${validation.message}`,
+      400,
+      context,
+    );
+  }
+  return null;
+}
+
+async function createTaskGroupStage(
+  supabaseClient: SupabaseClient,
+  context: ResponseContext,
+  schedulerID: string,
+  body: CreateStageRequestBody,
+): Promise<Response> {
+  const crawlerField = findPresentField(body, CRAWLER_STAGE_FIELDS);
+  if (crawlerField !== undefined) {
+    return errorResponse('invalid_request', `Field '${crawlerField}' is not allowed on a task group stage`, 400, context);
+  }
+
+  if (!isTaskGroupID(body.task_group_id)) {
+    return errorResponse('invalid_request', "Field 'task_group_id' is required and must be a task group ID", 400, context);
+  }
+
+  if (!isPositiveInteger(body.task_group_version)) {
+    return errorResponse('invalid_request', "Field 'task_group_version' is required and must be a positive integer", 400, context);
+  }
+
+  if (typeof body.stage_order !== 'number' || !Number.isInteger(body.stage_order) || body.stage_order < 0) {
+    return errorResponse('invalid_request', "Field 'stage_order' is required and must be a non-negative integer", 400, context);
+  }
+
+  if (!isPlainObject(body.settings)) {
+    return errorResponse('invalid_request', "Field 'settings' is required and must be a JSON object", 400, context);
+  }
+
+  const settingsError = await verifyTaskGroupSettings(supabaseClient, context, body.task_group_id, body.task_group_version, body.settings);
+  if (settingsError) return settingsError;
+
+  try {
+    const stage = await createSchedulerStage(supabaseClient, {
+      scheduler_id: schedulerID,
+      stage_type: 'task_group',
+      crawler_id: null,
+      task_group_id: body.task_group_id,
+      task_group_version: body.task_group_version,
+      settings: body.settings,
+      stage_order: body.stage_order,
+      input_schema: {},
+    });
+
+    return jsonResponse(stage, 201, context);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    if (message.includes('unique') || message.includes('UNIQUE') || message.includes('23505')) {
+      return errorResponse('conflict', 'A stage with this order already exists', 409, context);
+    }
+    // The version was removed after the check
+    if (message.includes('RESTRICT') || message.includes('23503') || message.includes('violates foreign key')) {
+      return errorResponse('invalid_request', notRegisteredDescription(body.task_group_id, body.task_group_version), 400, context);
+    }
+    throw error;
+  }
 }
 
 export async function handleCreateStage(
@@ -63,6 +211,19 @@ export async function handleCreateStage(
 
   if (body === null || typeof body !== 'object' || Array.isArray(body)) {
     return errorResponse('invalid_request', 'Request body must be a JSON object', 400, context);
+  }
+
+  if (body.stage_type !== undefined && body.stage_type !== 'crawler' && body.stage_type !== 'task_group') {
+    return errorResponse('invalid_request', "Field 'stage_type' must be 'crawler' or 'task_group'", 400, context);
+  }
+
+  if (body.stage_type === 'task_group') {
+    return await createTaskGroupStage(supabaseClient, context, schedulerID, body);
+  }
+
+  const taskGroupField = findPresentField(body, TASK_GROUP_STAGE_FIELDS);
+  if (taskGroupField !== undefined) {
+    return errorResponse('invalid_request', `Field '${taskGroupField}' is not allowed on a crawler stage`, 400, context);
   }
 
   if (typeof body.crawler_id !== 'string' || !UUID_PATTERN.test(body.crawler_id)) {
@@ -190,6 +351,27 @@ export async function handleUpdateStage(
     return errorResponse('invalid_request', 'Request body must be a JSON object', 400, context);
   }
 
+  // A stage changes its type or its group by being deleted and created again
+  const unchangeableField = findPresentField(body, ['stage_type', 'task_group_id']);
+  if (unchangeableField !== undefined) {
+    return errorResponse('invalid_request', `Field '${unchangeableField}' cannot be changed`, 400, context);
+  }
+
+  // The fields a stage accepts depend on its type
+  const currentStage = await getSchedulerStage(supabaseClient, stageID, schedulerID);
+  if (!currentStage) {
+    return errorResponse('not_found', 'Stage not found', 404, context);
+  }
+
+  if (currentStage.stage_type === 'task_group') {
+    return await updateTaskGroupStage(supabaseClient, context, schedulerID, currentStage, body);
+  }
+
+  const taskGroupField = findPresentField(body, ['task_group_version', 'settings']);
+  if (taskGroupField !== undefined) {
+    return errorResponse('invalid_request', `Field '${taskGroupField}' is not allowed on a crawler stage`, 400, context);
+  }
+
   if (body.crawler_id !== undefined) {
     if (typeof body.crawler_id !== 'string' || !UUID_PATTERN.test(body.crawler_id)) {
       return errorResponse('invalid_request', "Field 'crawler_id' must be a valid UUID", 400, context);
@@ -242,8 +424,75 @@ export async function handleUpdateStage(
     return jsonResponse(stage, 200, context);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
+    // The stage changed after it was read
+    if (message.includes(STAGE_TYPE_CONSTRAINT)) {
+      return errorResponse('invalid_request', 'Stage fields do not match the stage type', 400, context);
+    }
     if (message.includes('RESTRICT') || message.includes('23503') || message.includes('violates foreign key')) {
       return errorResponse('invalid_request', 'Referenced crawler does not exist', 400, context);
+    }
+    if (message.includes('unique') || message.includes('UNIQUE') || message.includes('23505')) {
+      return errorResponse('conflict', 'A stage with this configuration already exists', 409, context);
+    }
+    throw error;
+  }
+}
+
+async function updateTaskGroupStage(
+  supabaseClient: SupabaseClient,
+  context: ResponseContext,
+  schedulerID: string,
+  currentStage: SchedulerStageRow,
+  body: UpdateStageRequestBody,
+): Promise<Response> {
+  // No crawler permission is checked: a task group stage has no crawler
+  const crawlerField = findPresentField(body, CRAWLER_STAGE_FIELDS);
+  if (crawlerField !== undefined) {
+    return errorResponse('invalid_request', `Field '${crawlerField}' is not allowed on a task group stage`, 400, context);
+  }
+
+  if (body.task_group_version !== undefined && !isPositiveInteger(body.task_group_version)) {
+    return errorResponse('invalid_request', "Field 'task_group_version' must be a positive integer", 400, context);
+  }
+
+  if (body.settings !== undefined && !isPlainObject(body.settings)) {
+    return errorResponse('invalid_request', "Field 'settings' must be a JSON object", 400, context);
+  }
+
+  if (body.task_group_version === undefined && body.settings === undefined) {
+    return errorResponse('invalid_request', 'At least one field must be provided for update', 400, context);
+  }
+
+  // scheduler_stages_type_check guarantees both on a task group stage
+  const taskGroupID = currentStage.task_group_id!;
+  const taskGroupVersion = body.task_group_version ?? currentStage.task_group_version!;
+  const settings = body.settings ?? currentStage.settings ?? {};
+
+  // The settings that will be stored must match the version that will be stored
+  const settingsError = await verifyTaskGroupSettings(supabaseClient, context, taskGroupID, taskGroupVersion, settings);
+  if (settingsError) return settingsError;
+
+  const updatePayload: Record<string, unknown> = {};
+  if (body.task_group_version !== undefined) updatePayload.task_group_version = body.task_group_version;
+  if (body.settings !== undefined) updatePayload.settings = body.settings;
+
+  try {
+    const stage = await updateSchedulerStage(supabaseClient, currentStage.id, schedulerID, updatePayload);
+
+    if (!stage) {
+      return errorResponse('not_found', 'Stage not found', 404, context);
+    }
+
+    return jsonResponse(stage, 200, context);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    // The stage changed after it was read
+    if (message.includes(STAGE_TYPE_CONSTRAINT)) {
+      return errorResponse('invalid_request', 'Stage fields do not match the stage type', 400, context);
+    }
+    // The version was removed after the check
+    if (message.includes('RESTRICT') || message.includes('23503') || message.includes('violates foreign key')) {
+      return errorResponse('invalid_request', notRegisteredDescription(taskGroupID, taskGroupVersion), 400, context);
     }
     if (message.includes('unique') || message.includes('UNIQUE') || message.includes('23505')) {
       return errorResponse('conflict', 'A stage with this configuration already exists', 409, context);

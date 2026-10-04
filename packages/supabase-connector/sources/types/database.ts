@@ -105,16 +105,46 @@ export interface SchedulerRow {
  */
 export type FanOutStrategy = 'compact' | 'preserve';
 
+/**
+ * What a scheduler stage runs: a crawler, or a task group implemented by a worker outside the scheduler
+ */
+export type SchedulerStageType = 'crawler' | 'task_group';
+
+/**
+ * A crawler stage has crawler_id and no task group columns.
+ * A task group stage has task_group_id, task_group_version and settings, no crawler,
+ * no fan-out, and input_schema and output_schema of {}: its formats are those of the task group version.
+ */
 export interface SchedulerStageRow {
   [key: string]: unknown;
   id: string;
   scheduler_id: string;
-  crawler_id: string;
+  stage_type: SchedulerStageType;
+  crawler_id: string | null;
+  task_group_id: string | null;
+  task_group_version: number | null;
+  settings: Record<string, unknown> | null;
   stage_order: number;
   input_schema: Record<string, unknown>;
   output_schema: Record<string, unknown>;
   fan_out_field: string | null;
   fan_out_strategy: FanOutStrategy;
+  created_at: string;
+}
+
+/**
+ * Task group table row type
+ * One registered version of a task group. A registered version never changes its schemas.
+ * worker_binding names the service binding of the scheduler worker that reaches the worker implementing the group.
+ */
+export interface TaskGroupRow {
+  [key: string]: unknown;
+  id: string;
+  version: number;
+  input_schema: Record<string, unknown>;
+  settings_schema: Record<string, unknown>;
+  output_schema: Record<string, unknown>;
+  worker_binding: string;
   created_at: string;
 }
 
@@ -155,8 +185,20 @@ export interface SchedulerRunRow {
 }
 
 /**
+ * Latest progress a task group reported for its stage run
+ */
+export interface SchedulerStageRunProgress {
+  message: string;
+  completed: number | null;
+  total: number | null;
+  reported_at: string;
+}
+
+/**
  * Scheduler stage run table row type
- * Per-stage execution record within a run, for debugging and UI display
+ * Per-stage execution record within a run, for debugging and UI display.
+ * task_group_id and task_group_version are the group and version a task group stage run
+ * was started with; null for a crawler stage.
  */
 export interface SchedulerStageRunRow {
   [key: string]: unknown;
@@ -173,8 +215,14 @@ export interface SchedulerStageRunRow {
   items_total: number | null;
   items_succeeded: number | null;
   items_failed: number | null;
+  task_group_id: string | null;
+  task_group_version: number | null;
+  progress: SchedulerStageRunProgress | null;
   created_at: string;
 }
+
+/** A stage run without the input and the output, which can be large */
+export type SchedulerStageRunSummary = Omit<SchedulerStageRunRow, 'input' | 'output'>;
 
 /**
  * Crawler permission level type
@@ -287,7 +335,11 @@ export interface Database {
           [key: string]: unknown;
           id?: string;
           scheduler_id: string;
-          crawler_id: string;
+          stage_type?: SchedulerStageType;
+          crawler_id?: string | null;
+          task_group_id?: string | null;
+          task_group_version?: number | null;
+          settings?: Record<string, unknown> | null;
           stage_order: number;
           input_schema: Record<string, unknown>;
           output_schema?: Record<string, unknown>;
@@ -310,7 +362,28 @@ export interface Database {
             referencedRelation: 'crawlers';
             referencedColumns: ['id'];
           },
+          {
+            foreignKeyName: 'scheduler_stages_task_group_fkey';
+            columns: ['task_group_id', 'task_group_version'];
+            isOneToOne: false;
+            referencedRelation: 'task_groups';
+            referencedColumns: ['id', 'version'];
+          },
         ];
+      };
+      task_groups: {
+        Row: TaskGroupRow;
+        Insert: {
+          [key: string]: unknown;
+          id: string;
+          version: number;
+          input_schema: Record<string, unknown>;
+          settings_schema: Record<string, unknown>;
+          output_schema: Record<string, unknown>;
+          worker_binding: string;
+        };
+        Update: Partial<Omit<TaskGroupRow, 'created_at'>>;
+        Relationships: [];
       };
       scheduler_runs: {
         Row: SchedulerRunRow;
@@ -354,6 +427,9 @@ export interface Database {
           items_total?: number | null;
           items_succeeded?: number | null;
           items_failed?: number | null;
+          task_group_id?: string | null;
+          task_group_version?: number | null;
+          progress?: SchedulerStageRunProgress | null;
         };
         Update: Partial<Omit<SchedulerStageRunRow, 'id' | 'run_id' | 'stage_id' | 'created_at'>>;
         Relationships: [

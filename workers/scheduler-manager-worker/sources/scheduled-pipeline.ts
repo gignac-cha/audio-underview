@@ -1,26 +1,45 @@
-import type { WorkflowStepConfig } from 'cloudflare:workers';
+import type { WorkflowStepConfig, WorkflowTimeoutDuration } from 'cloudflare:workers';
 import {
   type SupabaseClient,
   type SchedulerRunRow,
   type SchedulerRunStatus,
   type SchedulerRunsUpdate,
   getSchedulerByID,
+  getSchedulerRun,
   getSchedulerRunByOccurrence,
   createSchedulerRun,
   listSchedulerStages,
   getSchedulerStageRun,
   updateSchedulerRun,
   updateScheduler,
+  failActiveSchedulerStageRuns,
 } from '@audio-underview/supabase-connector';
 import { type ExecutorDependencies, executePipelineStage } from './scheduler-executor.ts';
 import { resolveDefaultInput } from './stage-runner.ts';
 import type { SchedulerRunParameters } from './scheduler-run-workflow.ts';
+import {
+  type TaskGroupWorker,
+  TASK_GROUP_STAGE_TIMEOUT_MINUTES,
+  taskGroupFinishedEventType,
+} from './task-group-worker.ts';
+import {
+  type TaskGroupStageContext,
+  type TaskGroupStageResult,
+  startTaskGroupStage,
+  settleTaskGroupStage,
+} from './task-group-stage.ts';
+
+export interface ScheduledPipelineDependencies extends ExecutorDependencies {
+  /** Finds the worker of a task group by the name of its service binding */
+  resolveTaskGroupWorker: (binding: string) => TaskGroupWorker | undefined;
+}
 
 /**
  * The part of the Workflow step the pipeline uses, so tests can pass a fake.
  */
 export interface ScheduledPipelineStep {
   do<T>(name: string, options: WorkflowStepConfig, callback: () => Promise<T>): Promise<T>;
+  waitForEvent(name: string, options: { type: string; timeout: WorkflowTimeoutDuration }): Promise<unknown>;
 }
 
 export type ScheduledPipelineResult =
@@ -47,6 +66,15 @@ const EXECUTE_STEP_OPTIONS: WorkflowStepConfig = {
   timeout: '15 minutes',
 };
 
+// Starting a task group only asks its worker to start, and is never repeated automatically either.
+const TASK_GROUP_START_STEP_OPTIONS: WorkflowStepConfig = {
+  retries: { limit: 0, delay: 0 },
+  timeout: '5 minutes',
+};
+
+const TASK_GROUP_WAIT_TIMEOUT = `${TASK_GROUP_STAGE_TIMEOUT_MINUTES} minutes` as const;
+const UNFINISHED_STAGE_RUN_ERROR = 'Run ended before this stage finished';
+
 const ACTIVE_RUN_INDEX = 'scheduler_runs_one_active_per_scheduler';
 const SKIPPED_RUN_ERROR = 'A previous run was still in progress';
 const ACTIVE_RUN_STATUSES: SchedulerRunStatus[] = ['pending', 'running'];
@@ -69,9 +97,9 @@ function resolveExistingRun(run: SchedulerRunRow, userUUID: string): BeginRunRes
  * Creates the run of this occurrence, records it as skipped while another run is in progress,
  * or picks up the run a previous attempt already created.
  */
-async function beginRun(
+async function beginScheduledRun(
   supabaseClient: SupabaseClient,
-  parameters: SchedulerRunParameters,
+  parameters: { schedulerID: string; scheduledFor: string },
 ): Promise<BeginRunResult> {
   const { schedulerID, scheduledFor } = parameters;
 
@@ -121,12 +149,87 @@ async function beginRun(
 }
 
 /**
- * Runs one scheduled occurrence of a scheduler pipeline as Workflow steps.
- * Every database access and crawler call happens inside a step, and no step result
- * carries a stage output: the next step reads it from the stage run.
+ * Starts the pending run a manual execution created for a scheduler with a task group stage, or
+ * continues it when a previous attempt already started it. The scheduler runs whether or not it is
+ * enabled or has a cron expression.
+ */
+async function beginManualRun(
+  supabaseClient: SupabaseClient,
+  parameters: { schedulerID: string; runID: string },
+): Promise<BeginRunResult> {
+  const { schedulerID, runID } = parameters;
+
+  const scheduler = await getSchedulerByID(supabaseClient, schedulerID);
+  if (scheduler === undefined) return { outcome: 'cancelled' };
+  const userUUID = scheduler.user_uuid;
+
+  const run = await getSchedulerRun(supabaseClient, runID, schedulerID);
+  if (run === undefined) return { outcome: 'cancelled' };
+  if (run.status === 'running') return { outcome: 'started', runID, userUUID };
+  if (run.status !== 'pending') return { outcome: 'finished' };
+
+  const startedRun = await updateSchedulerRun(supabaseClient, runID, schedulerID, {
+    status: 'running',
+    started_at: new Date().toISOString(),
+  }, { onlyIfStatus: ['pending'] });
+  if (startedRun !== undefined) return { outcome: 'started', runID, userUUID };
+
+  // The run changed in the meantime: started by another attempt, or closed
+  const changedRun = await getSchedulerRun(supabaseClient, runID, schedulerID);
+  if (changedRun === undefined) return { outcome: 'cancelled' };
+  if (changedRun.status === 'running') return { outcome: 'started', runID, userUUID };
+  return { outcome: 'finished' };
+}
+
+function beginRun(supabaseClient: SupabaseClient, parameters: SchedulerRunParameters): Promise<BeginRunResult> {
+  if ('runID' in parameters) return beginManualRun(supabaseClient, parameters);
+  return beginScheduledRun(supabaseClient, parameters);
+}
+
+/**
+ * Runs a task group stage as three steps: start the group, wait for its report, and read the
+ * result from the stage run. The stage run decides the result; the event only wakes the run.
+ */
+async function runTaskGroupStage(
+  dependencies: ScheduledPipelineDependencies,
+  step: ScheduledPipelineStep,
+  context: TaskGroupStageContext,
+): Promise<TaskGroupStageResult> {
+  const { supabaseClient, logger } = dependencies;
+  const { runID, stage } = context;
+  const stepName = `stage-${stage.stage_order}`;
+
+  const startResult = await step.do(stepName, TASK_GROUP_START_STEP_OPTIONS, () => startTaskGroupStage(dependencies, context));
+  if (startResult.status === 'failed') return startResult;
+  const { stageRunID } = startResult;
+
+  if (startResult.status === 'waiting') {
+    try {
+      await step.waitForEvent(`${stepName}-finished`, {
+        type: taskGroupFinishedEventType(stageRunID),
+        timeout: TASK_GROUP_WAIT_TIMEOUT,
+      });
+    } catch (error: unknown) {
+      // Timed out or failed otherwise; the result step decides from the stage run either way
+      logger.warn('Task group stage was not reported finished', {
+        runID,
+        stageRunID,
+        stageOrder: stage.stage_order,
+        error: errorMessageOf(error),
+      }, { function: 'runScheduledPipeline' });
+    }
+  }
+
+  return step.do(`${stepName}-result`, RECORD_STEP_OPTIONS, () => settleTaskGroupStage(supabaseClient, runID, stage.stage_order, stageRunID));
+}
+
+/**
+ * Runs one run of a scheduler pipeline as Workflow steps: a scheduled occurrence, or a manual
+ * run of a scheduler with a task group stage. Every database access and crawler call happens
+ * inside a step, and no step result carries a stage output: the next step reads it from the stage run.
  */
 export async function runScheduledPipeline(
-  dependencies: ExecutorDependencies,
+  dependencies: ScheduledPipelineDependencies,
   parameters: SchedulerRunParameters,
   step: ScheduledPipelineStep,
 ): Promise<ScheduledPipelineResult> {
@@ -148,6 +251,17 @@ export async function runScheduledPipeline(
 
     for (const stage of stages) {
       const previousStageRunID = lastStageRunID;
+
+      // Anything else, a missing value included, is a crawler stage
+      if (stage.stage_type === 'task_group') {
+        const taskGroupStageResult = await runTaskGroupStage(dependencies, step, { runID, userUUID, stage, previousStageRunID });
+        if (taskGroupStageResult.status === 'failed') {
+          failure = taskGroupStageResult.error;
+          break;
+        }
+        lastStageRunID = taskGroupStageResult.stageRunID;
+        continue;
+      }
 
       const stageStepResult = await step.do(`stage-${stage.stage_order}`, EXECUTE_STEP_OPTIONS, async (): Promise<StageStepResult> => {
         try {
@@ -206,6 +320,10 @@ export async function runScheduledPipeline(
   const finishedStageRunID = lastStageRunID;
   const finishRunResult = await step.do('finish-run', RECORD_STEP_OPTIONS, async () => {
     const now = new Date().toISOString();
+
+    // No stage run stays in progress after its run ends, for example after a step timed out
+    // or a start step ran again
+    await failActiveSchedulerStageRuns(supabaseClient, runID, now, UNFINISHED_STAGE_RUN_ERROR);
 
     const values: SchedulerRunsUpdate = { status, completed_at: now };
     if (failure !== null) {

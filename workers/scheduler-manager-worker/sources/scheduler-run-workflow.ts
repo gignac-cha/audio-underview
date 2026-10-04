@@ -4,12 +4,19 @@ import { createWorkerLogger } from '@audio-underview/logger';
 import type { Environment } from './index.ts';
 import { ServiceBindingCrawlerExecutionClient } from './crawler-execution-client.ts';
 import { type ScheduledPipelineResult, runScheduledPipeline } from './scheduled-pipeline.ts';
+import { resolveTaskGroupWorker } from './task-group-worker.ts';
 
-export interface SchedulerRunParameters {
-  schedulerID: string;
-  /** ISO timestamp of the cron occurrence this run belongs to */
-  scheduledFor: string;
-}
+export type SchedulerRunParameters =
+  | {
+    schedulerID: string;
+    /** ISO timestamp of the cron occurrence this run belongs to */
+    scheduledFor: string;
+  }
+  | {
+    schedulerID: string;
+    /** The pending run a manual execution created for a scheduler with a task group stage */
+    runID: string;
+  };
 
 const logger = createWorkerLogger({
   defaultContext: {
@@ -18,7 +25,8 @@ const logger = createWorkerLogger({
 });
 
 /**
- * Runs one scheduled occurrence of a scheduler. The logic lives in runScheduledPipeline.
+ * Runs one scheduled occurrence of a scheduler, or a manual run of a scheduler with a task group
+ * stage. The logic lives in runScheduledPipeline.
  */
 export class SchedulerRunWorkflow extends WorkflowEntrypoint<Environment, SchedulerRunParameters> {
   async run(event: WorkflowEvent<SchedulerRunParameters>, step: WorkflowStep): Promise<ScheduledPipelineResult> {
@@ -29,7 +37,12 @@ export class SchedulerRunWorkflow extends WorkflowEntrypoint<Environment, Schedu
     const crawlerExecutionClient = new ServiceBindingCrawlerExecutionClient(this.env.CRAWLER_MANAGER);
 
     return runScheduledPipeline(
-      { supabaseClient, crawlerExecutionClient, logger },
+      {
+        supabaseClient,
+        crawlerExecutionClient,
+        logger,
+        resolveTaskGroupWorker: (binding) => resolveTaskGroupWorker(this.env, binding),
+      },
       event.payload,
       step,
     );

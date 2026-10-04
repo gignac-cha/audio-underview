@@ -1,6 +1,7 @@
 import {
   createSchedulerRun,
   getSchedulerRun,
+  getSchedulerRunByID,
   getSchedulerRunByOccurrence,
   listActiveSchedulerRunsBefore,
   failSchedulerRuns,
@@ -70,6 +71,41 @@ describe('getSchedulerRun', () => {
 
     const result = await getSchedulerRun(client, 'run-1', 'scheduler-1');
     expect(result).toBeUndefined();
+  });
+});
+
+describe('getSchedulerRunByID', () => {
+  test('queries runs by ID alone', async () => {
+    const client = createMockClient({ scheduler_runs: { data: scheduledRun, error: null } });
+
+    await getSchedulerRunByID(client, 'run-2');
+
+    expect(client.from).toHaveBeenCalledWith('scheduler_runs');
+    const chain = client.from.mock.results[0].value;
+    expect(chain.eq.mock.calls).toEqual([['id', 'run-2']]);
+    expect(chain.maybeSingle).toHaveBeenCalled();
+  });
+
+  test('returns run when found', async () => {
+    const client = createMockClient({ scheduler_runs: { data: scheduledRun, error: null } });
+
+    const result = await getSchedulerRunByID(client, 'run-2');
+    expect(result).toEqual(scheduledRun);
+  });
+
+  test('returns undefined when not found', async () => {
+    const client = createMockClient({ scheduler_runs: { data: null, error: null } });
+
+    const result = await getSchedulerRunByID(client, 'missing');
+    expect(result).toBeUndefined();
+  });
+
+  test('throws on error', async () => {
+    const client = createMockClient({
+      scheduler_runs: { data: null, error: { code: 'OTHER', message: 'fail' } },
+    });
+
+    await expect(getSchedulerRunByID(client, 'run-2')).rejects.toThrow('Failed to get scheduler run by ID: fail');
   });
 });
 

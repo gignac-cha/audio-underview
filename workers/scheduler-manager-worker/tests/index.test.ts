@@ -874,6 +874,16 @@ describe('scheduler-manager-worker', () => {
         .get('https://supabase.example.com')
         .intercept({ path: /^\/rest\/v1\/scheduler_runs/, method: 'GET' })
         .reply(200, JSON.stringify(mockRunResponse()));
+      // The stage runs of the run, without their input and output
+      const stageRuns = [{ id: '00000000-0000-0000-0000-000000000050', run_id: MOCK_RUN_ID, stage_order: 0, status: 'running', progress: null }];
+      let stageRunsPath = '';
+      fetchMock
+        .get('https://supabase.example.com')
+        .intercept({ path: /^\/rest\/v1\/scheduler_stage_runs/, method: 'GET' })
+        .reply((options) => {
+          stageRunsPath = decodeURIComponent(String(options.path));
+          return { statusCode: 200, data: JSON.stringify(stageRuns) };
+        });
 
       const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}/runs/${MOCK_RUN_ID}`);
       const response = await worker.fetch(request, env);
@@ -881,6 +891,10 @@ describe('scheduler-manager-worker', () => {
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body.id).toBe(MOCK_RUN_ID);
+      expect(body.stage_runs).toEqual(stageRuns);
+      expect(stageRunsPath).toContain(`run_id=eq.${MOCK_RUN_ID}`);
+      expect(stageRunsPath).toContain('order=stage_order.asc');
+      expect(new URLSearchParams(stageRunsPath.slice(stageRunsPath.indexOf('?') + 1)).get('select')?.split(',')).not.toContain('input');
     });
   });
 

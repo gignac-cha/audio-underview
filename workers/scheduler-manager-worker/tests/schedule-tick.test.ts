@@ -646,7 +646,8 @@ describe('runScheduleTick', () => {
       const result = await runScheduleTick(createDependencies(workflow), now);
 
       expect(result.interrupted).toBe(1);
-      expect(workflow.get).not.toHaveBeenCalled();
+      // A manual run executed inside its request has no instance, so get throws for it
+      expect(workflow.get).toHaveBeenCalledWith(`manual-${manualRun.id}`);
 
       const failRequests = failSchedulerRunsRequests();
       expect(failRequests).toHaveLength(1);
@@ -655,6 +656,21 @@ describe('runScheduleTick', () => {
         failed_at: '2026-10-05T22:00:00.000Z',
         failure_message: 'Run was interrupted',
       });
+      fetchMock.assertNoPendingInterceptors();
+    });
+
+    it('leaves alone a manual run whose instance waits for a task group', async () => {
+      const manualRun = mockRunRow({ triggered_by: 'manual', scheduled_for: null });
+      const workflow = createFakeWorkflow({ [`manual-${manualRun.id}`]: 'waiting' });
+
+      mockListActiveRuns([manualRun]);
+      mockEmptyStartSteps();
+
+      const result = await runScheduleTick(createDependencies(workflow), now);
+
+      expect(result.interrupted).toBe(0);
+      expect(workflow.get).toHaveBeenCalledWith(`manual-${manualRun.id}`);
+      expect(failSchedulerRunsRequests()).toHaveLength(0);
       fetchMock.assertNoPendingInterceptors();
     });
 

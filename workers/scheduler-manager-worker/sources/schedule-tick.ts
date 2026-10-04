@@ -9,7 +9,7 @@ import {
   setSchedulerNextRuns,
   failSchedulerRuns,
 } from '@audio-underview/supabase-connector';
-import { resolveNextRunAt, schedulerRunInstanceID } from './schedule.ts';
+import { resolveNextRunAt, runInstanceID, schedulerRunInstanceID } from './schedule.ts';
 import type { SchedulerRunParameters } from './scheduler-run-workflow.ts';
 
 export interface ScheduleTickDependencies {
@@ -28,8 +28,8 @@ export interface ScheduleTickResult {
 // Supabase changes in one request instead of one per row: a tick makes at most
 // 12 Supabase requests, whatever the number of schedulers.
 
-// A manual run lasts at most 5 minutes, so an active run older than this was interrupted
-// unless its Workflow instance is still alive.
+// A manual run executed inside its request lasts at most 5 minutes, so an active run older
+// than this was interrupted unless its Workflow instance is still alive.
 const INTERRUPTED_RUN_AGE_MILLISECONDS = 10 * 60 * 1000;
 const INTERRUPTED_RUN_LIMIT = 200;
 const INITIALIZE_PAGE_SIZE = 500;
@@ -55,11 +55,10 @@ async function isRunInstanceAlive(
 ): Promise<boolean> {
   const { workflow, logger } = dependencies;
 
-  if (run.triggered_by !== 'schedule' || run.scheduled_for === null) return false;
-
   let instance: WorkflowInstance;
   try {
-    instance = await workflow.get(schedulerRunInstanceID(run.scheduler_id, new Date(run.scheduled_for)));
+    // A manual run executed inside its request has no instance, so get throws for it
+    instance = await workflow.get(runInstanceID(run));
   } catch {
     // get throws when the instance does not exist
     return false;
