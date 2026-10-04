@@ -2,11 +2,12 @@ import type { Logger } from '@audio-underview/logger';
 import {
   type SupabaseClient,
   type SchedulerRunRow,
+  type SchedulerNextRunUpdate,
   listActiveSchedulerRunsBefore,
   listSchedulersWithoutNextRun,
   listSchedulersDue,
-  setSchedulerNextRun,
-  updateSchedulerRun,
+  setSchedulerNextRuns,
+  failSchedulerRuns,
 } from '@audio-underview/supabase-connector';
 import { resolveNextRunAt, schedulerRunInstanceID } from './schedule.ts';
 import type { SchedulerRunParameters } from './scheduler-run-workflow.ts';
@@ -22,6 +23,10 @@ export interface ScheduleTickResult {
   initialized: number;
   started: number;
 }
+
+// Workers Free allows 50 external subrequests per invocation, so each step sends its
+// Supabase changes in one request instead of one per row: a tick makes at most
+// 12 Supabase requests, whatever the number of schedulers.
 
 // A manual run lasts at most 5 minutes, so an active run older than this was interrupted
 // unless its Workflow instance is still alive.
@@ -86,27 +91,33 @@ async function failInterruptedRuns(dependencies: ScheduleTickDependencies, now: 
   const createdBefore = new Date(now.getTime() - INTERRUPTED_RUN_AGE_MILLISECONDS).toISOString();
   const runs = await listActiveSchedulerRunsBefore(supabaseClient, createdBefore, INTERRUPTED_RUN_LIMIT);
 
-  let interrupted = 0;
+  const interruptedRuns: SchedulerRunRow[] = [];
   for (const run of runs) {
     if (await isRunInstanceAlive(dependencies, run)) continue;
-
-    // The status condition keeps a run that finished in the meantime as it is
-    const updatedRun = await updateSchedulerRun(supabaseClient, run.id, run.scheduler_id, {
-      status: 'failed',
-      completed_at: now.toISOString(),
-      error: 'Run was interrupted',
-    }, { onlyIfStatus: ['pending', 'running'] });
-
-    if (updatedRun !== undefined) {
-      interrupted++;
-      logger.warn('Interrupted run failed', {
-        schedulerID: run.scheduler_id,
-        runID: run.id,
-        triggeredBy: run.triggered_by,
-      }, { function: 'runScheduleTick' });
-    }
+    interruptedRuns.push(run);
   }
-  return interrupted;
+
+  if (interruptedRuns.length === 0) return 0;
+
+  // One request for every run; only runs still pending or running change,
+  // so a run that finished in the meantime keeps its result
+  const failedRunIDs = await failSchedulerRuns(
+    supabaseClient,
+    interruptedRuns.map((run) => run.id),
+    now.toISOString(),
+    'Run was interrupted',
+  );
+
+  const failedRunIDSet = new Set(failedRunIDs);
+  for (const run of interruptedRuns) {
+    if (!failedRunIDSet.has(run.id)) continue;
+    logger.warn('Interrupted run failed', {
+      schedulerID: run.scheduler_id,
+      runID: run.id,
+      triggeredBy: run.triggered_by,
+    }, { function: 'runScheduleTick' });
+  }
+  return failedRunIDs.length;
 }
 
 /**
@@ -124,16 +135,20 @@ async function initializeNextRuns(dependencies: ScheduleTickDependencies, now: D
   for (let page = 0; page < INITIALIZE_PAGE_LIMIT; page++) {
     const schedulers = await listSchedulersWithoutNextRun(supabaseClient, INITIALIZE_PAGE_SIZE, after);
 
+    const updates: SchedulerNextRunUpdate[] = [];
     for (const scheduler of schedulers) {
       const nextRunAt = resolveNextRunAt(scheduler, now);
       if (nextRunAt === null) {
         unresolved++;
         continue;
       }
+      updates.push({ id: scheduler.id, expected: null, next: nextRunAt });
+    }
 
-      if (await setSchedulerNextRun(supabaseClient, scheduler.id, null, nextRunAt)) {
-        initialized++;
-      }
+    // One request per page
+    if (updates.length > 0) {
+      const initializedIDs = await setSchedulerNextRuns(supabaseClient, updates);
+      initialized += initializedIDs.length;
     }
 
     // A page that is not full is the last one
@@ -152,9 +167,10 @@ async function initializeNextRuns(dependencies: ScheduleTickDependencies, now: D
 }
 
 /**
- * Creates one Workflow instance per due scheduler, then moves each next run past `now`.
- * The instances are created first: a failure in between leaves next_run_at as it was,
- * and the next tick asks for the same instance IDs, which createBatch skips.
+ * Creates one Workflow instance per due scheduler, then moves each next run past `now`
+ * in one request. The instances are created first: a failure in between leaves
+ * next_run_at as it was, and the next tick asks for the same instance IDs, which
+ * createBatch skips.
  *
  * @returns the number of instances requested
  */
@@ -177,8 +193,12 @@ async function startDueSchedulers(dependencies: ScheduleTickDependencies, now: D
   }
 
   // One occurrence per tick: missed occurrences are not caught up
-  for (const scheduler of schedulers) {
-    await setSchedulerNextRun(supabaseClient, scheduler.id, scheduler.next_run_at, resolveNextRunAt(scheduler, now));
+  if (schedulers.length > 0) {
+    await setSchedulerNextRuns(supabaseClient, schedulers.map((scheduler) => ({
+      id: scheduler.id,
+      expected: scheduler.next_run_at,
+      next: resolveNextRunAt(scheduler, now),
+    })));
   }
 
   return instances.length;

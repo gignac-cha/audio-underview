@@ -3,6 +3,7 @@ import {
   getSchedulerRun,
   getSchedulerRunByOccurrence,
   listActiveSchedulerRunsBefore,
+  failSchedulerRuns,
   updateSchedulerRun,
   listSchedulerRuns,
 } from './scheduler-runs.ts';
@@ -148,6 +149,76 @@ describe('listActiveSchedulerRunsBefore', () => {
     await expect(
       listActiveSchedulerRunsBefore(client, '2026-10-05T21:50:00.000Z', 200),
     ).rejects.toThrow('Failed to list active scheduler runs: fail');
+  });
+});
+
+describe('failSchedulerRuns', () => {
+  test('sends every run in one fail_scheduler_runs call with the time and message', async () => {
+    const client = createMockClient(
+      {},
+      { fail_scheduler_runs: { data: ['run-1', 'run-2'], error: null } },
+    );
+
+    await failSchedulerRuns(client, ['run-1', 'run-2'], '2026-10-05T22:00:00.000Z', 'Run was interrupted');
+
+    expect(client.rpc).toHaveBeenCalledTimes(1);
+    expect(client.rpc).toHaveBeenCalledWith('fail_scheduler_runs', {
+      run_ids: ['run-1', 'run-2'],
+      failed_at: '2026-10-05T22:00:00.000Z',
+      failure_message: 'Run was interrupted',
+    });
+    expect(client.from).not.toHaveBeenCalled();
+  });
+
+  test('returns the IDs of the runs that changed', async () => {
+    const client = createMockClient(
+      {},
+      { fail_scheduler_runs: { data: ['run-2'], error: null } },
+    );
+
+    const result = await failSchedulerRuns(
+      client,
+      ['run-1', 'run-2'],
+      '2026-10-05T22:00:00.000Z',
+      'Run was interrupted',
+    );
+    expect(result).toEqual(['run-2']);
+  });
+
+  test('returns an empty array when no run changed', async () => {
+    const client = createMockClient(
+      {},
+      { fail_scheduler_runs: { data: [], error: null } },
+    );
+
+    const result = await failSchedulerRuns(
+      client,
+      ['run-1'],
+      '2026-10-05T22:00:00.000Z',
+      'Run was interrupted',
+    );
+    expect(result).toEqual([]);
+  });
+
+  test('makes no request for an empty list', async () => {
+    const client = createMockClient();
+
+    const result = await failSchedulerRuns(client, [], '2026-10-05T22:00:00.000Z', 'Run was interrupted');
+
+    expect(result).toEqual([]);
+    expect(client.rpc).not.toHaveBeenCalled();
+    expect(client.from).not.toHaveBeenCalled();
+  });
+
+  test('throws on error', async () => {
+    const client = createMockClient(
+      {},
+      { fail_scheduler_runs: { data: null, error: { code: 'OTHER', message: 'fail' } } },
+    );
+
+    await expect(
+      failSchedulerRuns(client, ['run-1'], '2026-10-05T22:00:00.000Z', 'Run was interrupted'),
+    ).rejects.toThrow('Failed to mark scheduler runs as failed: fail');
   });
 });
 

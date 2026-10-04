@@ -135,6 +135,59 @@ COMMENT ON COLUMN scheduler_runs.scheduled_for IS 'The cron occurrence a schedul
 CREATE UNIQUE INDEX scheduler_runs_scheduled_occurrence_unique_index
   ON scheduler_runs (scheduler_id, scheduled_for)
   WHERE scheduled_for IS NOT NULL;
+
+-- The 10-minute tick moves next_run_at for many schedulers and closes many
+-- interrupted runs. One request per row would exceed the Workers Free limit of
+-- 50 external requests per invocation, so each kind of change is one call.
+
+-- Moves next_run_at for many schedulers. Each element of updates is
+-- {"id": uuid, "expected_next_run_at": timestamptz or null,
+--  "next_run_at": timestamptz or null}. A scheduler changes only while its
+-- next_run_at is still the expected value, so one a user edited in the
+-- meantime is left alone. Returns the IDs that changed.
+CREATE FUNCTION set_scheduler_next_runs(updates JSONB)
+RETURNS SETOF UUID
+LANGUAGE sql
+SET search_path = ''
+AS $$
+  UPDATE public.schedulers
+  SET next_run_at = requested.next_run_at
+  FROM jsonb_to_recordset(updates) AS requested(id UUID, expected_next_run_at TIMESTAMPTZ, next_run_at TIMESTAMPTZ)
+  WHERE schedulers.id = requested.id
+    AND schedulers.next_run_at IS NOT DISTINCT FROM requested.expected_next_run_at
+  RETURNING schedulers.id;
+$$;
+
+-- Closes many interrupted runs. Only runs still pending or running change, so
+-- a run that finished in the meantime keeps its result. Returns the IDs that
+-- changed.
+CREATE FUNCTION fail_scheduler_runs(run_ids UUID[], failed_at TIMESTAMPTZ, failure_message TEXT)
+RETURNS SETOF UUID
+LANGUAGE sql
+SET search_path = ''
+AS $$
+  UPDATE public.scheduler_runs
+  SET status = 'failed', completed_at = failed_at, error = failure_message
+  WHERE id = ANY(run_ids)
+    AND status IN ('pending', 'running')
+  RETURNING id;
+$$;
+
+-- Only the service role (the workers) may call these functions. The public
+-- anon and authenticated keys must not change scheduling data. The roles exist
+-- on Supabase only, hence the check.
+REVOKE EXECUTE ON FUNCTION set_scheduler_next_runs(JSONB) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION fail_scheduler_runs(UUID[], TIMESTAMPTZ, TEXT) FROM PUBLIC;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    REVOKE EXECUTE ON FUNCTION set_scheduler_next_runs(JSONB) FROM anon, authenticated;
+    REVOKE EXECUTE ON FUNCTION fail_scheduler_runs(UUID[], TIMESTAMPTZ, TEXT) FROM anon, authenticated;
+    GRANT EXECUTE ON FUNCTION set_scheduler_next_runs(JSONB) TO service_role;
+    GRANT EXECUTE ON FUNCTION fail_scheduler_runs(UUID[], TIMESTAMPTZ, TEXT) TO service_role;
+  END IF;
+END;
+$$;
 ```
 
 | 컬럼 | 뜻 |
@@ -164,14 +217,17 @@ CREATE UNIQUE INDEX scheduler_runs_scheduled_occurrence_unique_index
 
 이 표의 사례를 포함한 32개 사례(아주 큰 간격, 탭으로 시작하는 식 포함)를 PGlite(Postgres 17)에서 마이그레이션 001~011을 차례로 적용해 확인했다.
 
-connector에는 타입(`SchedulerRunTrigger`, 새 컬럼, `'skipped'`)과 조회·갱신 함수 일곱 개를 더한다. 기존 함수처럼 `traceDatabaseOperation`으로 감싸고 오류면 `Failed to …`를 던진다.
+connector에는 타입(`SchedulerRunTrigger`, 새 컬럼, `'skipped'`)과 조회·갱신 함수 여덟 개를 더한다. 기존 함수처럼 `traceDatabaseOperation`으로 감싸고 오류면 `Failed to …`를 던진다.
+
+여러 행을 바꾸는 두 함수(`setSchedulerNextRuns`, `failSchedulerRuns`)는 마이그레이션 011이 만드는 Postgres 함수를 RPC로 한 번 부른다. 두 Postgres 함수는 `service_role`만 실행할 수 있고, `PUBLIC`·`anon`·`authenticated`에서는 실행 권한을 거둔다. Supabase 공개 키로 데이터를 바꾸지 못하게 하기 위해서다.
 
 | 함수 | 하는 일 |
 | -- | -- |
 | `getSchedulerByID(client, id)` | 사용자 조건 없이 `id`로 한 행을 읽는다. Workflow에는 사용자 정보가 없어서 필요하다 |
 | `listSchedulersDue(client, now, limit)` | 켜져 있고, cron 식이 있고, `next_run_at <= now`인 행. `next_run_at` 오름차순 |
 | `listSchedulersWithoutNextRun(client, limit, after?)` | 켜져 있고 cron 식이 있는데 `next_run_at`이 NULL인 행. `created_at`, `id` 오름차순. `after`(`{ created_at, id }`)를 주면 그 행 뒤부터 |
-| `setSchedulerNextRun(client, id, expected, next)` | `next_run_at`이 `expected`와 같을 때만 `next`로 바꾼다. 바뀌면 `true`. 그 사이에 사용자가 스케줄을 고쳤으면 덮어쓰지 않는다 |
+| `setSchedulerNextRuns(client, updates)` | `updates`(`{ id, expected, next }` 목록)를 Postgres 함수 `set_scheduler_next_runs` 한 번으로 보낸다. 행마다 `next_run_at`이 `expected`와 같을 때만(`null`이면 NULL일 때만) `next`로 바꾼다. 바뀐 행의 `id` 목록을 돌려준다. 그 사이에 사용자가 스케줄을 고쳤으면 덮어쓰지 않는다. `updates`가 비면 요청하지 않는다 |
+| `failSchedulerRuns(client, runIDs, failedAt, failureMessage)` | Postgres 함수 `fail_scheduler_runs` 한 번으로, 아직 `pending`·`running`인 실행만 `failed`로 닫는다. 바뀐 행의 `id` 목록을 돌려준다. `runIDs`가 비면 요청하지 않는다 |
 | `getSchedulerRunByOccurrence(client, schedulerID, scheduledFor)` | 그 회차의 실행 기록 한 행 |
 | `listActiveSchedulerRunsBefore(client, createdBefore, limit)` | `pending`·`running`이면서 `created_at < createdBefore`인 기록. `created_at` 오름차순 |
 | `getSchedulerStageRun(client, id, runID)` | stage 실행 기록 한 행 |
@@ -301,17 +357,19 @@ export async function runScheduleTick(dependencies: ScheduleTickDependencies, no
 **1단계, 중단된 실행 정리.** `listActiveSchedulerRunsBefore`로 만든 지 10분이 넘은 진행 중 기록을 200개까지 읽는다.
 
 - 예약 실행 기록이면 그 회차의 인스턴스 상태를 `workflow.get(...).status()`로 본다. 상태가 `queued`·`running`·`paused`·`waiting`·`waitingForPause`·`unknown`이면 아직 살아 있는 것이므로 그대로 둔다. `get`이 던지면 인스턴스가 없는 것으로 본다. `status()`가 던지면 상태를 알 수 없으므로 `unknown`과 같이 그 기록을 그대로 두고, 경고 로그를 남긴 뒤 다음 기록으로 넘어간다. 상태 조회 하나가 실패했다고 tick 전체가 멈추지 않는다.
-- 그 밖의 기록은 `status: 'failed'`, `error: 'Run was interrupted'`로 닫는다. 수동 실행 기록, 인스턴스가 없는 기록, 인스턴스가 `errored`·`terminated`·`complete`인 기록이 여기에 든다. 그 사이에 끝난 기록을 덮어쓰지 않도록 `onlyIfStatus: ['pending', 'running']` 조건으로 갱신한다.
+- 그 밖의 기록은 `status: 'failed'`, `error: 'Run was interrupted'`로 닫는다. 수동 실행 기록, 인스턴스가 없는 기록, 인스턴스가 `errored`·`terminated`·`complete`인 기록이 여기에 든다. 닫을 기록을 모두 모은 뒤 `failSchedulerRuns` 한 번으로 보낸다. 그 사이에 끝난 기록은 함수가 건드리지 않는다.
 
 수동 실행은 5분 제한이 있다. 10분 뒤에도 진행 중인 수동 기록은 중단된 것이다.
 
-**2단계, 초기화.** `listSchedulersWithoutNextRun`으로 읽은 행마다 다음 실행 시각을 계산해 `setSchedulerNextRun(id, null, 값)`으로 넣는다. 마이그레이션 전에 저장된 스케줄이 여기서 처음 값을 받는다. 이 단계에서는 실행하지 않는다.
+**2단계, 초기화.** `listSchedulersWithoutNextRun`으로 읽은 행마다 다음 실행 시각을 계산하고, 한 페이지에서 계산된 값을 모아 `setSchedulerNextRuns`(`expected: null`) 한 번으로 넣는다. 마이그레이션 전에 저장된 스케줄이 여기서 처음 값을 받는다. 이 단계에서는 실행하지 않는다.
 
 다음 실행 시각을 구할 수 없는 행(영영 오지 않거나 해석할 수 없는 기존 cron 식)은 값을 받지 못해 NULL로 남고, 다음 tick에도 다시 읽힌다. 이런 행이 앞쪽을 차지해도 뒤의 행이 초기화되도록, 한 페이지(500행)만 보지 않고 `created_at`, `id` 순서의 커서로 다음 페이지를 이어 읽는다. 한 tick에 최대 4페이지(2,000행)까지 본다. 구할 수 없는 행이 있으면 그 수를 경고 로그로 한 번 남긴다.
 
-**3단계, 실행.** `listSchedulersDue`로 실행할 행을 500개까지 읽는다. 행마다 회차 시각은 그 행의 `next_run_at`이다. 인스턴스를 `{ id: schedulerRunInstanceID(...), params: { schedulerID, scheduledFor } }`로 만들어 100개씩 `createBatch`에 넘긴다. `createBatch`가 끝난 뒤에 각 행의 `next_run_at`을 `now` 뒤의 첫 시각으로 옮긴다.
+**3단계, 실행.** `listSchedulersDue`로 실행할 행을 500개까지 읽는다. 행마다 회차 시각은 그 행의 `next_run_at`이다. 인스턴스를 `{ id: schedulerRunInstanceID(...), params: { schedulerID, scheduledFor } }`로 만들어 100개씩 `createBatch`에 넘긴다. `createBatch`가 모두 끝난 뒤에 모든 행의 `next_run_at`을 `now` 뒤의 첫 시각으로 옮긴다. 옮기는 값은 한데 모아 `setSchedulerNextRuns`(`expected`: 그 행에서 읽은 `next_run_at`) 한 번으로 보낸다.
 
 순서가 중요하다. `next_run_at`을 먼저 옮기고 `createBatch`가 실패하면 그 회차는 사라진다. 반대로 `createBatch` 뒤에 갱신이 실패하면 다음 tick이 같은 ID로 다시 부르고, 이미 있는 ID라서 건너뛴다.
+
+**요청 수.** 운영 계정은 Workers Free라서 실행 한 번에 외부 요청(Supabase)이 50개까지다(Cloudflare 내부 서비스는 1,000개). 그래서 tick은 행마다 요청하지 않고 단계마다 묶어서 보낸다. tick 한 번의 Supabase 요청은 정리 2개(조회, 닫기), 초기화 페이지당 2개(조회, 갱신, 최대 4페이지), 실행 2개(조회, 갱신)로 많아야 12개이고, 스케줄 수와 관계없다. `createBatch`와 `workflow.get`은 Cloudflare 내부 서비스다.
 
 ## 7. 회차를 실행하는 Workflow
 
@@ -402,7 +460,9 @@ export async function executePipelineStage(
 
 Workflow 인스턴스를 실제로 만드는 테스트는 쓰지 않는다. `@cloudflare/vitest-pool-workers`에서 격리 저장소 오류로 실패하기 때문이다. `workflow`와 `step`은 fake를 넣고, Supabase는 기존 테스트 방식대로 흉내 낸다.
 
-**connector.** 함수 일곱 개마다 조회 조건, 행이 있을 때와 없을 때의 반환, 오류일 때 던지는 것을 확인한다. `setSchedulerNextRun`은 `expected`가 `null`이면 `IS NULL` 조건을 쓰는지, 바뀐 행이 없으면 `false`인지 확인한다.
+**connector.** 함수마다 조회 조건, 행이 있을 때와 없을 때의 반환, 오류일 때 던지는 것을 확인한다. `setSchedulerNextRuns`와 `failSchedulerRuns`는 RPC 이름과 인자, 돌려받은 `id` 목록, 빈 목록이면 요청하지 않는 것을 확인한다.
+
+**마이그레이션 함수.** PGlite에서 `set_scheduler_next_runs`가 `expected`와 같은 행만 바꾸는지(`null`은 NULL과만 같다), 다른 값으로 바뀐 행은 그대로 두는지, `fail_scheduler_runs`가 `pending`·`running`만 닫고 끝난 기록은 두는지 확인한다.
 
 **cron 식 해석.** `parseCronExpression`이 형식마다 맞는 값 집합을 만든다: `*/20` → 0, 20, 40, `5/10` → 5, 15, …, 55, `1-5,10`, 요일 `7` → 0. `*`와 `*/s`로 시작하는 일·요일 필드는 `Starred`가 `true`다. 아래는 `null`이다: `60 * * * *`, `* 24 * * *`, `* * 0 * *`, `* * * 13 *`, `* * * * 8`, `5-1 * * * *`, `*/0 * * * *`, `1-5/2 * * * *`, `0 9 * * MON`, 필드 네 개, 필드 여섯 개, 빈 문자열.
 
@@ -451,6 +511,7 @@ Workflow 인스턴스를 실제로 만드는 테스트는 쓰지 않는다. `@cl
 - tick이 회차 시각보다 늦게 돈 경우: `5 9 * * *` 스케줄의 `next_run_at`이 `2026-10-05T00:05:00.000Z`이고 `now`가 `00:10`이면, 회차 `00:05`의 인스턴스 하나를 만들고 `next_run_at`을 `2026-10-06T00:05:00.000Z`로 옮긴다.
 - 실행할 행이 250개면 `createBatch`를 100·100·50으로 세 번 부른다. 실행할 행이 없으면 부르지 않는다.
 - `createBatch`가 던지면 tick도 던지고 `next_run_at`을 바꾸지 않는다.
+- 요청 묶기: 실행할 행 250개는 `setSchedulerNextRuns`를 한 번만 부르고 250개 갱신을 함께 보낸다. 초기화는 페이지마다 한 번, 정리는 닫을 기록이 있을 때 한 번이다. 실행할 행 250개에 초기화 행과 닫을 기록이 있어도 tick 한 번의 Supabase 요청이 12개를 넘지 않는다.
 - 정리: 수동 실행 기록은 실패로 닫는다. 인스턴스가 `running`·`waiting`이면 그대로 둔다. 인스턴스가 `errored`이거나 `get`이 던지면 `Run was interrupted`로 닫는다.
 
 **회차 실행.** `step.do`가 callback을 바로 부르는 fake로 확인한다.
@@ -473,7 +534,7 @@ Workflow 인스턴스를 실제로 만드는 테스트는 쓰지 않는다. `@cl
 - **기존 스케줄이 실제로 실행되기 시작한다.** 지금 켜져 있고 cron 식이 있는 스케줄이 대상이다. 배포 뒤 첫 tick은 `next_run_at`만 채우고, 그 뒤 첫 시각부터 실행한다. 원하지 않는 스케줄은 배포 전에 꺼 둔다.
 - **기존 cron 식의 분이 10분 단위로 내려간다.** 마이그레이션이 사용자가 저장한 값을 바꾸고, 바꾼 스케줄은 전보다 최대 9분 일찍 실행된다. 되돌릴 원래 값은 남지 않는다.
 - **마이그레이션을 워커보다 먼저 적용한다.** `main`에 push하면 마이그레이션과 워커 배포가 동시에 시작되어 순서가 보장되지 않는다. 워커가 먼저 올라가면 그동안 스케줄 저장이 실패하고 tick이 오류를 낸다. 머지 전에 `Deploy: Database Migrations`를 이 브랜치에서 수동으로 실행하면 된다.
-- **Cloudflare 요금제를 확인한다.** Workers Free에서는 Workflow step당 CPU 시간이 10ms이고 요청당 하위 요청이 50개다. 긴 stage나 항목이 많은 fan-out이 걸릴 수 있다. Paid는 각각 30초와 10,000개다.
+- **운영 계정은 Workers Free다**(2026-10-04 확인, Workers Paid 구독 없음). tick은 요청을 묶어 한도 안에 든다. Workflow는 step당 CPU 시간이 10ms이고 외부 요청이 50개라, 긴 stage나 항목이 많은 fan-out은 걸릴 수 있다. Paid는 각각 30초와 10,000개다.
 - **배포 워크플로는 바꾸지 않는다.** `wrangler deploy`가 cron trigger와 Workflow를 함께 올린다.
 - 예약 실행이 진행 중일 때 수동 실행을 누르면 지금처럼 409가 온다. 수동 실행 중에 회차가 오면 그 회차는 건너뛴다.
 

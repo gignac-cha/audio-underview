@@ -227,41 +227,52 @@ export async function listSchedulersWithoutNextRun(
 }
 
 /**
- * Sets next_run_at only while it still equals the value the caller read
- * (IS NULL when `expected` is null), so a concurrent change is not overwritten.
- *
- * @returns true when a row changed
+ * One next_run_at change: the scheduler `id` moves to `next` only while its
+ * next_run_at still equals `expected` (IS NULL when `expected` is null).
  */
-export async function setSchedulerNextRun(
+export interface SchedulerNextRunUpdate {
+  id: string;
+  expected: string | null;
+  next: string | null;
+}
+
+/**
+ * Sets next_run_at for many schedulers in one request (RPC set_scheduler_next_runs).
+ * A row changes only while its next_run_at still equals the value the caller read,
+ * so a concurrent change is not overwritten. An empty list makes no request.
+ *
+ * @returns the IDs of the schedulers that changed
+ */
+export async function setSchedulerNextRuns(
   client: SupabaseClientType,
-  id: string,
-  expected: string | null,
-  next: string | null,
-): Promise<boolean> {
+  updates: SchedulerNextRunUpdate[],
+): Promise<string[]> {
+  if (updates.length === 0) {
+    return [];
+  }
+
   return traceDatabaseOperation(
-    { serviceName: 'supabase-connector', operation: 'update', table: 'schedulers' },
+    { serviceName: 'supabase-connector', operation: 'rpc', table: 'schedulers' },
     async (span) => {
-      span.setAttribute('db.update.id', id);
+      span.setAttribute('db.rpc.function', 'set_scheduler_next_runs');
+      span.setAttribute('db.rpc.update_count', updates.length);
 
-      let query = client
-        .from('schedulers')
-        .update({ next_run_at: next })
-        .eq('id', id);
-
-      query = expected === null
-        ? query.is('next_run_at', null)
-        : query.eq('next_run_at', expected);
-
-      const { data, error } = await query.select('id');
+      const { data, error } = await client.rpc('set_scheduler_next_runs', {
+        updates: updates.map((update) => ({
+          id: update.id,
+          expected_next_run_at: update.expected,
+          next_run_at: update.next,
+        })),
+      });
 
       if (error) {
         span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
-        throw new Error(`Failed to set scheduler next run: ${error.message}`);
+        throw new Error(`Failed to set scheduler next runs: ${error.message}`);
       }
 
-      const rowsAffected = data?.length ?? 0;
-      span.setAttribute('db.rows_affected', rowsAffected);
-      return rowsAffected > 0;
+      const changedIDs = (data ?? []) as string[];
+      span.setAttribute('db.rows_affected', changedIDs.length);
+      return changedIDs;
     },
   );
 }

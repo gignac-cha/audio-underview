@@ -144,7 +144,7 @@ export {
 } from './crawler-permissions.ts';
 
 // Scheduler operations
-export type { PaginatedSchedulers } from './schedulers.ts';
+export type { PaginatedSchedulers, SchedulerNextRunUpdate } from './schedulers.ts';
 export {
   createScheduler,
   listSchedulersByUser,
@@ -152,7 +152,7 @@ export {
   getSchedulerByID,
   listSchedulersDue,
   listSchedulersWithoutNextRun,
-  setSchedulerNextRun,
+  setSchedulerNextRuns,
   updateScheduler,
   deleteScheduler,
 } from './schedulers.ts';
@@ -174,6 +174,7 @@ export {
   getSchedulerRun,
   getSchedulerRunByOccurrence,
   listActiveSchedulerRunsBefore,
+  failSchedulerRuns,
   updateSchedulerRun,
   listSchedulerRuns,
 } from './scheduler-runs.ts';

@@ -143,6 +143,49 @@ export async function listActiveSchedulerRunsBefore(
   );
 }
 
+/**
+ * Closes many runs as failed in one request (RPC fail_scheduler_runs).
+ * Only runs still pending or running change, so a run that finished in the
+ * meantime keeps its result. An empty list makes no request.
+ *
+ * @param failedAt - ISO timestamp stored as completed_at
+ * @param failureMessage - stored as error
+ * @returns the IDs of the runs that changed
+ */
+export async function failSchedulerRuns(
+  client: SupabaseClientType,
+  runIDs: string[],
+  failedAt: string,
+  failureMessage: string,
+): Promise<string[]> {
+  if (runIDs.length === 0) {
+    return [];
+  }
+
+  return traceDatabaseOperation(
+    { serviceName: 'supabase-connector', operation: 'rpc', table: 'scheduler_runs' },
+    async (span) => {
+      span.setAttribute('db.rpc.function', 'fail_scheduler_runs');
+      span.setAttribute('db.rpc.run_count', runIDs.length);
+
+      const { data, error } = await client.rpc('fail_scheduler_runs', {
+        run_ids: runIDs,
+        failed_at: failedAt,
+        failure_message: failureMessage,
+      });
+
+      if (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw new Error(`Failed to mark scheduler runs as failed: ${error.message}`);
+      }
+
+      const changedIDs = (data ?? []) as string[];
+      span.setAttribute('db.rows_affected', changedIDs.length);
+      return changedIDs;
+    },
+  );
+}
+
 export async function updateSchedulerRun(
   client: SupabaseClientType,
   id: string,

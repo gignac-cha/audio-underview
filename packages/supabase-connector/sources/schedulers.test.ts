@@ -5,7 +5,7 @@ import {
   getSchedulerByID,
   listSchedulersDue,
   listSchedulersWithoutNextRun,
-  setSchedulerNextRun,
+  setSchedulerNextRuns,
   updateScheduler,
   deleteScheduler,
 } from './schedulers.ts';
@@ -246,65 +246,75 @@ describe('listSchedulersWithoutNextRun', () => {
   });
 });
 
-describe('setSchedulerNextRun', () => {
-  test('uses an IS NULL condition when expected is null', async () => {
-    const client = createMockClient({ schedulers: { data: [{ id: 'scheduler-1' }], error: null } });
+describe('setSchedulerNextRuns', () => {
+  const updates = [
+    { id: 'scheduler-1', expected: null, next: '2026-10-05T22:00:00.000Z' },
+    { id: 'scheduler-2', expected: '2026-10-05T22:00:00.000Z', next: '2026-10-06T22:00:00.000Z' },
+    { id: 'scheduler-3', expected: '2026-10-05T22:00:00.000Z', next: null },
+  ];
 
-    await setSchedulerNextRun(client, 'scheduler-1', null, '2026-10-05T22:00:00.000Z');
-
-    expect(client.from).toHaveBeenCalledWith('schedulers');
-    const chain = client.from.mock.results[0].value;
-    expect(chain.update).toHaveBeenCalledWith({ next_run_at: '2026-10-05T22:00:00.000Z' });
-    expect(chain.eq.mock.calls).toEqual([['id', 'scheduler-1']]);
-    expect(chain.is).toHaveBeenCalledWith('next_run_at', null);
-  });
-
-  test('uses an equality condition when expected is a string', async () => {
-    const client = createMockClient({ schedulers: { data: [{ id: 'scheduler-1' }], error: null } });
-
-    await setSchedulerNextRun(
-      client,
-      'scheduler-1',
-      '2026-10-05T22:00:00.000Z',
-      '2026-10-06T22:00:00.000Z',
+  test('sends every update in one set_scheduler_next_runs call, mapping expected and next to the column names', async () => {
+    const client = createMockClient(
+      {},
+      { set_scheduler_next_runs: { data: ['scheduler-1', 'scheduler-2', 'scheduler-3'], error: null } },
     );
 
-    const chain = client.from.mock.results[0].value;
-    expect(chain.update).toHaveBeenCalledWith({ next_run_at: '2026-10-06T22:00:00.000Z' });
-    expect(chain.eq.mock.calls).toEqual([
-      ['id', 'scheduler-1'],
-      ['next_run_at', '2026-10-05T22:00:00.000Z'],
-    ]);
-    expect(chain.is).not.toHaveBeenCalled();
+    await setSchedulerNextRuns(client, updates);
+
+    expect(client.rpc).toHaveBeenCalledTimes(1);
+    expect(client.rpc).toHaveBeenCalledWith('set_scheduler_next_runs', {
+      updates: [
+        { id: 'scheduler-1', expected_next_run_at: null, next_run_at: '2026-10-05T22:00:00.000Z' },
+        {
+          id: 'scheduler-2',
+          expected_next_run_at: '2026-10-05T22:00:00.000Z',
+          next_run_at: '2026-10-06T22:00:00.000Z',
+        },
+        { id: 'scheduler-3', expected_next_run_at: '2026-10-05T22:00:00.000Z', next_run_at: null },
+      ],
+    });
+    expect(client.from).not.toHaveBeenCalled();
   });
 
-  test('returns true when a row changed', async () => {
-    const client = createMockClient({ schedulers: { data: [{ id: 'scheduler-1' }], error: null } });
-
-    const result = await setSchedulerNextRun(client, 'scheduler-1', null, '2026-10-05T22:00:00.000Z');
-    expect(result).toBe(true);
-  });
-
-  test('returns false when no row changed', async () => {
-    const client = createMockClient({ schedulers: { data: [], error: null } });
-
-    const result = await setSchedulerNextRun(
-      client,
-      'scheduler-1',
-      '2026-10-05T22:00:00.000Z',
-      '2026-10-06T22:00:00.000Z',
+  test('returns the IDs of the schedulers that changed', async () => {
+    const client = createMockClient(
+      {},
+      { set_scheduler_next_runs: { data: ['scheduler-2'], error: null } },
     );
-    expect(result).toBe(false);
+
+    const result = await setSchedulerNextRuns(client, updates);
+    expect(result).toEqual(['scheduler-2']);
+  });
+
+  test('returns an empty array when no scheduler changed', async () => {
+    const client = createMockClient(
+      {},
+      { set_scheduler_next_runs: { data: [], error: null } },
+    );
+
+    const result = await setSchedulerNextRuns(client, updates);
+    expect(result).toEqual([]);
+  });
+
+  test('makes no request for an empty list', async () => {
+    const client = createMockClient();
+
+    const result = await setSchedulerNextRuns(client, []);
+
+    expect(result).toEqual([]);
+    expect(client.rpc).not.toHaveBeenCalled();
+    expect(client.from).not.toHaveBeenCalled();
   });
 
   test('throws on error', async () => {
-    const client = createMockClient({
-      schedulers: { data: null, error: { code: 'OTHER', message: 'fail' } },
-    });
+    const client = createMockClient(
+      {},
+      { set_scheduler_next_runs: { data: null, error: { code: 'OTHER', message: 'fail' } } },
+    );
 
-    await expect(
-      setSchedulerNextRun(client, 'scheduler-1', null, '2026-10-05T22:00:00.000Z'),
-    ).rejects.toThrow('Failed to set scheduler next run: fail');
+    await expect(setSchedulerNextRuns(client, updates)).rejects.toThrow(
+      'Failed to set scheduler next runs: fail',
+    );
   });
 });
 

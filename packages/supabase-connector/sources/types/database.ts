@@ -410,6 +410,24 @@ export interface Database {
         };
         Returns: SchedulerStageRow[];
       };
+      set_scheduler_next_runs: {
+        Args: {
+          updates: {
+            id: string;
+            expected_next_run_at: string | null;
+            next_run_at: string | null;
+          }[];
+        };
+        Returns: string[];
+      };
+      fail_scheduler_runs: {
+        Args: {
+          run_ids: string[];
+          failed_at: string;
+          failure_message: string;
+        };
+        Returns: string[];
+      };
     };
     Enums: {
       provider_type: ProviderType;

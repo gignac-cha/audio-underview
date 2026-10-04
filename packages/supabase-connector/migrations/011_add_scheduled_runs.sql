@@ -97,3 +97,56 @@ COMMENT ON COLUMN scheduler_runs.scheduled_for IS 'The cron occurrence a schedul
 CREATE UNIQUE INDEX scheduler_runs_scheduled_occurrence_unique_index
   ON scheduler_runs (scheduler_id, scheduled_for)
   WHERE scheduled_for IS NOT NULL;
+
+-- The 10-minute tick moves next_run_at for many schedulers and closes many
+-- interrupted runs. One request per row would exceed the Workers Free limit of
+-- 50 external requests per invocation, so each kind of change is one call.
+
+-- Moves next_run_at for many schedulers. Each element of updates is
+-- {"id": uuid, "expected_next_run_at": timestamptz or null,
+--  "next_run_at": timestamptz or null}. A scheduler changes only while its
+-- next_run_at is still the expected value, so one a user edited in the
+-- meantime is left alone. Returns the IDs that changed.
+CREATE FUNCTION set_scheduler_next_runs(updates JSONB)
+RETURNS SETOF UUID
+LANGUAGE sql
+SET search_path = ''
+AS $$
+  UPDATE public.schedulers
+  SET next_run_at = requested.next_run_at
+  FROM jsonb_to_recordset(updates) AS requested(id UUID, expected_next_run_at TIMESTAMPTZ, next_run_at TIMESTAMPTZ)
+  WHERE schedulers.id = requested.id
+    AND schedulers.next_run_at IS NOT DISTINCT FROM requested.expected_next_run_at
+  RETURNING schedulers.id;
+$$;
+
+-- Closes many interrupted runs. Only runs still pending or running change, so
+-- a run that finished in the meantime keeps its result. Returns the IDs that
+-- changed.
+CREATE FUNCTION fail_scheduler_runs(run_ids UUID[], failed_at TIMESTAMPTZ, failure_message TEXT)
+RETURNS SETOF UUID
+LANGUAGE sql
+SET search_path = ''
+AS $$
+  UPDATE public.scheduler_runs
+  SET status = 'failed', completed_at = failed_at, error = failure_message
+  WHERE id = ANY(run_ids)
+    AND status IN ('pending', 'running')
+  RETURNING id;
+$$;
+
+-- Only the service role (the workers) may call these functions. The public
+-- anon and authenticated keys must not change scheduling data. The roles exist
+-- on Supabase only, hence the check.
+REVOKE EXECUTE ON FUNCTION set_scheduler_next_runs(JSONB) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION fail_scheduler_runs(UUID[], TIMESTAMPTZ, TEXT) FROM PUBLIC;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    REVOKE EXECUTE ON FUNCTION set_scheduler_next_runs(JSONB) FROM anon, authenticated;
+    REVOKE EXECUTE ON FUNCTION fail_scheduler_runs(UUID[], TIMESTAMPTZ, TEXT) FROM anon, authenticated;
+    GRANT EXECUTE ON FUNCTION set_scheduler_next_runs(JSONB) TO service_role;
+    GRANT EXECUTE ON FUNCTION fail_scheduler_runs(UUID[], TIMESTAMPTZ, TEXT) TO service_role;
+  END IF;
+END;
+$$;
