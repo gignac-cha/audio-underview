@@ -110,6 +110,173 @@ export async function getScheduler(
   );
 }
 
+/**
+ * Gets a scheduler by ID alone, with no ownership condition.
+ * For server-side callers (the scheduled run) that act on behalf of the stored owner.
+ */
+export async function getSchedulerByID(
+  client: SupabaseClientType,
+  id: string,
+): Promise<SchedulerRow | undefined> {
+  return traceDatabaseOperation(
+    { serviceName: 'supabase-connector', operation: 'select', table: 'schedulers' },
+    async (span) => {
+      span.setAttribute('db.query.id', id);
+
+      const { data, error } = await client
+        .from('schedulers')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw new Error(`Failed to get scheduler by ID: ${error.message}`);
+      }
+
+      span.setAttribute('db.rows_affected', data === null ? 0 : 1);
+      return (data as SchedulerRow | null) ?? undefined;
+    },
+  );
+}
+
+/**
+ * Lists enabled schedulers with a cron expression whose next run is due, oldest first.
+ *
+ * @param now - ISO timestamp; schedulers with next_run_at at or before it are due
+ */
+export async function listSchedulersDue(
+  client: SupabaseClientType,
+  now: string,
+  limit: number,
+): Promise<SchedulerRow[]> {
+  return traceDatabaseOperation(
+    { serviceName: 'supabase-connector', operation: 'select', table: 'schedulers' },
+    async (span) => {
+      span.setAttribute('db.query.now', now);
+      span.setAttribute('db.query.limit', limit);
+
+      const { data, error } = await client
+        .from('schedulers')
+        .select('*')
+        .eq('is_enabled', true)
+        .not('cron_expression', 'is', null)
+        .lte('next_run_at', now)
+        .order('next_run_at', { ascending: true })
+        .limit(limit);
+
+      if (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw new Error(`Failed to list due schedulers: ${error.message}`);
+      }
+
+      const schedulers = (data ?? []) as SchedulerRow[];
+      span.setAttribute('db.rows_affected', schedulers.length);
+      return schedulers;
+    },
+  );
+}
+
+/**
+ * Lists enabled schedulers with a cron expression that have no next run computed yet,
+ * ordered by created_at, then id.
+ *
+ * @param after - keyset cursor; only rows strictly after this (created_at, id) are returned
+ */
+export async function listSchedulersWithoutNextRun(
+  client: SupabaseClientType,
+  limit: number,
+  after?: { created_at: string; id: string },
+): Promise<SchedulerRow[]> {
+  return traceDatabaseOperation(
+    { serviceName: 'supabase-connector', operation: 'select', table: 'schedulers' },
+    async (span) => {
+      span.setAttribute('db.query.limit', limit);
+
+      let query = client
+        .from('schedulers')
+        .select('*')
+        .eq('is_enabled', true)
+        .not('cron_expression', 'is', null)
+        .is('next_run_at', null);
+
+      if (after !== undefined) {
+        span.setAttribute('db.query.after_created_at', after.created_at);
+        span.setAttribute('db.query.after_id', after.id);
+        // The timestamp is quoted because PostgREST reserves '.' and ':' in filter values
+        query = query.or(
+          `created_at.gt."${after.created_at}",and(created_at.eq."${after.created_at}",id.gt.${after.id})`,
+        );
+      }
+
+      const { data, error } = await query
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .limit(limit);
+
+      if (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw new Error(`Failed to list schedulers without next run: ${error.message}`);
+      }
+
+      const schedulers = (data ?? []) as SchedulerRow[];
+      span.setAttribute('db.rows_affected', schedulers.length);
+      return schedulers;
+    },
+  );
+}
+
+/**
+ * One next_run_at change: the scheduler `id` moves to `next` only while its
+ * next_run_at still equals `expected` (IS NULL when `expected` is null).
+ */
+export interface SchedulerNextRunUpdate {
+  id: string;
+  expected: string | null;
+  next: string | null;
+}
+
+/**
+ * Sets next_run_at for many schedulers in one request (RPC set_scheduler_next_runs).
+ * A row changes only while its next_run_at still equals the value the caller read,
+ * so a concurrent change is not overwritten. An empty list makes no request.
+ *
+ * @returns the IDs of the schedulers that changed
+ */
+export async function setSchedulerNextRuns(
+  client: SupabaseClientType,
+  updates: SchedulerNextRunUpdate[],
+): Promise<string[]> {
+  if (updates.length === 0) {
+    return [];
+  }
+
+  return traceDatabaseOperation(
+    { serviceName: 'supabase-connector', operation: 'rpc', table: 'schedulers' },
+    async (span) => {
+      span.setAttribute('db.rpc.function', 'set_scheduler_next_runs');
+      span.setAttribute('db.rpc.update_count', updates.length);
+
+      const { data, error } = await client.rpc('set_scheduler_next_runs', {
+        updates: updates.map((update) => ({
+          id: update.id,
+          expected_next_run_at: update.expected,
+          next_run_at: update.next,
+        })),
+      });
+
+      if (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw new Error(`Failed to set scheduler next runs: ${error.message}`);
+      }
+
+      const changedIDs = (data ?? []) as string[];
+      span.setAttribute('db.rows_affected', changedIDs.length);
+      return changedIDs;
+    },
+  );
+}
+
 export async function updateScheduler(
   client: SupabaseClientType,
   id: string,

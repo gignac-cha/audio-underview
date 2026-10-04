@@ -13,21 +13,48 @@ import {
 } from '@audio-underview/supabase-connector';
 import type { Environment } from '../index.ts';
 import { isValidCronExpression } from './tools.ts';
+import {
+  DEFAULT_TIMEZONE,
+  isScheduleMinuteAllowed,
+  isValidTimezone,
+  isScheduleTimezoneAllowed,
+  computeNextRunAt,
+  resolveNextRunAt,
+} from '../schedule.ts';
 
 interface CreateSchedulerRequestBody {
   name: string;
   cron_expression?: string;
+  timezone?: string;
   is_enabled?: boolean;
 }
 
 interface UpdateSchedulerRequestBody {
   name?: string;
   cron_expression?: string | null;
+  timezone?: string;
   is_enabled?: boolean;
 }
 
 const MAX_NAME_LENGTH = 255;
 const MAX_CRON_EXPRESSION_LENGTH = 100;
+
+// `null` counts as present, so it is rejected rather than treated as "use the default".
+function validateTimezone(timezone: unknown, context: ResponseContext): Response | null {
+  if (timezone === undefined) {
+    return null;
+  }
+  if (typeof timezone !== 'string') {
+    return errorResponse('invalid_request', "Field 'timezone' must be a string", 400, context);
+  }
+  if (!isValidTimezone(timezone)) {
+    return errorResponse('invalid_request', "Field 'timezone' must be a valid IANA time zone", 400, context);
+  }
+  if (!isScheduleTimezoneAllowed(timezone, new Date())) {
+    return errorResponse('invalid_request', "Field 'timezone' must have a UTC offset in whole multiples of 10 minutes", 400, context);
+  }
+  return null;
+}
 
 async function validateCreateSchedulerBody(
   request: Request,
@@ -66,6 +93,20 @@ async function validateCreateSchedulerBody(
 
   if (body.is_enabled !== undefined && typeof body.is_enabled !== 'boolean') {
     return errorResponse('invalid_request', "Field 'is_enabled' must be a boolean", 400, context);
+  }
+
+  const timezoneError = validateTimezone(body.timezone, context);
+  if (timezoneError) {
+    return timezoneError;
+  }
+
+  if (typeof body.cron_expression === 'string') {
+    if (!isScheduleMinuteAllowed(body.cron_expression)) {
+      return errorResponse('invalid_request', "Field 'cron_expression' minute must be 0, 10, 20, 30, 40 or 50", 400, context);
+    }
+    if (computeNextRunAt(body.cron_expression, body.timezone ?? DEFAULT_TIMEZONE, new Date()) === null) {
+      return errorResponse('invalid_request', "Field 'cron_expression' must be a valid cron expression", 400, context);
+    }
   }
 
   return body;
@@ -111,8 +152,23 @@ async function validateUpdateSchedulerBody(
     return errorResponse('invalid_request', "Field 'is_enabled' must be a boolean", 400, context);
   }
 
-  if (body.name === undefined && body.cron_expression === undefined && body.is_enabled === undefined) {
+  if (
+    body.name === undefined &&
+    body.cron_expression === undefined &&
+    body.timezone === undefined &&
+    body.is_enabled === undefined
+  ) {
     return errorResponse('invalid_request', 'At least one field must be provided for update', 400, context);
+  }
+
+  const timezoneError = validateTimezone(body.timezone, context);
+  if (timezoneError) {
+    return timezoneError;
+  }
+
+  // The next-run check needs the stored time zone, so the handler runs it after reading the current row.
+  if (typeof body.cron_expression === 'string' && !isScheduleMinuteAllowed(body.cron_expression)) {
+    return errorResponse('invalid_request', "Field 'cron_expression' minute must be 0, 10, 20, 30, 40 or 50", 400, context);
   }
 
   return body;
@@ -135,11 +191,18 @@ export async function handleCreateScheduler(
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
   });
 
+  const timezone = body.timezone ?? DEFAULT_TIMEZONE;
   const scheduler = await createScheduler(supabaseClient, {
     user_uuid: userUUID,
     name: body.name,
     cron_expression: body.cron_expression,
+    timezone,
     is_enabled: body.is_enabled,
+    next_run_at: resolveNextRunAt({
+      cron_expression: body.cron_expression ?? null,
+      timezone,
+      is_enabled: body.is_enabled ?? true,
+    }, new Date()),
   });
 
   return jsonResponse(scheduler, 201, context);
@@ -226,7 +289,30 @@ export async function handleUpdateScheduler(
   const updatePayload: Record<string, unknown> = {};
   if (body.name !== undefined) updatePayload.name = body.name;
   if (body.cron_expression !== undefined) updatePayload.cron_expression = body.cron_expression;
+  if (body.timezone !== undefined) updatePayload.timezone = body.timezone;
   if (body.is_enabled !== undefined) updatePayload.is_enabled = body.is_enabled;
+
+  // A change to what decides the next run recomputes next_run_at from the stored row with the
+  // request applied. A name-only change leaves next_run_at alone.
+  if (body.cron_expression !== undefined || body.timezone !== undefined || body.is_enabled !== undefined) {
+    const current = await getScheduler(supabaseClient, schedulerID, userUUID);
+    if (!current) {
+      return errorResponse('not_found', 'Scheduler not found or not owned by you', 404, context);
+    }
+
+    const overlaid = {
+      cron_expression: body.cron_expression !== undefined ? body.cron_expression : current.cron_expression,
+      timezone: body.timezone ?? current.timezone,
+      is_enabled: body.is_enabled ?? current.is_enabled,
+    };
+    const now = new Date();
+
+    if (typeof body.cron_expression === 'string' && computeNextRunAt(body.cron_expression, overlaid.timezone, now) === null) {
+      return errorResponse('invalid_request', "Field 'cron_expression' must be a valid cron expression", 400, context);
+    }
+
+    updatePayload.next_run_at = resolveNextRunAt(overlaid, now);
+  }
 
   const scheduler = await updateScheduler(supabaseClient, schedulerID, userUUID, updatePayload);
 

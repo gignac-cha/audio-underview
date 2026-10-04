@@ -14,6 +14,16 @@ ALLOWED_ORIGINS = "http://localhost:5173,https://audio-underview.pages.dev"
 binding = "CRAWLER_MANAGER"
 service = "audio-underview-crawler-manager-worker"
 
+# The tick that starts scheduled runs that are due
+[triggers]
+crons = ["*/10 * * * *"]
+
+# One instance runs one scheduled occurrence
+[[workflows]]
+name = "audio-underview-scheduler-run-workflow"
+binding = "SCHEDULER_RUN_WORKFLOW"
+class_name = "SchedulerRunWorkflow"
+
 [observability.logs]
 enabled = true
 head_sampling_rate = 1

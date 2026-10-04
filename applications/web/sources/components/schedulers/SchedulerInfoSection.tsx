@@ -5,6 +5,8 @@ import { faPen } from '@fortawesome/free-solid-svg-icons';
 import type { SchedulerRow } from '@audio-underview/supabase-connector';
 import { useUpdateScheduler } from '../../hooks/use-scheduler-manager.ts';
 import { useToast } from '../../hooks/use-toast.ts';
+import { isScheduleMinuteAllowed } from './schedule-minute.ts';
+import { browserTimezone, formatInTimezone, listScheduleTimezones } from './schedule-timezone.ts';
 
 const Container = styled.section`
   margin-bottom: 2rem;
@@ -80,6 +82,11 @@ const MetaValue = styled.span`
   color: var(--text-secondary);
 `;
 
+const MetaSubValue = styled.span`
+  font-size: 0.75rem;
+  color: var(--text-muted);
+`;
+
 const EditableValue = styled.span`
   font-size: 0.875rem;
   color: var(--text-secondary);
@@ -103,6 +110,17 @@ const CronInput = styled.input`
   border-radius: 6px;
   padding: 0.25rem 0.5rem;
   font-family: var(--font-mono);
+  outline: none;
+  width: 100%;
+`;
+
+const TimezoneSelect = styled.select`
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  background: var(--bg-deep);
+  border: 1px solid var(--border-focus);
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
   outline: none;
   width: 100%;
 `;
@@ -162,10 +180,17 @@ export function SchedulerInfoSection({ scheduler }: SchedulerInfoSectionProperti
   const [nameValue, setNameValue] = useState(scheduler.name);
   const [editingCron, setEditingCron] = useState(false);
   const [cronValue, setCronValue] = useState(scheduler.cron_expression ?? '');
+  const [editingTimezone, setEditingTimezone] = useState(false);
+  const [timezoneValue, setTimezoneValue] = useState(scheduler.timezone);
+  const [timezones] = useState(() => listScheduleTimezones(new Date()));
   const nameInputRef = useRef<HTMLInputElement>(null);
   const cronInputRef = useRef<HTMLInputElement>(null);
 
-  type UpdatableSchedulerField = 'name' | 'cron_expression' | 'is_enabled';
+  const viewerTimezone = browserTimezone();
+  // Keep the stored zone selectable even when it is missing from the list.
+  const timezoneOptions = timezones.includes(scheduler.timezone) ? timezones : [scheduler.timezone, ...timezones];
+
+  type UpdatableSchedulerField = 'name' | 'cron_expression' | 'timezone' | 'is_enabled';
 
   const saveField = async (field: UpdatableSchedulerField, value: string | boolean | null) => {
     try {
@@ -190,9 +215,20 @@ export function SchedulerInfoSection({ scheduler }: SchedulerInfoSectionProperti
     setEditingCron(false);
     const trimmed = cronValue.trim();
     const newValue = trimmed || null;
-    if (newValue !== scheduler.cron_expression) {
-      saveField('cron_expression', newValue);
+    if (newValue === scheduler.cron_expression) return;
+    if (newValue !== null && !isScheduleMinuteAllowed(newValue)) {
+      showToast('Validation Error', 'Cron minute must be 0, 10, 20, 30, 40 or 50.', 'error');
+      setCronValue(scheduler.cron_expression ?? '');
+      return;
     }
+    saveField('cron_expression', newValue);
+  };
+
+  // Saves on Enter or blur only, so zones passed while moving through the list are never sent.
+  const handleTimezoneBlur = () => {
+    setEditingTimezone(false);
+    if (timezoneValue === scheduler.timezone) return;
+    saveField('timezone', timezoneValue);
   };
 
   const handleToggleEnabled = () => {
@@ -296,6 +332,63 @@ export function SchedulerInfoSection({ scheduler }: SchedulerInfoSectionProperti
             />
             <MetaValue>{scheduler.is_enabled ? 'Yes' : 'No'}</MetaValue>
           </EnabledRow>
+        </MetaItem>
+
+        <MetaItem>
+          <MetaLabel>Timezone</MetaLabel>
+          {editingTimezone ? (
+            <TimezoneSelect
+              aria-label="Timezone"
+              value={timezoneValue}
+              onChange={(event) => setTimezoneValue(event.target.value)}
+              onBlur={handleTimezoneBlur}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') handleTimezoneBlur();
+                if (event.key === 'Escape') {
+                  setTimezoneValue(scheduler.timezone);
+                  setEditingTimezone(false);
+                }
+              }}
+              autoFocus
+            >
+              {timezoneOptions.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </TimezoneSelect>
+          ) : (
+            <EditableValue
+              tabIndex={0}
+              role="button"
+              aria-label={`Edit timezone, ${scheduler.timezone}`}
+              onClick={() => {
+                setEditingTimezone(true);
+                setTimezoneValue(scheduler.timezone);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setEditingTimezone(true);
+                  setTimezoneValue(scheduler.timezone);
+                }
+              }}
+            >
+              {scheduler.timezone}
+            </EditableValue>
+          )}
+        </MetaItem>
+
+        <MetaItem>
+          <MetaLabel>Next Run</MetaLabel>
+          {scheduler.next_run_at === null ? (
+            <MetaValue>Not scheduled</MetaValue>
+          ) : (
+            <>
+              <MetaValue>{`${formatInTimezone(scheduler.next_run_at, scheduler.timezone)} ${scheduler.timezone}`}</MetaValue>
+              {viewerTimezone !== scheduler.timezone && (
+                <MetaSubValue>{`${formatInTimezone(scheduler.next_run_at, viewerTimezone)} your time`}</MetaSubValue>
+              )}
+            </>
+          )}
         </MetaItem>
 
         <MetaItem>

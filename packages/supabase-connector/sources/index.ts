@@ -3,6 +3,7 @@ export type {
   ProviderType,
   CrawlerType,
   SchedulerRunStatus,
+  SchedulerRunTrigger,
   UserRow,
   AccountRow,
   CrawlerRow,
@@ -143,11 +144,15 @@ export {
 } from './crawler-permissions.ts';
 
 // Scheduler operations
-export type { PaginatedSchedulers } from './schedulers.ts';
+export type { PaginatedSchedulers, SchedulerNextRunUpdate } from './schedulers.ts';
 export {
   createScheduler,
   listSchedulersByUser,
   getScheduler,
+  getSchedulerByID,
+  listSchedulersDue,
+  listSchedulersWithoutNextRun,
+  setSchedulerNextRuns,
   updateScheduler,
   deleteScheduler,
 } from './schedulers.ts';
@@ -167,6 +172,9 @@ export type { PaginatedSchedulerRuns } from './scheduler-runs.ts';
 export {
   createSchedulerRun,
   getSchedulerRun,
+  getSchedulerRunByOccurrence,
+  listActiveSchedulerRunsBefore,
+  failSchedulerRuns,
   updateSchedulerRun,
   listSchedulerRuns,
 } from './scheduler-runs.ts';
@@ -174,6 +182,7 @@ export {
 // Scheduler stage run operations
 export {
   createSchedulerStageRun,
+  getSchedulerStageRun,
   updateSchedulerStageRun,
   listSchedulerStageRunsByRun,
 } from './scheduler-stage-runs.ts';

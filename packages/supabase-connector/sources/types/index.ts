@@ -2,6 +2,7 @@ export type {
   ProviderType,
   CrawlerType,
   SchedulerRunStatus,
+  SchedulerRunTrigger,
   UserRow,
   AccountRow,
   CrawlerRow,

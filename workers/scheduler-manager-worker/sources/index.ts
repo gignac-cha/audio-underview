@@ -29,6 +29,10 @@ import {
 } from './handlers/scheduler-runs.ts';
 import { handleExecuteScheduler } from './handlers/scheduler-execution.ts';
 import { UUID_PATTERN } from './handlers/tools.ts';
+import { runScheduleTick } from './schedule-tick.ts';
+
+// The Workers runtime only accepts classes and types as named exports of the entry module.
+export { SchedulerRunWorkflow } from './scheduler-run-workflow.ts';
 
 export interface Environment {
   ALLOWED_ORIGINS: string;
@@ -36,6 +40,7 @@ export interface Environment {
   SUPABASE_SECRET_KEY: string;
   JWT_SECRET: string;
   CRAWLER_MANAGER: Service;
+  SCHEDULER_RUN_WORKFLOW: Workflow;
 }
 
 const logger = createWorkerLogger({
@@ -321,6 +326,24 @@ export default {
     } catch (error) {
       logger.error('Unhandled worker error', error, { function: 'fetch' });
       return errorResponse('server_error', 'An unexpected error occurred', 500, context);
+    }
+  },
+
+  // The 10-minute cron trigger that starts the scheduled runs that are due
+  async scheduled(controller: ScheduledController, environment: Environment): Promise<void> {
+    try {
+      const supabaseClient = createSupabaseClient({
+        supabaseURL: environment.SUPABASE_URL,
+        supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+      });
+      const result = await runScheduleTick(
+        { supabaseClient, workflow: environment.SCHEDULER_RUN_WORKFLOW, logger },
+        new Date(controller.scheduledTime),
+      );
+      logger.info('Schedule tick finished', result, { function: 'scheduled' });
+    } catch (error) {
+      logger.error('Schedule tick failed', error, { function: 'scheduled' });
+      throw error;
     }
   },
 };
