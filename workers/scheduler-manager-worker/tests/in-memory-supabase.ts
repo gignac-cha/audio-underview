@@ -69,6 +69,8 @@ function matchesFilters(row: Row, query: URLSearchParams): boolean {
       if (String(value) !== operand) return false;
     } else if (operator === 'is' && operand === 'null') {
       if (value !== null && value !== undefined) return false;
+    } else if (operator === 'not' && operand === 'is.null') {
+      if (value === null || value === undefined) return false;
     } else if (operator === 'in') {
       if (!operand.slice(1, -1).split(',').includes(String(value))) return false;
     } else {

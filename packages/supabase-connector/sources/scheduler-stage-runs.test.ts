@@ -281,6 +281,15 @@ describe('setSchedulerStageRunProgress', () => {
     ]);
   });
 
+  test('never changes a crawler stage run, which has no task group', async () => {
+    const client = createMockClient({ scheduler_stage_runs: { data: [{ id: 'stage-run-2' }], error: null } });
+
+    await setSchedulerStageRunProgress(client, 'stage-run-2', sampleProgress);
+
+    const chain = client.from.mock.results[0].value;
+    expect(chain.not).toHaveBeenCalledWith('task_group_id', 'is', null);
+  });
+
   test('returns true when the stage run changed', async () => {
     const client = createMockClient({ scheduler_stage_runs: { data: [{ id: 'stage-run-2' }], error: null } });
 

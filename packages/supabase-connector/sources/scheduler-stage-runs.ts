@@ -260,6 +260,7 @@ export async function listSchedulerStageRunSummaries(
 
 /**
  * Stores the latest progress a task group reported, only while the stage run is running.
+ * A crawler stage run is never changed.
  *
  * @returns whether the stage run changed
  */
@@ -278,6 +279,8 @@ export async function setSchedulerStageRunProgress(
         .update({ progress })
         .eq('id', id)
         .eq('status', 'running')
+        // A crawler stage run has no task group and takes no progress report
+        .not('task_group_id', 'is', null)
         .select('id');
 
       if (error) {

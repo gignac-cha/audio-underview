@@ -242,7 +242,7 @@ export type SchedulerStageRunSummary = Omit<SchedulerStageRunRow, 'input' | 'out
 | `listSchedulerStageRunSummaries(client, runID)` | 그 실행의 단계 실행 기록을 `input`·`output` 없이. `stage_order` 오름차순 |
 | `getSchedulerRunByID(client, id)` | 스케줄 조건 없이 `id`로 실행 기록 한 행. 없으면 `undefined` |
 | `updateSchedulerStageRun(client, id, runID, input, options?)` | 기존 함수에 `options.onlyIfStatus`를 더한다. `updateSchedulerRun`의 같은 옵션과 뜻이 같다. 조건에 맞는 행이 없으면 `undefined` |
-| `setSchedulerStageRunProgress(client, id, progress)` | 상태가 `running`인 그 기록의 `progress`만 바꾼다. 바뀌었으면 `true` |
+| `setSchedulerStageRunProgress(client, id, progress)` | 상태가 `running`이고 `task_group_id`가 있는(그룹 단계의) 그 기록의 `progress`만 바꾼다. 크롤러 단계의 기록은 바꾸지 않는다. 바뀌었으면 `true` |
 | `failActiveSchedulerStageRuns(client, runID, failedAt, failureMessage)` | 그 실행의 `pending`·`running` 단계 실행 기록을 `failed`로 닫는다. 바뀐 행 수를 돌려준다. 바뀐 행이 없어도 오류가 아니다 |
 
 `createSchedulerStage`는 `crawler_id`가 없을 수 있으니 span 속성을 값이 있을 때만 넣는다.
@@ -441,7 +441,7 @@ export class TaskGroupReports extends WorkerEntrypoint<Environment> {
 
 **인자 검사.** 아래에 해당하면 `TypeError`를 던진다. `stageRunID`가 UUID가 아님. `message`가 1~500자의 문자열이 아님. `completed`·`total`이 있는데(`undefined`가 아닌데) 0 이상의 정수가 아니거나, 둘 다 있는데 `completed > total`임. `errorMessage`가 문자열이 아님. `errorMessage`는 앞에서 2,000자까지만 쓴다. 글자 수는 4절처럼 코드 포인트로 센다.
 
-**`reportTaskGroupProgress`.** `setSchedulerStageRunProgress`로 `{ message, completed: completed ?? null, total: total ?? null, reported_at }`를 저장한다. 바뀌었으면 `accepted: true`다. Supabase 요청은 한 번이다.
+**`reportTaskGroupProgress`.** `setSchedulerStageRunProgress`로 `{ message, completed: completed ?? null, total: total ?? null, reported_at }`를 저장한다. 크롤러 단계의 기록은 바꾸지 않는다. 바뀌었으면 `accepted: true`다. Supabase 요청은 한 번이다.
 
 **`completeTaskGroupRun`.**
 
@@ -636,7 +636,7 @@ Workflow 인스턴스를 실제로 만드는 테스트는 쓰지 않는다(05와
 
 **알림.** fake `workflow`의 `get`이 돌려준 인스턴스의 `sendEvent` 호출을 본다.
 
-- 진행: `running`인 기록에 `progress`가 저장되고 `accepted: true`. 끝난 기록이면 `accepted: false`. 인자가 틀리면 `TypeError`.
+- 진행: `running`인 기록에 `progress`가 저장되고 `accepted: true`. 끝난 기록이나 크롤러 단계의 기록이면 `accepted: false`이고 바뀌지 않는다. 인자가 틀리면 `TypeError`.
 - 완료: 기록이 `completed`·`output`으로 바뀌고, `task-group-finished-<단계 실행 ID>` 이벤트가 그 실행의 인스턴스 ID로 간다. 예약 실행은 `<스케줄 ID>-<분>`, 수동 실행은 `manual-<실행 ID>`다.
 - 같은 완료를 다시 보내면 기록은 바꾸지 않고 이벤트만 다시 보내며 `accepted: true`다.
 - 출력이 출력 형식에 맞지 않으면 기록이 `failed`가 되고 이벤트가 가며 `accepted: false`다. 같은 알림을 다시 보내면 이벤트만 다시 가고 `accepted: false`다.

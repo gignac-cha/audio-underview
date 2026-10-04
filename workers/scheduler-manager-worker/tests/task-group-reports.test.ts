@@ -165,6 +165,16 @@ describe('reportTaskGroupProgress', () => {
     expect(stageRun()?.progress).toBeNull();
   });
 
+  it('is not accepted for the running stage run of a crawler stage, in one request', async () => {
+    seed({ stageRuns: [stageRunRow({ task_group_id: null, task_group_version: null })] });
+
+    const result = await reportTaskGroupProgress(createDependencies(createFakeWorkflow()), STAGE_RUN_ID, { message: 'Working' });
+
+    expect(result).toEqual({ accepted: false });
+    expect(stageRun()?.progress).toBeNull();
+    expect(supabase.requests).toHaveLength(1);
+  });
+
   it.each([
     ['the stage run ID is not a UUID', 'stage-run-1', { message: 'Working' }],
     ['the progress is not an object', STAGE_RUN_ID, null],
