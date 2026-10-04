@@ -3,6 +3,7 @@ import {
   DEFAULT_TIMEZONE,
   isScheduleMinuteAllowed,
   isValidTimezone,
+  isScheduleTimezoneAllowed,
   computeNextRunAt,
   resolveNextRunAt,
   schedulerRunInstanceID,
@@ -100,6 +101,37 @@ describe('schedule', () => {
       { label: 'a 65-character string', timezone: 'A'.repeat(65) },
     ])('rejects $label', ({ timezone }) => {
       expect(isValidTimezone(timezone)).toBe(false);
+    });
+  });
+
+  describe('isScheduleTimezoneAllowed', () => {
+    const at = new Date('2026-10-05T00:00:00.000Z');
+
+    it.each([
+      { label: 'Asia/Seoul (+9)', timezone: 'Asia/Seoul' },
+      { label: 'UTC', timezone: 'UTC' },
+      { label: 'America/New_York (-5/-4)', timezone: 'America/New_York' },
+      { label: 'Asia/Kolkata (+5:30)', timezone: 'Asia/Kolkata' },
+      { label: 'Australia/Lord_Howe (+10:30/+11)', timezone: 'Australia/Lord_Howe' },
+      // A negative offset off the hour: -3:30 is -210 minutes.
+      { label: 'America/St_Johns (-3:30/-2:30)', timezone: 'America/St_Johns' },
+    ])('accepts $label', ({ timezone }) => {
+      expect(isScheduleTimezoneAllowed(timezone, at)).toBe(true);
+    });
+
+    it.each([
+      { label: 'Asia/Kathmandu (+5:45)', timezone: 'Asia/Kathmandu' },
+      { label: 'Pacific/Chatham (+12:45/+13:45)', timezone: 'Pacific/Chatham' },
+      { label: 'Australia/Eucla (+8:45)', timezone: 'Australia/Eucla' },
+      { label: 'an invalid time zone', timezone: 'Not/AZone' },
+    ])('rejects $label', ({ timezone }) => {
+      expect(isScheduleTimezoneAllowed(timezone, at)).toBe(false);
+    });
+
+    it('decides by the offsets in the UTC year of `at`', () => {
+      // Asia/Kathmandu was UTC+5:30 until it moved to UTC+5:45 at the start of 1986.
+      expect(isScheduleTimezoneAllowed('Asia/Kathmandu', new Date('1985-07-01T00:00:00.000Z'))).toBe(true);
+      expect(isScheduleTimezoneAllowed('Asia/Kathmandu', new Date('1986-07-01T00:00:00.000Z'))).toBe(false);
     });
   });
 

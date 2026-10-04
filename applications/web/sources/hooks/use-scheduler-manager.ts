@@ -77,6 +77,7 @@ interface PaginatedResponse<T> {
 interface CreateSchedulerInput {
   name: string;
   cron_expression?: string | null;
+  timezone?: string;
   is_enabled?: boolean;
 }
 
@@ -84,6 +85,7 @@ interface UpdateSchedulerInput {
   id: string;
   name?: string;
   cron_expression?: string | null;
+  timezone?: string;
   is_enabled?: boolean;
 }
 

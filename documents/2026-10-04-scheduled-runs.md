@@ -241,6 +241,7 @@ export const DEFAULT_TIMEZONE = 'Asia/Seoul';
 
 export function isScheduleMinuteAllowed(cronExpression: string): boolean
 export function isValidTimezone(timezone: string): boolean
+export function isScheduleTimezoneAllowed(timezone: string, at: Date): boolean
 export function computeNextRunAt(cronExpression: string, timezone: string, after: Date): Date | null
 export function resolveNextRunAt(
   scheduler: Pick<SchedulerRow, 'cron_expression' | 'timezone' | 'is_enabled'>,
@@ -251,6 +252,7 @@ export function schedulerRunInstanceID(schedulerID: string, scheduledFor: Date):
 
 - `isScheduleMinuteAllowed`는 cron 식의 첫 필드(분)가 `/^(\*\/(10|20|30)|(0|10|20|30|40|50)(,(0|10|20|30|40|50))*)$/`에 맞는지 본다. `0`, `30`, `0,30`, `*/10`, `*/20`, `*/30` 같은 값만 통과한다.
 - `isValidTimezone`은 형식(`/^[A-Za-z][A-Za-z0-9_+\-/]{0,63}$/`)을 보고, `Intl.DateTimeFormat`이 그 시간대를 받는지 확인한다.
+- `isScheduleTimezoneAllowed`는 `isValidTimezone`을 통과하고, `at`이 속한 해(UTC)의 1월 1일과 7월 1일 정오(UTC)에 그 시간대의 UTC 시차가 모두 10분 단위일 때 `true`다. 시차는 `Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' })`의 `GMT+05:45` 같은 값에서 읽는다(`GMT`만 있으면 0분). 시차가 10분 단위가 아니면 10분 tick이 현지 정각에 맞지 않아, `0 9 * * *`가 5분 늦게 돈다.
 - `computeNextRunAt`은 `after`보다 뒤인 첫 실행 시각을 돌려준다. 그런 시각이 없거나 식·시간대를 해석하지 못하면 `null`이다. 던지지 않는다. 시간대가 `isValidTimezone`을 통과하지 못하면 `null`이고, 아니면 `parseCronExpression`과 `findNextOccurrence`(아래)를 `try`로 감싸 부른다.
 - `resolveNextRunAt`은 스케줄이 꺼져 있거나 cron 식이 없으면 `null`, 아니면 `computeNextRunAt` 결과의 ISO 문자열이다.
 - `schedulerRunInstanceID`는 `` `${schedulerID}-${Math.floor(scheduledFor.getTime() / 60000)}` ``다. UUID 뒤에 분 단위 epoch가 붙어 45자쯤이고, Workflows의 ID 규칙(영숫자·`-`·`_`, 100자 이하)에 맞는다.
@@ -322,6 +324,7 @@ export function findNextOccurrence(schedule: CronSchedule, timezone: string, aft
 | -- | -- |
 | `timezone`이 있는데 문자열이 아님(`PUT`의 `null` 포함) | `Field 'timezone' must be a string` |
 | 유효한 시간대가 아님 | `Field 'timezone' must be a valid IANA time zone` |
+| UTC 시차가 10분 단위가 아닌 시간대(`Asia/Kathmandu`(런타임 목록 이름 `Asia/Katmandu`) +5:45, `Pacific/Chatham` +12:45 등) | `Field 'timezone' must have a UTC offset in whole multiples of 10 minutes` |
 | cron 식의 분이 10분 단위가 아님 | `Field 'cron_expression' minute must be 0, 10, 20, 30, 40 or 50` |
 | 저장될 시간대로 다음 실행 시각을 구할 수 없음 | `Field 'cron_expression' must be a valid cron expression` |
 
@@ -452,8 +455,10 @@ export async function executePipelineStage(
 
 ## 8. 웹
 
-- **실행 시각 입력.** cron 입력은 지금처럼 글자 입력이다. 생성 대화상자의 입력 아래에 `Runs at minute 0, 10, 20, 30, 40 or 50 · Asia/Seoul time`을 안내한다. 생성할 때와 상세 화면에서 cron을 고칠 때, 분이 10분 단위가 아니면 서버에 보내지 않고 toast(`Cron minute must be 0, 10, 20, 30, 40 or 50.`)로 알린다. 검사 규칙은 워커와 같은 정규식이고, 웹에 `schedule-minute.ts`로 따로 둔다. 두 workspace가 같이 쓰는 패키지가 없어서다.
-- **스케줄 화면.** `Enabled`와 `Last Run` 사이에 `Timezone`과 `Next Run`을 보여 준다. 다음 실행 시각이 없으면 `Not scheduled`다.
+- **실행 시각 입력.** cron 입력은 지금처럼 글자 입력이다. 생성 대화상자의 입력 아래에 `Runs at minute 0, 10, 20, 30, 40 or 50 · <고른 시간대> time`을 안내한다. 생성할 때와 상세 화면에서 cron을 고칠 때, 분이 10분 단위가 아니면 서버에 보내지 않고 toast(`Cron minute must be 0, 10, 20, 30, 40 or 50.`)로 알린다. 검사 규칙은 워커와 같은 정규식이고, 웹에 `schedule-minute.ts`로 따로 둔다. 두 workspace가 같이 쓰는 패키지가 없어서다.
+- **시간대는 사용자 기준이 기본이다.** 사용자는 cron 식을 자기 시각으로 쓰는 것이 가장 자연스럽다. 그래서 생성 대화상자에 시간대 선택을 두고, 기본값을 브라우저 시간대(`Intl.DateTimeFormat().resolvedOptions().timeZone`)로 한다. 브라우저 시간대가 목록에 없으면(시차가 10분 단위가 아니면) `UTC`가 기본값이다. 고른 시간대를 `POST`에 보낸다. 서버 기본값 `Asia/Seoul`은 시간대 없이 API를 부를 때만 쓰인다.
+- **시간대 목록.** `Intl.supportedValuesOf('timeZone')`과 `UTC` 가운데, 그해 1월 1일과 7월 1일의 UTC 시차가 모두 10분 단위인 것만 보여 준다. 10분 tick이 현지 정각에 맞지 않는 시간대(`Asia/Kathmandu`, `Pacific/Chatham`, `Australia/Eucla` 등. 카트만두는 브라우저·Node 목록에 옛 이름 `Asia/Katmandu`로 들어 있다)는 빠지고, 서버도 같은 규칙으로 거절한다.
+- **스케줄 화면.** `Enabled`와 `Last Run` 사이에 `Timezone`과 `Next Run`을 보여 준다. `Timezone`은 눌러서 같은 목록에서 바꿀 수 있다(`PUT { timezone }`). 키보드로 목록을 훑는 동안 중간 값이 저장되지 않도록, 고른 값은 Enter를 누르거나 포커스가 빠질 때 저장하고 Escape는 취소한다. `Next Run`은 스케줄 시간대의 시각과 시간대 이름으로 보여 준다(en-US 브라우저 예: `Oct 6, 2026, 09:00 AM Asia/Seoul`, 형식은 다른 날짜 칸처럼 브라우저 로캘을 따른다). 보는 사람의 브라우저 시간대가 다르면 그 아래에 내 시각을 함께 보여 준다(예: `Oct 6, 2026, 02:00 AM your time`). 다음 실행 시각이 없으면 `Not scheduled`다.
 - **실행 기록.** `Skipped` 배지를 추가한다. `Started` 칸은 시작 시각이 없으면 예정 시각(`scheduled_for`)을 보여 준다. 건너뛴 회차가 언제 것인지 알 수 있다.
 
 ## 9. 테스트
@@ -496,6 +501,7 @@ Workflow 인스턴스를 실제로 만드는 테스트는 쓰지 않는다. `@cl
 
 - 분 검사: `0 9 * * *`, `30 9 * * *`, `0,30 9 * * *`, `0,10,20,30,40,50 * * * *`, `*/10 * * * *`, `*/20 * * * *`, `*/30 * * * *`은 통과한다. `* * * * *`, `*/5 * * * *`, `*/15 * * * *`, `5 9 * * *`, `0,15 9 * * *`, `0-50 * * * *`, `0-50/10 * * * *`, `60 9 * * *`은 통과하지 못한다.
 - 시간대 검사: `Asia/Seoul`, `UTC`, `America/New_York`은 통과한다. `Not/AZone`, `KST`, `+09:00`, 빈 문자열, 65자 문자열은 통과하지 못한다.
+- 시차 검사(`isScheduleTimezoneAllowed`): `Asia/Seoul`, `UTC`, `America/New_York`, `Asia/Kolkata`(+5:30), `Australia/Lord_Howe`(+10:30/+11)는 통과한다. `Asia/Kathmandu`, `Pacific/Chatham`, `Australia/Eucla`와 유효하지 않은 시간대는 통과하지 못한다. 저장할 때 이 시간대들이 5절 표의 문구로 거절된다.
 - 인스턴스 ID: 스케줄 `00000000-0000-0000-0000-000000000010`, 회차 `2026-10-05T22:00:00.000Z`이면 `00000000-0000-0000-0000-000000000010-29853960`이다.
 - 문법 일치: 여러 필드 값을 만들어, `parseCronExpression`이 해석하는 식과 저장 검증(`isValidCronExpression`)이 받는 식이 같은지 확인한다.
 - 탐색 비용: 현지 시각 읽기 횟수를 세어, `0 9 1 * *`가 200번, `0 0 29 2 *`가 1,000번, `0 0 31 2 *`(`null`)와 `0 0 31 2,4,6,9,11 *`(`null`)가 각각 10,000번을 넘지 않는지 확인한다. 시간이 아니라 횟수로 확인해 테스트가 기계 속도에 흔들리지 않게 한다.
@@ -527,7 +533,7 @@ Workflow 인스턴스를 실제로 만드는 테스트는 쓰지 않는다. `@cl
 
 **수동 실행.** 기존 테스트 세 개가 수정 없이 통과한다.
 
-**웹.** `isScheduleMinuteAllowed`의 단위 테스트.
+**웹.** `isScheduleMinuteAllowed`의 단위 테스트. 시간대 목록에 `Asia/Seoul`·`UTC`가 있고 `Asia/Katmandu`·`Pacific/Chatham`·`Australia/Eucla`가 없는지(목록에 실제로 있는 이름으로 확인해야 필터가 빠졌을 때 실패한다), 기본 시간대가 브라우저 시간대이고 목록에 없으면 `UTC`인지, 생성 요청에 고른 시간대가 들어가는지, 안내 문구가 고른 시간대를 따라 바뀌는지, `Next Run`이 스케줄 시간대 시각과 이름으로 나오고 브라우저 시간대가 다를 때만 내 시각이 함께 나오는지, `Timezone`을 바꾸면 `PUT { timezone }`이 가는지 확인한다.
 
 ## 10. 배포할 때 주의할 점
 
@@ -540,7 +546,6 @@ Workflow 인스턴스를 실제로 만드는 테스트는 쓰지 않는다. `@cl
 
 ## 11. 이번에 하지 않는 것
 
-- 웹에서 시간대를 바꾸는 입력. API는 `timezone`을 받는다.
 - 웹 실행 기록에 예약·수동을 구분해 보여 주는 칸. API 응답에는 `triggered_by`가 있다.
 - 요일·시·분을 고르는 전용 입력 화면.
 - 놓친 회차 보충, 실패한 실행의 자동 재시도.

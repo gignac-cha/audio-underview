@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router';
 import { useToast } from '../../hooks/use-toast.ts';
 import { useCreateScheduler } from '../../hooks/use-scheduler-manager.ts';
 import { isScheduleMinuteAllowed } from './schedule-minute.ts';
+import { defaultScheduleTimezone, listScheduleTimezones } from './schedule-timezone.ts';
 
 const Overlay = styled(Dialog.Overlay)`
   position: fixed;
@@ -70,6 +71,22 @@ const TextInput = styled.input`
   &::placeholder {
     color: var(--text-muted);
   }
+
+  &:focus {
+    border-color: var(--border-focus);
+  }
+`;
+
+const SelectInput = styled.select`
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  background: var(--bg-deep);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  outline: none;
+  transition: var(--transition-fast);
 
   &:focus {
     border-color: var(--border-focus);
@@ -169,15 +186,20 @@ export function SchedulerCreateDialog({ open, onOpenChange }: SchedulerCreateDia
   const { createScheduler, status } = useCreateScheduler();
   const [name, setName] = useState('');
   const [cronExpression, setCronExpression] = useState('');
+  const [timezones] = useState(() => listScheduleTimezones(new Date()));
+  const [timezone, setTimezone] = useState(() => defaultScheduleTimezone(new Date()));
   const [isEnabled, setIsEnabled] = useState(true);
 
   const isSubmitting = status === 'pending';
+  // Keep the chosen zone selectable even when it is missing from the list.
+  const timezoneOptions = timezones.includes(timezone) ? timezones : [timezone, ...timezones];
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen && isSubmitting) return;
     if (!nextOpen) {
       setName('');
       setCronExpression('');
+      setTimezone(defaultScheduleTimezone(new Date()));
       setIsEnabled(true);
     }
     onOpenChange(nextOpen);
@@ -199,6 +221,7 @@ export function SchedulerCreateDialog({ open, onOpenChange }: SchedulerCreateDia
       const scheduler = await createScheduler({
         name: name.trim(),
         cron_expression: trimmedCron.length > 0 ? trimmedCron : undefined,
+        timezone,
         is_enabled: isEnabled,
       });
       showToast('Success', 'Scheduler created successfully.', 'success');
@@ -240,7 +263,21 @@ export function SchedulerCreateDialog({ open, onOpenChange }: SchedulerCreateDia
                 onChange={(event) => setCronExpression(event.target.value)}
                 disabled={isSubmitting}
               />
-              <FieldHint>Runs at minute 0, 10, 20, 30, 40 or 50 · Asia/Seoul time</FieldHint>
+              <FieldHint>{`Runs at minute 0, 10, 20, 30, 40 or 50 · ${timezone} time`}</FieldHint>
+            </FieldGroup>
+
+            <FieldGroup>
+              <FieldLabel htmlFor="scheduler-timezone">Timezone</FieldLabel>
+              <SelectInput
+                id="scheduler-timezone"
+                value={timezone}
+                onChange={(event) => setTimezone(event.target.value)}
+                disabled={isSubmitting}
+              >
+                {timezoneOptions.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </SelectInput>
             </FieldGroup>
 
             <FieldGroup>

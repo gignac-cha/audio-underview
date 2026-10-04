@@ -356,6 +356,53 @@ describe('scheduler-manager-worker', () => {
       expect(body.error_description).toBe("Field 'timezone' must be a valid IANA time zone");
     });
 
+    it('returns 400 when the timezone UTC offset is not a multiple of 10 minutes', async () => {
+      const request = await authenticatedRequest('/schedulers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Test Scheduler', cron_expression: '0 7 * * *', timezone: 'Asia/Kathmandu' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toBe("Field 'timezone' must have a UTC offset in whole multiples of 10 minutes");
+    });
+
+    it.each([
+      { label: 'Pacific/Chatham (+12:45/+13:45)', timezone: 'Pacific/Chatham' },
+      { label: 'Australia/Eucla (+8:45)', timezone: 'Australia/Eucla' },
+    ])('returns 400 for $label, whose UTC offset is not a multiple of 10 minutes', async ({ timezone }) => {
+      const request = await authenticatedRequest('/schedulers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Test Scheduler', cron_expression: '0 7 * * *', timezone }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toBe("Field 'timezone' must have a UTC offset in whole multiples of 10 minutes");
+    });
+
+    it('stores a timezone whose UTC offset changes on the 10-minute grid', async () => {
+      const captured = captureSupabaseSchedulerCreate();
+
+      const request = await authenticatedRequest('/schedulers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Test Scheduler', cron_expression: '0 7 * * *', timezone: 'America/New_York' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(201);
+      expect(captured.body!.timezone).toBe('America/New_York');
+      // 07:00 in New York is 11:00 UTC in summer and 12:00 UTC in winter.
+      expect(captured.body!.next_run_at).toMatch(/T1[12]:00:00\.000Z$/);
+    });
+
     it('returns 400 when the cron minute is not a 10-minute value', async () => {
       const request = await authenticatedRequest('/schedulers', {
         method: 'POST',
@@ -622,6 +669,39 @@ describe('scheduler-manager-worker', () => {
       const body = await response.json();
       expect(body.error).toBe('invalid_request');
       expect(body.error_description).toBe("Field 'timezone' must be a string");
+    });
+
+    it('returns 400 when the timezone UTC offset is not a multiple of 10 minutes', async () => {
+      // Nothing is mocked and net connect is disabled, so the request is rejected before any read.
+      const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timezone: 'Asia/Kathmandu' }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toBe("Field 'timezone' must have a UTC offset in whole multiples of 10 minutes");
+    });
+
+    it.each([
+      { label: 'Pacific/Chatham (+12:45/+13:45)', timezone: 'Pacific/Chatham' },
+      { label: 'Australia/Eucla (+8:45)', timezone: 'Australia/Eucla' },
+    ])('returns 400 for $label, whose UTC offset is not a multiple of 10 minutes', async ({ timezone }) => {
+      // Nothing is mocked and net connect is disabled, so the request is rejected before any read.
+      const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timezone }),
+      });
+      const response = await worker.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toBe("Field 'timezone' must have a UTC offset in whole multiples of 10 minutes");
     });
 
     it('returns 400 when the cron minute is not a 10-minute value', async () => {

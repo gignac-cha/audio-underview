@@ -17,6 +17,7 @@ import {
   DEFAULT_TIMEZONE,
   isScheduleMinuteAllowed,
   isValidTimezone,
+  isScheduleTimezoneAllowed,
   computeNextRunAt,
   resolveNextRunAt,
 } from '../schedule.ts';
@@ -48,6 +49,9 @@ function validateTimezone(timezone: unknown, context: ResponseContext): Response
   }
   if (!isValidTimezone(timezone)) {
     return errorResponse('invalid_request', "Field 'timezone' must be a valid IANA time zone", 400, context);
+  }
+  if (!isScheduleTimezoneAllowed(timezone, new Date())) {
+    return errorResponse('invalid_request', "Field 'timezone' must have a UTC offset in whole multiples of 10 minutes", 400, context);
   }
   return null;
 }

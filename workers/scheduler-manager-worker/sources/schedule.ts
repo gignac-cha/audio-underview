@@ -6,6 +6,8 @@ export const DEFAULT_TIMEZONE = 'Asia/Seoul';
 // The tick runs every 10 minutes, so only minutes it can hit exactly are accepted.
 const SCHEDULE_MINUTE_PATTERN = /^(\*\/(10|20|30)|(0|10|20|30|40|50)(,(0|10|20|30|40|50))*)$/;
 const TIMEZONE_PATTERN = /^[A-Za-z][A-Za-z0-9_+\-/]{0,63}$/;
+// A `longOffset` time zone name: `GMT+05:45`, `GMT-03:30`, or plain `GMT` for a zero offset.
+const LONG_OFFSET_PATTERN = /^GMT(?:([+-])(\d{1,2}):(\d{2}))?$/;
 
 /**
  * Whether the minute field of a cron expression falls on the 10-minute tick.
@@ -26,6 +28,34 @@ export function isValidTimezone(timezone: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * UTC offset of the time zone at `date` in minutes, or null when the runtime gives a value it cannot read.
+ */
+function readUTCOffsetMinutes(timezone: string, date: Date): number | null {
+  const offsetName = new Intl.DateTimeFormat('en-US', { timeZone: timezone, timeZoneName: 'longOffset' })
+    .formatToParts(date)
+    .find((part) => part.type === 'timeZoneName')?.value;
+  const match = LONG_OFFSET_PATTERN.exec(offsetName ?? '');
+  if (match === null) return null;
+  if (match[1] === undefined) return 0;
+  const minutes = Number(match[2]) * 60 + Number(match[3]);
+  return match[1] === '-' ? -minutes : minutes;
+}
+
+/**
+ * Whether the time zone can be stored for a schedule: a valid time zone whose UTC offset is a
+ * multiple of 10 minutes at 12:00 UTC on both January 1 and July 1 of `at`'s UTC year. Otherwise
+ * local whole hours fall between 10-minute ticks, and `0 9 * * *` would run late.
+ */
+export function isScheduleTimezoneAllowed(timezone: string, at: Date): boolean {
+  if (!isValidTimezone(timezone)) return false;
+  const year = at.getUTCFullYear();
+  return [Date.UTC(year, 0, 1, 12), Date.UTC(year, 6, 1, 12)].every((time) => {
+    const offsetMinutes = readUTCOffsetMinutes(timezone, new Date(time));
+    return offsetMinutes !== null && offsetMinutes % 10 === 0;
+  });
 }
 
 /**
