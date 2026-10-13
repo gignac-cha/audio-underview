@@ -740,7 +740,10 @@ describe('/internal/keys/rewrap', () => {
 
     createHarness({ PROVIDER_KEY_KEK: CURRENT_SECRET, PROVIDER_KEY_KEK_PREVIOUS: PREVIOUS_SECRET }, database);
     const result = await call('/internal/keys/rewrap', { userId: 'user-1' });
-    expect(result).toEqual({ status: 200, json: { rewrapped: 2, unrecoverable: 1 } });
+    expect(result).toEqual({
+      status: 200,
+      json: { rewrapped: 2, unrecoverable: 1, environment_variables_rewrapped: 0, environment_variables_unrecoverable: 0 },
+    });
 
     for (const provider of ['openai', 'google'] as const) {
       const previous = before.find((row) => row.provider === provider) as FakeProviderKeyRow;

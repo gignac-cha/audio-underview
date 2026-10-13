@@ -26,6 +26,7 @@ import {
 import {
   handleListRuns,
   handleGetRun,
+  handleGetStageRun,
 } from './handlers/scheduler-runs.ts';
 import { handleExecuteScheduler } from './handlers/scheduler-execution.ts';
 import { handleListTaskGroups } from './handlers/task-groups.ts';
@@ -70,6 +71,7 @@ const HELP = {
     { method: 'PUT', path: '/schedulers/:id/stages/reorder', description: 'Reorder stages' },
     { method: 'GET', path: '/schedulers/:id/runs', description: 'List runs for a scheduler' },
     { method: 'GET', path: '/schedulers/:id/runs/:runID', description: 'Get a run by ID' },
+    { method: 'GET', path: '/schedulers/:id/runs/:runID/stage-runs/:stageRunID', description: 'Get a stage run with its input, output and logs' },
     { method: 'POST', path: '/schedulers/:id/execute', description: 'Execute a scheduler pipeline' },
     { method: 'GET', path: '/task-groups', description: 'List registered task groups and their formats' },
   ],
@@ -84,11 +86,13 @@ interface ParsedRoute {
     | 'stages_reorder'
     | 'runs_collection'
     | 'run_single'
+    | 'stage_run_single'
     | 'task_groups_collection'
     | null;
   schedulerID?: string;
   stageID?: string;
   runID?: string;
+  stageRunID?: string;
 }
 
 function parseRoute(pathname: string): ParsedRoute {
@@ -141,6 +145,14 @@ function parseRoute(pathname: string): ParsedRoute {
     const id = stagesMatch[1];
     if (!UUID_PATTERN.test(id)) return { type: null };
     return { type: 'stages_collection', schedulerID: id };
+  }
+
+  // /schedulers/:id/runs/:runID/stage-runs/:stageRunID
+  const stageRunMatch = pathname.match(/^\/schedulers\/([0-9a-f-]+)\/runs\/([0-9a-f-]+)\/stage-runs\/([0-9a-f-]+)$/i);
+  if (stageRunMatch) {
+    const [, schedulerID, runID, stageRunID] = stageRunMatch;
+    if (!UUID_PATTERN.test(schedulerID) || !UUID_PATTERN.test(runID) || !UUID_PATTERN.test(stageRunID)) return { type: null };
+    return { type: 'stage_run_single', schedulerID, runID, stageRunID };
   }
 
   // /schedulers/:id/runs/:runID
@@ -321,6 +333,15 @@ export default {
           case 'run_single': {
             if (request.method === 'GET') {
               return await handleGetRun(environment, context, route.schedulerID!, route.runID!, userUUID);
+            }
+            const response = errorResponse('method_not_allowed', 'Method not allowed', 405, context);
+            response.headers.set('Allow', 'GET');
+            return response;
+          }
+
+          case 'stage_run_single': {
+            if (request.method === 'GET') {
+              return await handleGetStageRun(environment, context, route.schedulerID!, route.runID!, route.stageRunID!, userUUID);
             }
             const response = errorResponse('method_not_allowed', 'Method not allowed', 405, context);
             response.headers.set('Allow', 'GET');

@@ -4,13 +4,14 @@ import { createSupabaseClient } from '@audio-underview/supabase-connector';
 import type { SchedulerStageRow } from '@audio-underview/supabase-connector';
 import type { CrawlerExecutionClient } from '../sources/crawler-execution-client.ts';
 import type { Logger } from '@audio-underview/logger';
+import { resolveDefaultInput } from '@audio-underview/worker-tools';
 import {
-  resolveDefaultInput,
   executeStage,
   executeFanOut,
 } from '../sources/stage-runner.ts';
 import type { StageRunnerDependencies } from '../sources/stage-runner.ts';
 
+const MOCK_USER_UUID = '00000000-0000-0000-0000-000000000001';
 const MOCK_SCHEDULER_ID = '00000000-0000-0000-0000-000000000010';
 const MOCK_STAGE_ID = '00000000-0000-0000-0000-000000000020';
 const MOCK_CRAWLER_ID = '00000000-0000-0000-0000-000000000030';
@@ -67,11 +68,15 @@ function mockSupabaseStageRunUpdate(overrides: Record<string, unknown> = {}) {
 }
 
 function createMockCrawlerExecutionClient(): CrawlerExecutionClient & {
-  execute: ReturnType<typeof vi.fn>;
+  run: ReturnType<typeof vi.fn>;
 } {
   return {
-    execute: vi.fn(),
+    run: vi.fn(),
   };
+}
+
+function completedOutcome(type: 'web' | 'data', result: unknown) {
+  return { status: 'completed' as const, type, result, logs: [], logs_truncated: false };
 }
 
 function createMockLogger(): Logger {
@@ -94,7 +99,7 @@ function createDependencies(
     supabaseSecretKey: env.SUPABASE_SECRET_KEY,
   });
   return {
-    dependencies: { supabaseClient, crawlerExecutionClient: client, logger },
+    dependencies: { supabaseClient, crawlerExecutionClient: client, logger, userUUID: MOCK_USER_UUID },
     crawlerExecutionClient: client,
     logger,
   };
@@ -180,14 +185,14 @@ describe('executeStage', () => {
     const input = { url: 'https://example.com' };
     const crawlerResult = { items: [1, 2, 3] };
 
-    crawlerExecutionClient.execute.mockResolvedValue({ type: 'data', result: crawlerResult });
+    crawlerExecutionClient.run.mockResolvedValue(completedOutcome('data', crawlerResult));
 
     mockSupabaseStageRunCreate();
     mockSupabaseStageRunUpdate({ status: 'completed', output: crawlerResult });
 
     const result = await executeStage(dependencies, MOCK_RUN_ID, stage, input);
 
-    expect(crawlerExecutionClient.execute).toHaveBeenCalledWith(MOCK_CRAWLER_ID, input);
+    expect(crawlerExecutionClient.run).toHaveBeenCalledWith(MOCK_CRAWLER_ID, input, { userUUID: MOCK_USER_UUID, runID: MOCK_RUN_ID });
     expect(result.output).toEqual(crawlerResult);
     expect(result.stageRun.status).toBe('completed');
   });
@@ -197,7 +202,7 @@ describe('executeStage', () => {
     const stage = mockStage();
     const crawlerResult = { data: 'test' };
 
-    crawlerExecutionClient.execute.mockResolvedValue({ type: 'data', result: crawlerResult });
+    crawlerExecutionClient.run.mockResolvedValue(completedOutcome('data', crawlerResult));
 
     mockSupabaseStageRunCreate({ status: 'running' });
     mockSupabaseStageRunUpdate({ status: 'completed', output: crawlerResult });
@@ -213,7 +218,7 @@ describe('executeStage', () => {
     const stage = mockStage();
     const executionError = new Error('Crawler execution failed');
 
-    crawlerExecutionClient.execute.mockRejectedValue(executionError);
+    crawlerExecutionClient.run.mockRejectedValue(executionError);
 
     mockSupabaseStageRunCreate({ status: 'running' });
     mockSupabaseStageRunUpdate({ status: 'failed', error: 'Crawler execution failed' });
@@ -237,21 +242,21 @@ describe('executeStage', () => {
     const { dependencies, crawlerExecutionClient } = createDependencies();
     const stage = mockStage({ crawler_id: customCrawlerID });
 
-    crawlerExecutionClient.execute.mockResolvedValue({ type: 'web', result: {} });
+    crawlerExecutionClient.run.mockResolvedValue(completedOutcome('web', {}));
 
     mockSupabaseStageRunCreate();
     mockSupabaseStageRunUpdate({ status: 'completed' });
 
     await executeStage(dependencies, MOCK_RUN_ID, stage, { key: 'value' });
 
-    expect(crawlerExecutionClient.execute).toHaveBeenCalledWith(customCrawlerID, { key: 'value' });
+    expect(crawlerExecutionClient.run).toHaveBeenCalledWith(customCrawlerID, { key: 'value' }, { userUUID: MOCK_USER_UUID, runID: MOCK_RUN_ID });
   });
 
   it('falls back to original stageRun if update returns null', async () => {
     const { dependencies, crawlerExecutionClient } = createDependencies();
     const stage = mockStage();
 
-    crawlerExecutionClient.execute.mockResolvedValue({ type: 'data', result: 'output' });
+    crawlerExecutionClient.run.mockResolvedValue(completedOutcome('data', 'output'));
 
     mockSupabaseStageRunCreate({ status: 'running' });
 
@@ -280,12 +285,12 @@ describe('executeFanOut', () => {
     const stage = mockStage();
     const items = [{ url: 'a' }, { url: 'b' }, { url: 'c' }];
 
-    crawlerExecutionClient.execute
-      .mockResolvedValueOnce({ type: 'data', result: 'result-a' })
-      .mockResolvedValueOnce({ type: 'data', result: 'result-b' })
-      .mockResolvedValueOnce({ type: 'data', result: 'result-c' });
+    crawlerExecutionClient.run
+      .mockResolvedValueOnce(completedOutcome('data', 'result-a'))
+      .mockResolvedValueOnce(completedOutcome('data', 'result-b'))
+      .mockResolvedValueOnce(completedOutcome('data', 'result-c'));
 
-    const result = await executeFanOut(dependencies, stage, items);
+    const result = await executeFanOut(dependencies, MOCK_RUN_ID, stage, items);
 
     expect(result.results).toEqual(['result-a', 'result-b', 'result-c']);
     expect(result.itemsTotal).toBe(3);
@@ -298,9 +303,9 @@ describe('executeFanOut', () => {
     const { dependencies, crawlerExecutionClient } = createDependencies();
     const stage = mockStage();
 
-    crawlerExecutionClient.execute.mockResolvedValue({ type: 'data', result: 'ok' });
+    crawlerExecutionClient.run.mockResolvedValue(completedOutcome('data', 'ok'));
 
-    const result = await executeFanOut(dependencies, stage, [{ a: 1 }, { a: 2 }]);
+    const result = await executeFanOut(dependencies, MOCK_RUN_ID, stage, [{ a: 1 }, { a: 2 }]);
 
     expect(result.status).toBe('completed');
     expect(result.itemsFailed).toBe(0);
@@ -311,12 +316,12 @@ describe('executeFanOut', () => {
     const { dependencies, crawlerExecutionClient } = createDependencies();
     const stage = mockStage();
 
-    crawlerExecutionClient.execute
-      .mockResolvedValueOnce({ type: 'data', result: 'ok' })
+    crawlerExecutionClient.run
+      .mockResolvedValueOnce(completedOutcome('data', 'ok'))
       .mockRejectedValueOnce(new Error('item failed'))
-      .mockResolvedValueOnce({ type: 'data', result: 'ok' });
+      .mockResolvedValueOnce(completedOutcome('data', 'ok'));
 
-    const result = await executeFanOut(dependencies, stage, ['a', 'b', 'c']);
+    const result = await executeFanOut(dependencies, MOCK_RUN_ID, stage, ['a', 'b', 'c']);
 
     expect(result.status).toBe('partially_failed');
     expect(result.itemsSucceeded).toBe(2);
@@ -329,11 +334,11 @@ describe('executeFanOut', () => {
     const { dependencies, crawlerExecutionClient, logger } = createDependencies();
     const stage = mockStage();
 
-    crawlerExecutionClient.execute
+    crawlerExecutionClient.run
       .mockRejectedValueOnce(new Error('fail-1'))
       .mockRejectedValueOnce(new Error('fail-2'));
 
-    const result = await executeFanOut(dependencies, stage, ['a', 'b']);
+    const result = await executeFanOut(dependencies, MOCK_RUN_ID, stage, ['a', 'b']);
 
     expect(result.status).toBe('failed');
     expect(result.itemsSucceeded).toBe(0);
@@ -346,12 +351,12 @@ describe('executeFanOut', () => {
     const { dependencies, crawlerExecutionClient } = createDependencies();
     const stage = mockStage();
 
-    crawlerExecutionClient.execute
-      .mockResolvedValueOnce({ type: 'web', result: 'first' })
-      .mockResolvedValueOnce({ type: 'web', result: null })
-      .mockResolvedValueOnce({ type: 'web', result: 'third' });
+    crawlerExecutionClient.run
+      .mockResolvedValueOnce(completedOutcome('web', 'first'))
+      .mockResolvedValueOnce(completedOutcome('web', null))
+      .mockResolvedValueOnce(completedOutcome('web', 'third'));
 
-    const result = await executeFanOut(dependencies, stage, ['a', 'b', 'c']);
+    const result = await executeFanOut(dependencies, MOCK_RUN_ID, stage, ['a', 'b', 'c']);
 
     expect(result.status).toBe('completed');
     expect(result.itemsSucceeded).toBe(3);
@@ -362,7 +367,7 @@ describe('executeFanOut', () => {
     const { dependencies } = createDependencies();
     const stage = mockStage();
 
-    const result = await executeFanOut(dependencies, stage, []);
+    const result = await executeFanOut(dependencies, MOCK_RUN_ID, stage, []);
 
     expect(result.results).toEqual([]);
     expect(result.itemsTotal).toBe(0);
@@ -378,11 +383,11 @@ describe('executeFanOut', () => {
     const error1 = new Error('fail-1');
     const error2 = new Error('fail-2');
 
-    crawlerExecutionClient.execute
+    crawlerExecutionClient.run
       .mockRejectedValueOnce(error1)
       .mockRejectedValueOnce(error2);
 
-    await executeFanOut(dependencies, stage, ['a', 'b']);
+    await executeFanOut(dependencies, MOCK_RUN_ID, stage, ['a', 'b']);
 
     expect(logger.warn).toHaveBeenCalledTimes(2);
     expect(logger.warn).toHaveBeenCalledWith(
@@ -407,13 +412,13 @@ describe('executeFanOut', () => {
     const { dependencies, crawlerExecutionClient } = createDependencies();
     const stage = mockStage();
 
-    crawlerExecutionClient.execute.mockResolvedValue({ type: 'data', result: null });
+    crawlerExecutionClient.run.mockResolvedValue(completedOutcome('data', null));
 
     const items = [{ url: 'x' }, { url: 'y' }];
-    await executeFanOut(dependencies, stage, items);
+    await executeFanOut(dependencies, MOCK_RUN_ID, stage, items);
 
-    expect(crawlerExecutionClient.execute).toHaveBeenCalledTimes(2);
-    expect(crawlerExecutionClient.execute).toHaveBeenNthCalledWith(1, MOCK_CRAWLER_ID, { url: 'x' });
-    expect(crawlerExecutionClient.execute).toHaveBeenNthCalledWith(2, MOCK_CRAWLER_ID, { url: 'y' });
+    expect(crawlerExecutionClient.run).toHaveBeenCalledTimes(2);
+    expect(crawlerExecutionClient.run).toHaveBeenNthCalledWith(1, MOCK_CRAWLER_ID, { url: 'x' }, { userUUID: MOCK_USER_UUID, runID: MOCK_RUN_ID });
+    expect(crawlerExecutionClient.run).toHaveBeenNthCalledWith(2, MOCK_CRAWLER_ID, { url: 'y' }, { userUUID: MOCK_USER_UUID, runID: MOCK_RUN_ID });
   });
 });

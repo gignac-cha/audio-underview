@@ -86,17 +86,21 @@ function run(): Row {
 }
 
 function createDependencies() {
-  const execute = vi.fn(async (_crawlerID: string, _input: unknown) => ({
+  const execute = vi.fn(async (_crawlerID: string, _input: unknown, _context: unknown) => ({
+    status: 'completed' as const,
     type: 'data' as const,
     result: { extracted: 'data' },
+    logs: [],
+    logs_truncated: false,
   }));
-  const crawlerExecutionClient: CrawlerExecutionClient = { execute };
+  const crawlerExecutionClient: CrawlerExecutionClient = { run: execute };
   const dependencies: ExecutorDependencies = {
     supabaseClient: createSupabaseClient({
       supabaseURL: env.SUPABASE_URL,
       supabaseSecretKey: env.SUPABASE_SECRET_KEY,
     }),
     crawlerExecutionClient,
+    userUUID: USER_UUID,
     logger: {
       info: vi.fn(),
       warn: vi.fn(),
@@ -140,7 +144,7 @@ describe('executePipelineStage', () => {
     const result = await executePipelineStage(dependencies, RUN_ID, crawlerStage(), { url: 'https://example.com' });
 
     expect(result).toMatchObject({ output: { extracted: 'data' }, partiallyFailed: false });
-    expect(execute).toHaveBeenCalledWith(CRAWLER_ID, { url: 'https://example.com' });
+    expect(execute).toHaveBeenCalledWith(CRAWLER_ID, { url: 'https://example.com' }, { userUUID: USER_UUID, runID: RUN_ID });
     expect(supabase.tables.scheduler_stage_runs).toHaveLength(1);
     expect(supabase.tables.scheduler_stage_runs[0]).toMatchObject({
       run_id: RUN_ID,
@@ -158,7 +162,7 @@ describe('executePipelineStage', () => {
     await executePipelineStage(dependencies, RUN_ID, stageWithoutType as unknown as SchedulerStageRow, {});
 
     expect(execute).toHaveBeenCalledTimes(1);
-    expect(execute).toHaveBeenCalledWith(CRAWLER_ID, {});
+    expect(execute).toHaveBeenCalledWith(CRAWLER_ID, {}, { userUUID: USER_UUID, runID: RUN_ID });
     expect(supabase.tables.scheduler_stage_runs).toHaveLength(1);
   });
 });
@@ -171,7 +175,7 @@ describe('executeScheduler', () => {
     await executeScheduler(dependencies, SCHEDULER_ID, USER_UUID, RUN_ID, undefined, [crawlerStage()]);
 
     expect(supabase.requestsOf('GET', 'scheduler_stages')).toEqual([]);
-    expect(execute).toHaveBeenCalledWith(CRAWLER_ID, { url: 'https://example.com' });
+    expect(execute).toHaveBeenCalledWith(CRAWLER_ID, { url: 'https://example.com' }, { userUUID: USER_UUID, runID: RUN_ID });
     expect(run()).toMatchObject({ status: 'completed', result: { extracted: 'data' } });
   });
 
@@ -183,7 +187,7 @@ describe('executeScheduler', () => {
     await executeScheduler(dependencies, SCHEDULER_ID, USER_UUID, RUN_ID);
 
     expect(supabase.requestsOf('GET', 'scheduler_stages')).toHaveLength(1);
-    expect(execute).toHaveBeenCalledWith(CRAWLER_ID, { url: 'https://example.com' });
+    expect(execute).toHaveBeenCalledWith(CRAWLER_ID, { url: 'https://example.com' }, { userUUID: USER_UUID, runID: RUN_ID });
     expect(run()).toMatchObject({ status: 'completed', result: { extracted: 'data' } });
   });
 

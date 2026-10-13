@@ -17,6 +17,18 @@ export interface FakeProviderKeyRow {
   validated_at: string | null;
 }
 
+export interface FakeEnvironmentVariableRow {
+  user_id: string;
+  name: string;
+  ciphertext: string;
+  iv: string;
+  wrapped_dek: string;
+  dek_iv: string;
+  key_version: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface FakeAuditRow {
   id: number;
   user_id: string;
@@ -32,7 +44,7 @@ export interface ExecutedStatement {
   values: unknown[];
 }
 
-type FakeTableName = 'provider_keys' | 'key_audit_log';
+type FakeTableName = 'provider_keys' | 'key_audit_log' | 'environment_variables';
 
 interface StatementResult {
   rows: Record<string, unknown>[];
@@ -75,6 +87,24 @@ const STATEMENTS = {
   selectAuditEvents: normalize(
     'SELECT provider, action, at FROM key_audit_log WHERE user_id = ? ORDER BY id DESC LIMIT ?',
   ),
+  selectEnvironmentVariableSummaries: normalize(
+    'SELECT name, created_at, updated_at FROM environment_variables WHERE user_id = ? ORDER BY name',
+  ),
+  selectEnvironmentVariables: normalize(
+    'SELECT name, ciphertext, iv, wrapped_dek, dek_iv, key_version, created_at, updated_at FROM environment_variables WHERE user_id = ?',
+  ),
+  updateEnvironmentVariable: normalize(`UPDATE environment_variables SET
+    ciphertext = ?, iv = ?, wrapped_dek = ?, dek_iv = ?, key_version = ?, updated_at = ?
+    WHERE user_id = ? AND name = ?
+    RETURNING created_at`),
+  insertEnvironmentVariable: normalize(`INSERT INTO environment_variables (user_id, name, ciphertext, iv, wrapped_dek, dek_iv, key_version, created_at, updated_at)
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+    WHERE (SELECT COUNT(*) FROM environment_variables WHERE user_id = ?) < ?
+    ON CONFLICT (user_id, name) DO NOTHING`),
+  deleteEnvironmentVariable: normalize('DELETE FROM environment_variables WHERE user_id = ? AND name = ?'),
+  replaceEnvironmentVariableWrappedDataEncryptionKey: normalize(
+    'UPDATE environment_variables SET wrapped_dek = ?, dek_iv = ? WHERE user_id = ? AND name = ? AND wrapped_dek = ?',
+  ),
 };
 
 function pickProviderKeyColumns(row: FakeProviderKeyRow): Record<string, unknown> {
@@ -83,7 +113,10 @@ function pickProviderKeyColumns(row: FakeProviderKeyRow): Record<string, unknown
 
 export class FakeDatabase {
   providerKeys: FakeProviderKeyRow[] = [];
+  environmentVariables: FakeEnvironmentVariableRow[] = [];
   auditLog: FakeAuditRow[] = [];
+  /** Runs right before an insert of an environment variable, to simulate a concurrent writer */
+  beforeEnvironmentVariableInsert: (() => void) | null = null;
   executedStatements: ExecutedStatement[] = [];
   brokenTables = new Set<FakeTableName>();
   private nextAuditID = 1;
@@ -189,6 +222,81 @@ export class FakeDatabase {
           .slice(0, limit)
           .map((row) => ({ provider: row.provider, action: row.action, at: row.at }));
         return { rows, changes: 0 };
+      }
+      case STATEMENTS.selectEnvironmentVariableSummaries: {
+        const [userID] = values;
+        const rows = this.environmentVariables
+          .filter((row) => row.user_id === userID)
+          .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
+          .map((row) => ({ name: row.name, created_at: row.created_at, updated_at: row.updated_at }));
+        return { rows, changes: 0 };
+      }
+      case STATEMENTS.selectEnvironmentVariables: {
+        const [userID] = values;
+        const rows = this.environmentVariables
+          .filter((row) => row.user_id === userID)
+          .map(({ user_id: _userID, ...columns }) => ({ ...columns }));
+        return { rows, changes: 0 };
+      }
+      case STATEMENTS.updateEnvironmentVariable: {
+        const [ciphertext, initializationVector, wrappedKey, keyInitializationVector, keyVersion, updatedAt, userID, name] =
+          values as [string, string, string, string, number, string, string, string];
+        const row = this.environmentVariables.find((candidate) => candidate.user_id === userID && candidate.name === name);
+        if (row === undefined) {
+          return { rows: [], changes: 0 };
+        }
+        Object.assign(row, {
+          ciphertext,
+          iv: initializationVector,
+          wrapped_dek: wrappedKey,
+          dek_iv: keyInitializationVector,
+          key_version: keyVersion,
+          updated_at: updatedAt,
+        });
+        return { rows: [{ created_at: row.created_at }], changes: 1 };
+      }
+      case STATEMENTS.insertEnvironmentVariable: {
+        this.beforeEnvironmentVariableInsert?.();
+        const [userID, name, ciphertext, initializationVector, wrappedKey, keyInitializationVector, keyVersion, createdAt, updatedAt, countedUserID, maximumCount] =
+          values as [string, string, string, string, string, string, number, string, string, string, number];
+        const count = this.environmentVariables.filter((row) => row.user_id === countedUserID).length;
+        if (count >= maximumCount) {
+          return { rows: [], changes: 0 };
+        }
+        if (this.environmentVariables.some((row) => row.user_id === userID && row.name === name)) {
+          // ON CONFLICT DO NOTHING
+          return { rows: [], changes: 0 };
+        }
+        this.environmentVariables.push({
+          user_id: userID,
+          name,
+          ciphertext,
+          iv: initializationVector,
+          wrapped_dek: wrappedKey,
+          dek_iv: keyInitializationVector,
+          key_version: keyVersion,
+          created_at: createdAt,
+          updated_at: updatedAt,
+        });
+        return { rows: [], changes: 1 };
+      }
+      case STATEMENTS.deleteEnvironmentVariable: {
+        const [userID, name] = values;
+        const before = this.environmentVariables.length;
+        this.environmentVariables = this.environmentVariables.filter((row) => !(row.user_id === userID && row.name === name));
+        return { rows: [], changes: before - this.environmentVariables.length };
+      }
+      case STATEMENTS.replaceEnvironmentVariableWrappedDataEncryptionKey: {
+        const [wrappedKey, keyInitializationVector, userID, name, previousWrappedKey] = values as string[];
+        let changes = 0;
+        for (const row of this.environmentVariables) {
+          if (row.user_id === userID && row.name === name && row.wrapped_dek === previousWrappedKey) {
+            row.wrapped_dek = wrappedKey as string;
+            row.dek_iv = keyInitializationVector as string;
+            changes += 1;
+          }
+        }
+        return { rows: [], changes };
       }
       default:
         throw new Error(`Unexpected statement: ${statement}`);

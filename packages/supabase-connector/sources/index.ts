@@ -16,6 +16,12 @@ export type {
   SchedulerStageRunProgress,
   SchedulerStageRunRow,
   SchedulerStageRunSummary,
+  CrawlerRunLogLevel,
+  CrawlerRunLogEntry,
+  CrawlerRunStatus,
+  CrawlerRunRow,
+  CrawlerFileRow,
+  CrawlerFileDeletionRow,
   UsersInsert,
   AccountsInsert,
   CrawlersInsert,
@@ -28,6 +34,8 @@ export type {
   SchedulerRunsUpdate,
   SchedulerStageRunsInsert,
   SchedulerStageRunsUpdate,
+  CrawlerRunsInsert,
+  CrawlerFilesInsert,
   SocialLoginInput,
   SocialLoginResult,
   LinkAccountResult,
@@ -202,3 +210,20 @@ export {
   listTaskGroups,
   getTaskGroup,
 } from './task-groups.ts';
+
+// Crawler run operations (direct runs)
+export {
+  createCrawlerRun,
+  getCrawlerRunForUser,
+} from './crawler-runs.ts';
+
+// Crawler file operations
+export {
+  createCrawlerFile,
+  getCrawlerFileForUser,
+  crawlerFileExists,
+  deleteCrawlerFile,
+  deleteExpiredCrawlerFiles,
+  listCrawlerFileDeletions,
+  deleteCrawlerFileDeletions,
+} from './crawler-files.ts';

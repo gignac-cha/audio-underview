@@ -209,7 +209,7 @@ export async function listSchedulerStageRunsByRun(
   );
 }
 
-// Every column except input and output, which can be large
+// Every column except input, output and logs, which can be large
 const STAGE_RUN_SUMMARY_COLUMNS = [
   'id',
   'run_id',
@@ -225,11 +225,12 @@ const STAGE_RUN_SUMMARY_COLUMNS = [
   'task_group_id',
   'task_group_version',
   'progress',
+  'logs_truncated',
   'created_at',
 ].join(',');
 
 /**
- * Lists the stage runs of a run without their input and output, by stage order.
+ * Lists the stage runs of a run without their input, output and logs, by stage order.
  */
 export async function listSchedulerStageRunSummaries(
   client: SupabaseClientType,

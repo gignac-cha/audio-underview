@@ -1,4 +1,4 @@
-import { createWorkerLogger, type Logger } from '@audio-underview/logger';
+import { createWorkerLogger } from '@audio-underview/logger';
 import { describeError, extractAuditFingerprint, recordAuditEvent, type AuditAction } from './audit.ts';
 import { decodeBase64, openProviderKey, rewrapDataEncryptionKey, sealProviderKey } from './envelope.ts';
 import {
@@ -10,13 +10,27 @@ import {
   type Environment,
 } from './environment.ts';
 import {
+  handleEnvironmentVariableDelete,
+  handleEnvironmentVariableList,
+  handleEnvironmentVariablePut,
+  handleEnvironmentVariableResolve,
+  rewrapEnvironmentVariables,
+} from './environment-variables.ts';
+import {
   PROVIDER_NAMES,
   buildProviderHeaders,
   buildProviderURL,
   isProviderName,
   type ProviderName,
 } from './providers.ts';
-import { createUserVaultStorage, type UserVaultStorage } from './storage.ts';
+import {
+  jsonResponse,
+  requireKeyEncryptionKey,
+  type RequestBody,
+  type RouteContext,
+  type RouteHandler,
+} from './route.ts';
+import { createUserVaultStorage } from './storage.ts';
 import { isWellFormedProviderKey, validateProviderKey } from './validation.ts';
 
 export type { Environment } from './environment.ts';
@@ -37,26 +51,6 @@ const logger = createWorkerLogger({
     module: 'user-vault-worker',
   },
 });
-
-type RequestBody = Record<string, unknown>;
-
-interface RouteContext {
-  environment: Environment;
-  body: RequestBody;
-  userID: string;
-  storage: UserVaultStorage;
-  keyEncryptionKeySecrets: string[];
-  logger: Logger;
-}
-
-type RouteHandler = (context: RouteContext) => Promise<Response>;
-
-function jsonResponse(status: number, payload: unknown): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  });
-}
 
 /**
  * Replaces every occurrence of the plaintext key, for text that came back from a provider.
@@ -228,7 +222,17 @@ const handleRewrap: RouteHandler = async (context) => {
     }
   }
   context.logger.info('Provider keys rewrapped', { rewrapped, unrecoverable }, { function: 'handleRewrap' });
-  return jsonResponse(200, { rewrapped, unrecoverable });
+
+  // Environment variables are sealed with the same key encryption key, so they move with the provider keys
+  const environmentVariables = await rewrapEnvironmentVariables(context);
+  context.logger.info('Environment variables rewrapped', environmentVariables, { function: 'handleRewrap' });
+
+  return jsonResponse(200, {
+    rewrapped,
+    unrecoverable,
+    environment_variables_rewrapped: environmentVariables.rewrapped,
+    environment_variables_unrecoverable: environmentVariables.unrecoverable,
+  });
 };
 
 function proxyError(status: number, error: string): Response {
@@ -343,13 +347,26 @@ const handleProxy: RouteHandler = async (context) => {
   });
 };
 
+/**
+ * A key route checks the key encryption key before anything else in its body, as it always did.
+ */
+function requiringKeyEncryptionKey(handler: RouteHandler): RouteHandler {
+  return async (context) => requireKeyEncryptionKey(context) ?? handler(context);
+}
+
+// Environment variable routes check the key encryption key themselves, only where they handle a value:
+// a user without environment variables runs crawlers even before the vault secrets are configured.
 const ROUTES: Readonly<Record<string, RouteHandler>> = {
-  '/internal/keys/put': handlePut,
-  '/internal/keys/delete': handleDelete,
-  '/internal/keys/status': handleStatus,
-  '/internal/keys/audit': handleAudit,
-  '/internal/keys/rewrap': handleRewrap,
-  '/internal/proxy': handleProxy,
+  '/internal/keys/put': requiringKeyEncryptionKey(handlePut),
+  '/internal/keys/delete': requiringKeyEncryptionKey(handleDelete),
+  '/internal/keys/status': requiringKeyEncryptionKey(handleStatus),
+  '/internal/keys/audit': requiringKeyEncryptionKey(handleAudit),
+  '/internal/keys/rewrap': requiringKeyEncryptionKey(handleRewrap),
+  '/internal/proxy': requiringKeyEncryptionKey(handleProxy),
+  '/internal/environment-variables/list': handleEnvironmentVariableList,
+  '/internal/environment-variables/put': handleEnvironmentVariablePut,
+  '/internal/environment-variables/delete': handleEnvironmentVariableDelete,
+  '/internal/environment-variables/resolve': handleEnvironmentVariableResolve,
 };
 
 async function handleRequest(request: Request, environment: Environment): Promise<Response> {
@@ -386,18 +403,13 @@ async function handleRequest(request: Request, environment: Environment): Promis
     return jsonResponse(400, { error: 'invalid_request' });
   }
 
-  const keyEncryptionKeySecrets = readKeyEncryptionKeySecrets(environment);
-  if (keyEncryptionKeySecrets.length === 0) {
-    logger.error('Key encryption key is not configured', undefined, { function: 'handleRequest' });
-    return jsonResponse(503, { error: 'vault_unavailable' });
-  }
-
+  // Each route checks the key encryption key where it needs one
   return route({
     environment,
     body,
     userID,
     storage: createUserVaultStorage(environment.DB, userID),
-    keyEncryptionKeySecrets,
+    keyEncryptionKeySecrets: readKeyEncryptionKeySecrets(environment),
     logger,
   });
 }

@@ -1,16 +1,21 @@
 import {
-  type CrawlerExecuteResult,
-  validateCrawlerExecuteResult,
+  type CrawlerRunContext,
+  type CrawlerRunOutcome,
+  validateCrawlerRunOutcome,
 } from '@audio-underview/worker-tools';
 
-export type { CrawlerExecuteResult };
+export type { CrawlerRunContext, CrawlerRunOutcome };
 
 interface CrawlerManagerRPC {
-  executeCrawler(crawlerID: string, input: unknown): Promise<unknown>;
+  runCrawler(crawlerID: string, input: unknown, context: CrawlerRunContext): Promise<unknown>;
 }
 
 export interface CrawlerExecutionClient {
-  execute(crawlerID: string, input: unknown): Promise<CrawlerExecuteResult>;
+  /**
+   * Runs a crawler for a user. A failure of the crawler code is a failed outcome with its logs;
+   * the call throws when the crawler manager cannot run the crawler at all.
+   */
+  run(crawlerID: string, input: unknown, context: CrawlerRunContext): Promise<CrawlerRunOutcome>;
 }
 
 export class ServiceBindingCrawlerExecutionClient implements CrawlerExecutionClient {
@@ -20,8 +25,8 @@ export class ServiceBindingCrawlerExecutionClient implements CrawlerExecutionCli
     this.binding = binding;
   }
 
-  async execute(crawlerID: string, input: unknown): Promise<CrawlerExecuteResult> {
-    const raw = await (this.binding as unknown as CrawlerManagerRPC).executeCrawler(crawlerID, input);
-    return validateCrawlerExecuteResult(raw);
+  async run(crawlerID: string, input: unknown, context: CrawlerRunContext): Promise<CrawlerRunOutcome> {
+    const raw = await (this.binding as unknown as CrawlerManagerRPC).runCrawler(crawlerID, input, context);
+    return validateCrawlerRunOutcome(raw);
   }
 }

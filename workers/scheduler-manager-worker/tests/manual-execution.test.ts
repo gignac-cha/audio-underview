@@ -76,7 +76,7 @@ function createMockLogger(): Logger {
 
 function createEnvironment(options: { createError?: Error } = {}) {
   const crawlerManager = {
-    executeCrawler: vi.fn(async () => ({ type: 'data', result: { title: 'Example' } })),
+    runCrawler: vi.fn(async () => ({ status: 'completed', type: 'data', result: { title: 'Example' }, logs: [], logs_truncated: false })),
   };
   const workflow = {
     create: vi.fn(async (instance: { id: string }) => {
@@ -151,7 +151,7 @@ describe('handleExecuteScheduler', () => {
       completed_at: expect.any(String),
     });
     expect(run).toMatchObject({ status: 'completed', result: { title: 'Example' } });
-    expect(crawlerManager.executeCrawler).toHaveBeenCalledWith(CRAWLER_ID, { url: 'https://example.com' });
+    expect(crawlerManager.runCrawler).toHaveBeenCalledWith(CRAWLER_ID, { url: 'https://example.com' }, { userUUID: USER_UUID, runID: run.id });
     expect(supabase.requestsOf('GET', 'scheduler_stages')).toHaveLength(1);
     expect(workflow.create).not.toHaveBeenCalled();
   });
@@ -180,7 +180,7 @@ describe('handleExecuteScheduler', () => {
     });
     // Read by the handler, then again by executeScheduler
     expect(supabase.requestsOf('GET', 'scheduler_stages')).toHaveLength(2);
-    expect(crawlerManager.executeCrawler).not.toHaveBeenCalled();
+    expect(crawlerManager.runCrawler).not.toHaveBeenCalled();
     expect(workflow.create).not.toHaveBeenCalled();
   });
 
@@ -207,7 +207,7 @@ describe('handleExecuteScheduler', () => {
       params: { schedulerID: SCHEDULER_ID, runID: run.id },
     });
     // No stage runs inside the request
-    expect(crawlerManager.executeCrawler).not.toHaveBeenCalled();
+    expect(crawlerManager.runCrawler).not.toHaveBeenCalled();
     expect(supabase.tables.scheduler_stage_runs ?? []).toEqual([]);
     expect(run).toMatchObject({ status: 'pending', started_at: null });
     expect(supabase.requestsOf('PATCH', 'scheduler_runs')).toHaveLength(0);
@@ -251,7 +251,7 @@ describe('handleExecuteScheduler', () => {
     });
     // Read by the handler, which failed, then again by executeScheduler, which ran them
     expect(supabase.requestsOf('GET', 'scheduler_stages')).toHaveLength(2);
-    expect(crawlerManager.executeCrawler).toHaveBeenCalledTimes(1);
+    expect(crawlerManager.runCrawler).toHaveBeenCalledTimes(1);
     expect(workflow.create).not.toHaveBeenCalled();
   });
 

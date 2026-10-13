@@ -6,11 +6,31 @@ export type {
   OAuthWorkerHandlers,
   OAuthWorkerOptions,
   CrawlerExecuteResult,
+  CrawlerLogLevel,
+  CrawlerLogEntry,
+  CrawlerRunContext,
+  CrawlerRunOutcome,
 } from './types.ts';
 
 export {
   validateCrawlerExecuteResult,
+  validateCrawlerRunOutcome,
+  CRAWLER_LOG_MAXIMUM_COST,
+  CRAWLER_LOG_MAXIMUM_ENTRIES,
+  CRAWLER_LOG_ENTRY_OVERHEAD,
 } from './types.ts';
+
+export type {
+  CrawlerLogLimitOptions,
+} from './crawler-logs.ts';
+
+export {
+  limitCrawlerLogs,
+} from './crawler-logs.ts';
+
+export {
+  resolveDefaultInput,
+} from './default-input.ts';
 
 export {
   createCORSHeaders,

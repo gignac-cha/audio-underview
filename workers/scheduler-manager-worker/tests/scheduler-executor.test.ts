@@ -128,13 +128,13 @@ function mockUpdateSchedulerRunError() {
 
 function createMockCrawlerExecutionClient(
   results: unknown[] = [],
-): CrawlerExecutionClient & { execute: ReturnType<typeof vi.fn> } {
+): CrawlerExecutionClient & { run: ReturnType<typeof vi.fn> } {
   let callIndex = 0;
   return {
-    execute: vi.fn().mockImplementation(async () => {
+    run: vi.fn().mockImplementation(async () => {
       const result = results[callIndex] ?? { extracted: 'data' };
       callIndex++;
-      return { type: 'data' as const, result };
+      return { status: 'completed' as const, type: 'data' as const, result, logs: [], logs_truncated: false };
     }),
   };
 }
@@ -161,7 +161,7 @@ function createDependencies(crawlerResults: unknown[] = []): {
     supabaseSecretKey: env.SUPABASE_SECRET_KEY,
   });
   return {
-    dependencies: { supabaseClient, crawlerExecutionClient, logger },
+    dependencies: { supabaseClient, crawlerExecutionClient, logger, userUUID: USER_UUID },
     crawlerExecutionClient,
     logger,
   };
@@ -191,7 +191,7 @@ describe('executeScheduler', () => {
 
     await executeScheduler(dependencies, SCHEDULER_ID, USER_UUID, RUN_ID);
 
-    expect(dependencies.crawlerExecutionClient.execute).not.toHaveBeenCalled();
+    expect(dependencies.crawlerExecutionClient.run).not.toHaveBeenCalled();
   });
 
   it('executes a single stage and marks run completed with output', async () => {
@@ -206,7 +206,7 @@ describe('executeScheduler', () => {
     // 3. executeStage internals:
     //    a. createSchedulerStageRun
     mockCreateStageRun();
-    //    b. crawlerExecutionClient.execute → via mock
+    //    b. crawlerExecutionClient.run → via mock
     //    c. updateSchedulerStageRun
     mockUpdateStageRun({ status: 'completed', output: { title: 'Test Page' } });
     // 4. updateSchedulerRun → status: 'completed'
@@ -216,10 +216,10 @@ describe('executeScheduler', () => {
 
     await executeScheduler(dependencies, SCHEDULER_ID, USER_UUID, RUN_ID);
 
-    expect(crawlerExecutionClient.execute).toHaveBeenCalledTimes(1);
-    expect(crawlerExecutionClient.execute).toHaveBeenCalledWith(CRAWLER_ID, {
+    expect(crawlerExecutionClient.run).toHaveBeenCalledTimes(1);
+    expect(crawlerExecutionClient.run).toHaveBeenCalledWith(CRAWLER_ID, {
       url: 'https://example.com',
-    });
+    }, { userUUID: USER_UUID, runID: RUN_ID });
   });
 
   it('chains multi-stage output: stage N output becomes stage N+1 input', async () => {
@@ -257,15 +257,15 @@ describe('executeScheduler', () => {
 
     await executeScheduler(dependencies, SCHEDULER_ID, USER_UUID, RUN_ID);
 
-    expect(crawlerExecutionClient.execute).toHaveBeenCalledTimes(2);
+    expect(crawlerExecutionClient.run).toHaveBeenCalledTimes(2);
     // Stage 1 gets default input from input_schema
-    expect(crawlerExecutionClient.execute).toHaveBeenNthCalledWith(1, CRAWLER_ID, {
+    expect(crawlerExecutionClient.run).toHaveBeenNthCalledWith(1, CRAWLER_ID, {
       url: 'https://example.com',
-    });
+    }, { userUUID: USER_UUID, runID: RUN_ID });
     // Stage 2 gets output of stage 1 as input
-    expect(crawlerExecutionClient.execute).toHaveBeenNthCalledWith(2, CRAWLER_ID_2, {
+    expect(crawlerExecutionClient.run).toHaveBeenNthCalledWith(2, CRAWLER_ID_2, {
       urls: ['https://a.com', 'https://b.com'],
-    });
+    }, { userUUID: USER_UUID, runID: RUN_ID });
   });
 
   it('handles fan-out stage: validates fan_out_field exists and is array', async () => {
@@ -291,7 +291,7 @@ describe('executeScheduler', () => {
     mockUpdateStageRun({ status: 'completed' });
     // 4. stage2 (fan-out): createStageRun for the fan-out stage
     mockCreateStageRun({ id: STAGE_RUN_ID_2, stage_id: STAGE_ID_2, stage_order: 1 });
-    // 5. executeFanOut calls crawlerExecutionClient.execute for each item
+    // 5. executeFanOut calls crawlerExecutionClient.run for each item
     //    (2 items from links array → 2 crawler calls, producing results for items 2 and 3)
     // 6. updateStageRun for the fan-out stage
     mockUpdateStageRun({ id: STAGE_RUN_ID_2, status: 'completed' });
@@ -303,9 +303,9 @@ describe('executeScheduler', () => {
     await executeScheduler(dependencies, SCHEDULER_ID, USER_UUID, RUN_ID);
 
     // Stage 1 + 2 fan-out items = 3 total crawler calls
-    expect(crawlerExecutionClient.execute).toHaveBeenCalledTimes(3);
-    expect(crawlerExecutionClient.execute).toHaveBeenNthCalledWith(2, CRAWLER_ID_2, 'https://a.com');
-    expect(crawlerExecutionClient.execute).toHaveBeenNthCalledWith(3, CRAWLER_ID_2, 'https://b.com');
+    expect(crawlerExecutionClient.run).toHaveBeenCalledTimes(3);
+    expect(crawlerExecutionClient.run).toHaveBeenNthCalledWith(2, CRAWLER_ID_2, 'https://a.com', { userUUID: USER_UUID, runID: RUN_ID });
+    expect(crawlerExecutionClient.run).toHaveBeenNthCalledWith(3, CRAWLER_ID_2, 'https://b.com', { userUUID: USER_UUID, runID: RUN_ID });
   });
 
   it('completes fan-out with empty array: output is []', async () => {
@@ -340,15 +340,15 @@ describe('executeScheduler', () => {
     await executeScheduler(dependencies, SCHEDULER_ID, USER_UUID, RUN_ID);
 
     // Only stage 1 executes via crawler; fan-out stage has empty array
-    expect(crawlerExecutionClient.execute).toHaveBeenCalledTimes(1);
+    expect(crawlerExecutionClient.run).toHaveBeenCalledTimes(1);
   });
 
   it('fails run when all fan-out items fail', async () => {
     const { dependencies, crawlerExecutionClient, logger } = createDependencies();
 
-    crawlerExecutionClient.execute
+    crawlerExecutionClient.run
       .mockReset()
-      .mockImplementationOnce(async () => ({ type: 'data' as const, result: { data: 'stage1' } }))
+      .mockImplementationOnce(async () => ({ status: 'completed' as const, type: 'data' as const, result: { data: 'stage1' }, logs: [], logs_truncated: false }))
       .mockImplementationOnce(async () => { throw new Error('fan-out item 1 failed'); })
       .mockImplementationOnce(async () => { throw new Error('fan-out item 2 failed'); });
 
@@ -389,10 +389,10 @@ describe('executeScheduler', () => {
   it('sets run status to partially_failed when some fan-out items fail', async () => {
     const { dependencies, crawlerExecutionClient } = createDependencies();
 
-    crawlerExecutionClient.execute
+    crawlerExecutionClient.run
       .mockReset()
-      .mockImplementationOnce(async () => ({ type: 'data' as const, result: { items: ['a', 'b'] } }))
-      .mockImplementationOnce(async () => ({ type: 'data' as const, result: 'ok-a' }))
+      .mockImplementationOnce(async () => ({ status: 'completed' as const, type: 'data' as const, result: { items: ['a', 'b'] }, logs: [], logs_truncated: false }))
+      .mockImplementationOnce(async () => ({ status: 'completed' as const, type: 'data' as const, result: 'ok-a', logs: [], logs_truncated: false }))
       .mockImplementationOnce(async () => { throw new Error('item b failed'); });
 
     const stage1 = mockStage({ stage_order: 0 });
@@ -422,13 +422,13 @@ describe('executeScheduler', () => {
 
     await executeScheduler(dependencies, SCHEDULER_ID, USER_UUID, RUN_ID);
 
-    expect(crawlerExecutionClient.execute).toHaveBeenCalledTimes(3);
+    expect(crawlerExecutionClient.run).toHaveBeenCalledTimes(3);
   });
 
   it('marks run as failed when a stage throws an error', async () => {
     const { dependencies, crawlerExecutionClient, logger } = createDependencies();
 
-    crawlerExecutionClient.execute
+    crawlerExecutionClient.run
       .mockReset()
       .mockRejectedValueOnce(new Error('Crawler connection timeout'));
 
@@ -460,7 +460,7 @@ describe('executeScheduler', () => {
   it('always updates scheduler.last_run_at in finally block', async () => {
     const { dependencies, crawlerExecutionClient } = createDependencies();
 
-    crawlerExecutionClient.execute
+    crawlerExecutionClient.run
       .mockReset()
       .mockRejectedValueOnce(new Error('Some error'));
 
@@ -494,7 +494,7 @@ describe('executeScheduler', () => {
   it('logs error but does not throw when run status update fails in catch block', async () => {
     const { dependencies, crawlerExecutionClient, logger } = createDependencies();
 
-    crawlerExecutionClient.execute
+    crawlerExecutionClient.run
       .mockReset()
       .mockRejectedValueOnce(new Error('Crawler failed'));
 

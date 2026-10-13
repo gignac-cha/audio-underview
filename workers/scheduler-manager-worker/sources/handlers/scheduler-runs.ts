@@ -6,6 +6,7 @@ import {
 import {
   createSupabaseClient,
   getSchedulerRun,
+  getSchedulerStageRun,
   listSchedulerRuns,
   listSchedulerStageRunSummaries,
 } from '@audio-underview/supabase-connector';
@@ -77,8 +78,41 @@ export async function handleGetRun(
     return errorResponse('not_found', 'Run not found', 404, context);
   }
 
-  // Without their input and output, which can be large; a task group's progress is in each one
+  // Without their input, output and logs, which can be large; a task group's progress is in each one
   const stageRuns = await listSchedulerStageRunSummaries(supabaseClient, runID);
 
   return jsonResponse({ ...run, stage_runs: stageRuns }, 200, context);
+}
+
+/**
+ * One stage run in full: its input, output and logs included.
+ */
+export async function handleGetStageRun(
+  environment: Environment,
+  context: ResponseContext,
+  schedulerID: string,
+  runID: string,
+  stageRunID: string,
+  userUUID: string,
+): Promise<Response> {
+  const supabaseClient = createSupabaseClient({
+    supabaseURL: environment.SUPABASE_URL,
+    supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+  });
+
+  const ownershipError = await verifySchedulerOwnership(supabaseClient, schedulerID, userUUID, context);
+  if (ownershipError) return ownershipError;
+
+  // The run must be one of this scheduler, so a stage run is read only through its own scheduler
+  const run = await getSchedulerRun(supabaseClient, runID, schedulerID);
+  if (!run) {
+    return errorResponse('not_found', 'Run not found', 404, context);
+  }
+
+  const stageRun = await getSchedulerStageRun(supabaseClient, stageRunID, runID);
+  if (!stageRun) {
+    return errorResponse('not_found', 'Stage run not found', 404, context);
+  }
+
+  return jsonResponse(stageRun, 200, context);
 }

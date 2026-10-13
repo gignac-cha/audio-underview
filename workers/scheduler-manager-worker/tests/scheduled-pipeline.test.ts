@@ -352,24 +352,28 @@ function stepResult(step: { steps: RecordedStep[] }, name: string): unknown {
 
 // --- Dependencies ---
 
-function createCrawlerExecutionClient(): CrawlerExecutionClient & { execute: ReturnType<typeof vi.fn>; steps: (string | null)[] } {
+function completedOutcome(result: unknown) {
+  return { status: 'completed' as const, type: 'data' as const, result, logs: [], logs_truncated: false };
+}
+
+function createCrawlerExecutionClient(): CrawlerExecutionClient & { run: ReturnType<typeof vi.fn>; steps: (string | null)[] } {
   const steps: (string | null)[] = [];
-  const execute = vi.fn();
+  const run = vi.fn();
   return {
     steps,
-    execute: execute.mockImplementation(async () => {
+    run: run.mockImplementation(async () => {
       steps.push(activeStep);
-      return { type: 'data' as const, result: { extracted: 'data' } };
+      return completedOutcome({ extracted: 'data' });
     }),
   };
 }
 
 function respondWith(crawlerExecutionClient: ReturnType<typeof createCrawlerExecutionClient>, ...results: (unknown | Error)[]) {
   for (const result of results) {
-    crawlerExecutionClient.execute.mockImplementationOnce(async () => {
+    crawlerExecutionClient.run.mockImplementationOnce(async () => {
       crawlerExecutionClient.steps.push(activeStep);
       if (result instanceof Error) throw result;
-      return { type: 'data' as const, result };
+      return completedOutcome(result);
     });
   }
 }
@@ -470,7 +474,7 @@ describe('runScheduledPipeline', () => {
       expect(stepNames(step)).toEqual(['begin-run']);
       expect(requestsOf('POST', 'scheduler_runs')).toHaveLength(0);
       expect(database.scheduler_runs).toHaveLength(0);
-      expect(crawlerExecutionClient.execute).not.toHaveBeenCalled();
+      expect(crawlerExecutionClient.run).not.toHaveBeenCalled();
     });
 
     it('records a skipped run and runs no stage while a previous run is in progress', async () => {
@@ -484,7 +488,7 @@ describe('runScheduledPipeline', () => {
 
       expect(result).toEqual({ outcome: 'skipped' });
       expect(stepNames(step)).toEqual(['begin-run']);
-      expect(crawlerExecutionClient.execute).not.toHaveBeenCalled();
+      expect(crawlerExecutionClient.run).not.toHaveBeenCalled();
 
       const inserts = requestsOf('POST', 'scheduler_runs');
       expect(inserts).toHaveLength(2);
@@ -550,7 +554,7 @@ describe('runScheduledPipeline', () => {
       expect(stepNames(step)).toEqual(['begin-run']);
       expect(requestsOf('POST', 'scheduler_runs')).toHaveLength(0);
       expect(requestsOf('PATCH', 'scheduler_runs')).toHaveLength(0);
-      expect(crawlerExecutionClient.execute).not.toHaveBeenCalled();
+      expect(crawlerExecutionClient.run).not.toHaveBeenCalled();
     });
 
     it('picks up the run another attempt created between the check and the insert', async () => {
@@ -581,7 +585,7 @@ describe('runScheduledPipeline', () => {
         'Failed to create scheduler run: connection reset',
       );
       expect(stepNames(step)).toEqual(['begin-run']);
-      expect(crawlerExecutionClient.execute).not.toHaveBeenCalled();
+      expect(crawlerExecutionClient.run).not.toHaveBeenCalled();
     });
   });
 
@@ -597,9 +601,9 @@ describe('runScheduledPipeline', () => {
       expect(stepNames(step)).toEqual(['begin-run', 'load-stages', 'stage-0', 'stage-1', 'finish-run']);
 
       // The first stage gets the default input; the second gets the first stage run's output
-      expect(crawlerExecutionClient.execute).toHaveBeenCalledTimes(2);
-      expect(crawlerExecutionClient.execute).toHaveBeenNthCalledWith(1, CRAWLER_ID, { url: 'https://example.com' });
-      expect(crawlerExecutionClient.execute).toHaveBeenNthCalledWith(2, CRAWLER_ID_2, { urls: ['https://a.com', 'https://b.com'] });
+      expect(crawlerExecutionClient.run).toHaveBeenCalledTimes(2);
+      expect(crawlerExecutionClient.run).toHaveBeenNthCalledWith(1, CRAWLER_ID, { url: 'https://example.com' }, { userUUID: USER_UUID, runID: database.scheduler_runs[0].id });
+      expect(crawlerExecutionClient.run).toHaveBeenNthCalledWith(2, CRAWLER_ID_2, { urls: ['https://a.com', 'https://b.com'] }, { userUUID: USER_UUID, runID: database.scheduler_runs[0].id });
 
       const run = database.scheduler_runs[0];
       expect(result).toEqual({ outcome: 'started', runID: run.id, status: 'completed' });
@@ -654,7 +658,7 @@ describe('runScheduledPipeline', () => {
 
       expect(stepNames(step)).toEqual(['begin-run', 'load-stages', 'stage-0', 'finish-run']);
       expect(stepResult(step, 'stage-0')).toEqual({ status: 'failed', error: 'crawler exploded' });
-      expect(crawlerExecutionClient.execute).toHaveBeenCalledTimes(1);
+      expect(crawlerExecutionClient.run).toHaveBeenCalledTimes(1);
 
       const run = database.scheduler_runs[0];
       expect(result).toEqual({ outcome: 'started', runID: run.id, status: 'failed' });
@@ -677,8 +681,8 @@ describe('runScheduledPipeline', () => {
       const result = await runScheduledPipeline(dependencies, parameters, step);
 
       expect(stepNames(step)).toEqual(['begin-run', 'load-stages', 'stage-0', 'stage-1', 'finish-run']);
-      expect(crawlerExecutionClient.execute).toHaveBeenNthCalledWith(2, CRAWLER_ID_2, 'a');
-      expect(crawlerExecutionClient.execute).toHaveBeenNthCalledWith(3, CRAWLER_ID_2, 'b');
+      expect(crawlerExecutionClient.run).toHaveBeenNthCalledWith(2, CRAWLER_ID_2, 'a', { userUUID: USER_UUID, runID: database.scheduler_runs[0].id });
+      expect(crawlerExecutionClient.run).toHaveBeenNthCalledWith(3, CRAWLER_ID_2, 'b', { userUUID: USER_UUID, runID: database.scheduler_runs[0].id });
       expect(stepResult(step, 'stage-1')).toEqual({ status: 'partially_failed', stageRunID: expect.any(String) });
 
       const run = database.scheduler_runs[0];
@@ -693,7 +697,7 @@ describe('runScheduledPipeline', () => {
       const result = await runScheduledPipeline(dependencies, parameters, step);
 
       expect(stepNames(step)).toEqual(['begin-run', 'load-stages', 'finish-run']);
-      expect(crawlerExecutionClient.execute).not.toHaveBeenCalled();
+      expect(crawlerExecutionClient.run).not.toHaveBeenCalled();
 
       const run = database.scheduler_runs[0];
       expect(result).toEqual({ outcome: 'started', runID: run.id, status: 'completed' });
@@ -714,7 +718,7 @@ describe('runScheduledPipeline', () => {
       const result = await runScheduledPipeline(dependencies, parameters, step);
 
       expect(stepNames(step)).toEqual(['begin-run', 'load-stages', 'stage-0', 'finish-run']);
-      expect(crawlerExecutionClient.execute).not.toHaveBeenCalled();
+      expect(crawlerExecutionClient.run).not.toHaveBeenCalled();
 
       const run = database.scheduler_runs[0];
       expect(result).toEqual({ outcome: 'started', runID: run.id, status: 'failed' });
@@ -737,7 +741,7 @@ describe('runScheduledPipeline', () => {
       const result = await runScheduledPipeline(dependencies, parameters, step);
 
       expect(stepResult(step, 'stage-1')).toEqual({ status: 'failed', error: 'Stage 1: previous stage output not found' });
-      expect(crawlerExecutionClient.execute).toHaveBeenCalledTimes(1);
+      expect(crawlerExecutionClient.run).toHaveBeenCalledTimes(1);
       expect(result).toMatchObject({ outcome: 'started', status: 'failed' });
       expect(database.scheduler_runs[0]).toMatchObject({ status: 'failed', error: 'Stage 1: previous stage output not found' });
     });
@@ -941,7 +945,7 @@ describe('runScheduledPipeline with task group stages', () => {
     });
 
     // The next stage gets the output the group reported
-    expect(crawlerExecutionClient.execute).toHaveBeenNthCalledWith(2, CRAWLER_ID_2, { episode: 'group-output' });
+    expect(crawlerExecutionClient.run).toHaveBeenNthCalledWith(2, CRAWLER_ID_2, { episode: 'group-output' }, { userUUID: USER_UUID, runID: database.scheduler_runs[0].id });
     expect(workflow.events).toEqual([{
       instanceID: SCHEDULED_RUN_INSTANCE_ID,
       type: `task-group-finished-${groupStageRun.id}`,
@@ -1019,7 +1023,7 @@ describe('runScheduledPipeline with task group stages', () => {
     expect(stepResult(step, 'stage-1')).toEqual({ status: 'failed', error });
     expect(worker.startTaskGroupRun).not.toHaveBeenCalled();
     expect(onWaitForEvent).not.toHaveBeenCalled();
-    expect(crawlerExecutionClient.execute).toHaveBeenCalledTimes(1);
+    expect(crawlerExecutionClient.run).toHaveBeenCalledTimes(1);
 
     expect(findStageRun(TASK_GROUP_STAGE_ID)).toMatchObject({
       status: 'failed',
@@ -1180,7 +1184,7 @@ describe('runScheduledPipeline with task group stages', () => {
 
     const error = 'Stage 0: task group failed: voice model unavailable';
     expect(stepResult(step, 'stage-0-result')).toEqual({ status: 'failed', error });
-    expect(crawlerExecutionClient.execute).not.toHaveBeenCalled();
+    expect(crawlerExecutionClient.run).not.toHaveBeenCalled();
     expect(result).toMatchObject({ outcome: 'started', status: 'failed' });
     expect(database.scheduler_runs[0]).toMatchObject({ status: 'failed', error });
   });
@@ -1230,7 +1234,7 @@ describe('runScheduledPipeline with task group stages', () => {
     const result = await runScheduledPipeline(dependencies, parameters, step);
 
     expect(stepResult(step, 'stage-0-result')).toEqual({ status: 'completed', stageRunID: expect.any(String) });
-    expect(crawlerExecutionClient.execute).toHaveBeenCalledWith(CRAWLER_ID_2, { episode: 'late' });
+    expect(crawlerExecutionClient.run).toHaveBeenCalledWith(CRAWLER_ID_2, { episode: 'late' }, { userUUID: USER_UUID, runID: database.scheduler_runs[0].id });
     expect(result).toMatchObject({ outcome: 'started', status: 'completed' });
     expect(database.scheduler_runs[0]).toMatchObject({ status: 'completed', result: { published: true } });
   });
@@ -1291,8 +1295,8 @@ describe('runScheduledPipeline with task group stages', () => {
     });
 
     // The next stage gets the output that arrived in between
-    expect(crawlerExecutionClient.execute).toHaveBeenCalledTimes(1);
-    expect(crawlerExecutionClient.execute).toHaveBeenCalledWith(CRAWLER_ID_2, { episode: 'reported in between' });
+    expect(crawlerExecutionClient.run).toHaveBeenCalledTimes(1);
+    expect(crawlerExecutionClient.run).toHaveBeenCalledWith(CRAWLER_ID_2, { episode: 'reported in between' }, { userUUID: USER_UUID, runID: database.scheduler_runs[0].id });
     expect(result).toMatchObject({ outcome: 'started', status: 'completed' });
     expect(database.scheduler_runs[0]).toMatchObject({ status: 'completed', result: { published: true }, error: null });
   });
@@ -1393,7 +1397,7 @@ describe('runScheduledPipeline with task group stages', () => {
     expect(stepResult(step, 'stage-1')).toEqual({ status: 'failed', error });
     expect(worker.startTaskGroupRun).not.toHaveBeenCalled();
     expect(onWaitForEvent).not.toHaveBeenCalled();
-    expect(crawlerExecutionClient.execute).toHaveBeenCalledTimes(1);
+    expect(crawlerExecutionClient.run).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ outcome: 'started', status: 'failed' });
     expect(database.scheduler_runs[0]).toMatchObject({ status: 'failed', error });
   });
@@ -1473,7 +1477,7 @@ describe('runScheduledPipeline with task group stages', () => {
       expect(stepResult(step, 'stage-0-result')).toEqual({ status: 'failed', error });
       expect(worker.startTaskGroupRun).not.toHaveBeenCalled();
       expect(onWaitForEvent).not.toHaveBeenCalled();
-      expect(crawlerExecutionClient.execute).not.toHaveBeenCalled();
+      expect(crawlerExecutionClient.run).not.toHaveBeenCalled();
       // The stage run stays as it ended
       expect(database.scheduler_stage_runs).toEqual([stageRunRow(failedStageRunOverrides)]);
       expect(result).toEqual({ outcome: 'started', runID: EXISTING_RUN_ID, status: 'failed' });
@@ -1568,7 +1572,7 @@ describe('runScheduledPipeline with task group stages', () => {
       const result = await runScheduledPipeline(dependencies, manualParameters, createFakeStep());
 
       expect(result).toEqual({ outcome: 'started', runID: EXISTING_RUN_ID, status: 'completed' });
-      expect(crawlerExecutionClient.execute).toHaveBeenCalledTimes(1);
+      expect(crawlerExecutionClient.run).toHaveBeenCalledTimes(1);
     });
 
     it('continues a run a previous attempt already started', async () => {
@@ -1599,7 +1603,7 @@ describe('runScheduledPipeline with task group stages', () => {
       expect(result).toEqual(expected);
       expect(stepNames(step)).toEqual(['begin-run']);
       expect(requestsOf('PATCH', 'scheduler_runs')).toHaveLength(0);
-      expect(crawlerExecutionClient.execute).not.toHaveBeenCalled();
+      expect(crawlerExecutionClient.run).not.toHaveBeenCalled();
     });
   });
 });
