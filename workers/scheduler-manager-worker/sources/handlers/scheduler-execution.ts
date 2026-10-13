@@ -24,7 +24,11 @@ export function resolveHTTPStatus(status: string, error: string | null | undefin
 
   if (error.includes('timed out')) return 408;
   if (error.includes('Invalid input_schema') || error.includes('fan_out_field')) return 422;
-  if (error.includes('CodeRunner error') || error.includes('Invalid CrawlerExecuteResult')) return 502;
+  if (
+    error.includes('CodeRunner error') ||
+    error.includes('Invalid CrawlerExecuteResult') ||
+    error.includes('Invalid CrawlerRunOutcome')
+  ) return 502;
   if (error.includes('Supabase') || error.includes('database')) return 503;
 
   return 500;
@@ -122,7 +126,8 @@ export async function handleExecuteScheduler(
   try {
     await Promise.race([
       executeScheduler(
-        { supabaseClient, crawlerExecutionClient, logger },
+        // Crawlers run for the requesting user, whom verifySchedulerOwnership confirmed as the owner
+        { supabaseClient, crawlerExecutionClient, logger, userUUID },
         schedulerID,
         userUUID,
         run.id,

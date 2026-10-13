@@ -858,19 +858,20 @@ describe('crawler-manager-worker', () => {
           return { statusCode: 200, data: JSON.stringify([crawler]) };
         });
 
+      // The Lambda only fetches the page and returns its body; the code runs in a Dynamic Worker (LOADER)
       let codeRunnerBody: unknown;
       fetchMock
         .get('https://code-runner.example.com')
         .intercept({ path: '/run', method: 'POST' })
         .reply((options) => {
           codeRunnerBody = JSON.parse(String(options.body));
-          return { statusCode: 200, data: JSON.stringify({ type: 'web', mode: 'run', result: [{ title: 'First' }] }) };
+          return { statusCode: 200, data: JSON.stringify({ type: 'web', mode: 'run', result: 'First' }) };
         });
 
       const result = await crawlerManager.executeCrawlerByName('geeknews-list', { url: 'https://news.hada.io/' });
 
       expect(result).toEqual({ type: 'web', result: [{ title: 'First' }] });
-      expect(codeRunnerBody).toEqual({ type: 'web', mode: 'run', url: 'https://news.hada.io/', code: crawler.code });
+      expect(codeRunnerBody).toEqual({ type: 'web', mode: 'run', url: 'https://news.hada.io/', code: '(body) => body' });
       expect(supabasePath).toContain(`user_uuid=eq.${SYSTEM_USER_UUID}`);
       expect(supabasePath).toContain('name=eq.geeknews-list');
       expect(requestedOrigins()).toEqual(['https://supabase.example.com', 'https://code-runner.example.com']);

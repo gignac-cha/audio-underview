@@ -218,11 +218,84 @@ export interface SchedulerStageRunRow {
   task_group_id: string | null;
   task_group_version: number | null;
   progress: SchedulerStageRunProgress | null;
+  logs: CrawlerRunLogEntry[] | null;
+  logs_truncated: boolean;
   created_at: string;
 }
 
-/** A stage run without the input and the output, which can be large */
-export type SchedulerStageRunSummary = Omit<SchedulerStageRunRow, 'input' | 'output'>;
+/** A stage run without the input, the output and the logs, which can be large */
+export type SchedulerStageRunSummary = Omit<SchedulerStageRunRow, 'input' | 'output' | 'logs'>;
+
+/**
+ * Log level of an entry the crawler code logged
+ */
+export type CrawlerRunLogLevel = 'debug' | 'info' | 'log' | 'warn' | 'error';
+
+/**
+ * One entry the crawler code logged, as stored in the logs column of a crawler run or a stage run.
+ * item_index is set by the scheduler on the entries of a fan-out stage.
+ */
+export interface CrawlerRunLogEntry {
+  level: CrawlerRunLogLevel;
+  message: string;
+  timestamp: string;
+  item_index?: number;
+}
+
+/**
+ * Crawler run status: a direct crawler run is recorded once it ended
+ */
+export type CrawlerRunStatus = 'completed' | 'failed';
+
+/**
+ * Crawler run table row type
+ * One direct run of a crawler (POST /crawlers/:id/runs). result, error and logs are redacted.
+ * A failed run has both error_code and error.
+ */
+export interface CrawlerRunRow {
+  [key: string]: unknown;
+  id: string;
+  user_uuid: string;
+  crawler_id: string;
+  status: CrawlerRunStatus;
+  result: unknown;
+  error_code: string | null;
+  error: string | null;
+  logs: CrawlerRunLogEntry[];
+  logs_truncated: boolean;
+  started_at: string;
+  completed_at: string;
+  created_at: string;
+}
+
+/**
+ * Crawler file table row type
+ * A file a crawler saved; the object is in R2 under object_key.
+ * A file of a scheduled run has run_id and goes with its run; a file of a direct run has expires_at.
+ */
+export interface CrawlerFileRow {
+  [key: string]: unknown;
+  id: string;
+  user_uuid: string;
+  run_id: string | null;
+  crawler_id: string | null;
+  object_key: string;
+  name: string | null;
+  content_type: string;
+  size: number;
+  expires_at: string | null;
+  created_at: string;
+}
+
+/**
+ * Crawler file deletion table row type
+ * The R2 object key of a deleted file row, waiting for the cron to delete the object.
+ */
+export interface CrawlerFileDeletionRow {
+  [key: string]: unknown;
+  object_key: string;
+  queued_at: string;
+}
 
 /**
  * Crawler permission level type
@@ -430,6 +503,8 @@ export interface Database {
           task_group_id?: string | null;
           task_group_version?: number | null;
           progress?: SchedulerStageRunProgress | null;
+          logs?: CrawlerRunLogEntry[] | null;
+          logs_truncated?: boolean;
         };
         Update: Partial<Omit<SchedulerStageRunRow, 'id' | 'run_id' | 'stage_id' | 'created_at'>>;
         Relationships: [
@@ -448,6 +523,89 @@ export interface Database {
             referencedColumns: ['id'];
           },
         ];
+      };
+      crawler_runs: {
+        Row: CrawlerRunRow;
+        Insert: {
+          [key: string]: unknown;
+          id?: string;
+          user_uuid: string;
+          crawler_id: string;
+          status: CrawlerRunStatus;
+          result?: unknown;
+          error_code?: string | null;
+          error?: string | null;
+          logs?: CrawlerRunLogEntry[];
+          logs_truncated?: boolean;
+          started_at: string;
+          completed_at: string;
+        };
+        Update: Partial<Omit<CrawlerRunRow, 'id' | 'created_at'>>;
+        Relationships: [
+          {
+            foreignKeyName: 'crawler_runs_user_uuid_fkey';
+            columns: ['user_uuid'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['uuid'];
+          },
+          {
+            foreignKeyName: 'crawler_runs_crawler_id_fkey';
+            columns: ['crawler_id'];
+            isOneToOne: false;
+            referencedRelation: 'crawlers';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      crawler_files: {
+        Row: CrawlerFileRow;
+        Insert: {
+          [key: string]: unknown;
+          id?: string;
+          user_uuid: string;
+          run_id?: string | null;
+          crawler_id?: string | null;
+          object_key: string;
+          name?: string | null;
+          content_type: string;
+          size: number;
+          expires_at?: string | null;
+        };
+        Update: Partial<Omit<CrawlerFileRow, 'id' | 'created_at'>>;
+        Relationships: [
+          {
+            foreignKeyName: 'crawler_files_user_uuid_fkey';
+            columns: ['user_uuid'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['uuid'];
+          },
+          {
+            foreignKeyName: 'crawler_files_run_id_fkey';
+            columns: ['run_id'];
+            isOneToOne: false;
+            referencedRelation: 'scheduler_runs';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'crawler_files_crawler_id_fkey';
+            columns: ['crawler_id'];
+            isOneToOne: false;
+            referencedRelation: 'crawlers';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      crawler_file_deletions: {
+        Row: CrawlerFileDeletionRow;
+        Insert: {
+          [key: string]: unknown;
+          object_key: string;
+          queued_at?: string;
+        };
+        Update: Partial<CrawlerFileDeletionRow>;
+        Relationships: [];
       };
       crawler_permissions: {
         Row: CrawlerPermissionRow;
@@ -504,6 +662,18 @@ export interface Database {
         };
         Returns: string[];
       };
+      delete_expired_crawler_files: {
+        Args: {
+          batch_limit: number;
+        };
+        Returns: number;
+      };
+      delete_crawler_file_deletions: {
+        Args: {
+          object_keys: string[];
+        };
+        Returns: number;
+      };
     };
     Enums: {
       provider_type: ProviderType;
@@ -530,3 +700,5 @@ export type SchedulerRunsInsert = Database['public']['Tables']['scheduler_runs']
 export type SchedulerRunsUpdate = Database['public']['Tables']['scheduler_runs']['Update'];
 export type SchedulerStageRunsInsert = Database['public']['Tables']['scheduler_stage_runs']['Insert'];
 export type SchedulerStageRunsUpdate = Database['public']['Tables']['scheduler_stage_runs']['Update'];
+export type CrawlerRunsInsert = Database['public']['Tables']['crawler_runs']['Insert'];
+export type CrawlerFilesInsert = Database['public']['Tables']['crawler_files']['Insert'];

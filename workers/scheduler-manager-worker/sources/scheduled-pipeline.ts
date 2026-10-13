@@ -14,8 +14,8 @@ import {
   updateScheduler,
   failActiveSchedulerStageRuns,
 } from '@audio-underview/supabase-connector';
+import { resolveDefaultInput } from '@audio-underview/worker-tools';
 import { type ExecutorDependencies, executePipelineStage } from './scheduler-executor.ts';
-import { resolveDefaultInput } from './stage-runner.ts';
 import type { SchedulerRunParameters } from './scheduler-run-workflow.ts';
 import {
   type TaskGroupWorker,
@@ -29,7 +29,10 @@ import {
   settleTaskGroupStage,
 } from './task-group-stage.ts';
 
-export interface ScheduledPipelineDependencies extends ExecutorDependencies {
+/**
+ * The user the crawlers run for is known once begin-run read the scheduler, so it is not a dependency here.
+ */
+export interface ScheduledPipelineDependencies extends Omit<ExecutorDependencies, 'userUUID'> {
   /** Finds the worker of a task group by the name of its service binding */
   resolveTaskGroupWorker: (binding: string) => TaskGroupWorker | undefined;
 }
@@ -276,7 +279,8 @@ export async function runScheduledPipeline(
             input = previousStageRun.output;
           }
 
-          const stageResult = await executePipelineStage(dependencies, runID, stage, input);
+          // Crawlers run for the owner of the scheduler, as begin-run read it
+          const stageResult = await executePipelineStage({ ...dependencies, userUUID }, runID, stage, input);
           return {
             status: stageResult.partiallyFailed ? 'partially_failed' : 'completed',
             stageRunID: stageResult.stageRunID,

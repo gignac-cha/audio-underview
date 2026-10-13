@@ -3,6 +3,9 @@ import { isSafeURLPattern } from './safe-url-pattern.ts';
 import { createWorkerLogger } from '@audio-underview/logger';
 import {
   type ResponseContext,
+  type CrawlerExecuteResult,
+  type CrawlerRunContext,
+  type CrawlerRunOutcome,
   createCORSHeaders,
   jsonResponse,
   errorResponse,
@@ -13,26 +16,30 @@ import {
   createCrawler,
   listCrawlersByUser,
   getCrawler,
-  getCrawlerByID,
   getSystemCrawlerByName,
   updateCrawler,
   deleteCrawler,
   createCrawlerPermission,
 } from '@audio-underview/supabase-connector';
 import { handleTokenExchange } from './token-exchange.ts';
-import { HTTPCodeRunnerClient } from './code-runner-client.ts';
-import { executeCrawler } from './crawler-executor.ts';
-import type { CrawlerExecuteResult } from './crawler-executor.ts';
+import { authenticate } from './authentication.ts';
+import { type Environment, createCrawlerRuntimeDependencies, createSupabaseClientFrom } from './environment.ts';
+import { UUID_PATTERN } from './identifiers.ts';
+import { runCrawler, runLoadedCrawler, validateRunContext } from './crawler-runtime/run-crawler.ts';
+import { handleRunCrawler, handleGetCrawlerRun } from './handlers/crawler-runs.ts';
+import { handleDownloadFile } from './handlers/crawler-files.ts';
+import {
+  handleListEnvironmentVariables,
+  handlePutEnvironmentVariable,
+  handleDeleteEnvironmentVariable,
+} from './handlers/environment-variables.ts';
+import { cleanUpCrawlerFiles } from './file-cleanup.ts';
 
-export type { CrawlerExecuteResult };
+export type { CrawlerExecuteResult, CrawlerRunOutcome, Environment };
 
-interface Environment {
-  ALLOWED_ORIGINS: string;
-  SUPABASE_URL: string;
-  SUPABASE_SECRET_KEY: string;
-  JWT_SECRET: string;
-  CODE_RUNNER_FUNCTION_URL: string;
-}
+// The Workers runtime only accepts classes and types as named exports of the entry module.
+// The gateway every crawler Dynamic Worker sends its requests through (its globalOutbound)
+export { CrawlerOutboundGateway } from './crawler-runtime/outbound-gateway.ts';
 
 interface CreateCrawlerRequestBody {
   name: string;
@@ -59,6 +66,12 @@ const HELP = {
     { method: 'GET', path: '/crawlers/:id', description: 'Get a crawler by ID' },
     { method: 'PUT', path: '/crawlers/:id', description: 'Update a crawler by ID (full replacement)' },
     { method: 'DELETE', path: '/crawlers/:id', description: 'Delete a crawler by ID' },
+    { method: 'POST', path: '/crawlers/:id/runs', description: 'Run a crawler and record the run' },
+    { method: 'GET', path: '/crawlers/:id/runs/:runID', description: 'Get a direct run of a crawler' },
+    { method: 'GET', path: '/files/:id', description: 'Download a file a crawler saved' },
+    { method: 'GET', path: '/environment-variables', description: 'List the names of your environment variables' },
+    { method: 'PUT', path: '/environment-variables/:name', description: 'Set an environment variable' },
+    { method: 'DELETE', path: '/environment-variables/:name', description: 'Delete an environment variable' },
   ],
 };
 
@@ -295,9 +308,99 @@ async function handleDeleteCrawler(
   return jsonResponse({ deleted: true }, 200, context);
 }
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 const MAX_SYSTEM_CRAWLER_NAME_LENGTH = 255;
+
+const CRAWLER_RUNS_PATTERN = /^\/crawlers\/([^/]+)\/runs$/;
+const CRAWLER_RUN_PATTERN = /^\/crawlers\/([^/]+)\/runs\/([^/]+)$/;
+const FILE_PATTERN = /^\/files\/([^/]+)$/;
+const ENVIRONMENT_VARIABLE_PATTERN = /^\/environment-variables\/([^/]*)$/;
+
+function methodNotAllowed(context: ResponseContext, allow: string): Response {
+  const response = errorResponse('method_not_allowed', 'Method not allowed', 405, context);
+  response.headers.set('Allow', allow);
+  return response;
+}
+
+/**
+ * The routes added with the crawler runtime: direct runs, files and environment variables.
+ * Each authenticates with a user UUID. Undefined when the path is none of them.
+ */
+async function routeCrawlerRuntime(
+  request: Request,
+  url: URL,
+  environment: Environment,
+  context: ResponseContext,
+): Promise<Response | undefined> {
+  const crawlerRunsMatch = CRAWLER_RUNS_PATTERN.exec(url.pathname);
+  const crawlerRunMatch = CRAWLER_RUN_PATTERN.exec(url.pathname);
+  const fileMatch = FILE_PATTERN.exec(url.pathname);
+  const environmentVariableMatch = ENVIRONMENT_VARIABLE_PATTERN.exec(url.pathname);
+  const isEnvironmentVariables = url.pathname === '/environment-variables';
+  if (
+    crawlerRunsMatch === null &&
+    crawlerRunMatch === null &&
+    fileMatch === null &&
+    environmentVariableMatch === null &&
+    !isEnvironmentVariables
+  ) {
+    return undefined;
+  }
+
+  const userUUID = await authenticate(request, environment);
+  if (userUUID === null) {
+    return errorResponse('unauthorized', 'Valid authentication is required', 401, context);
+  }
+
+  // POST /crawlers/:id/runs — run a crawler
+  if (crawlerRunsMatch !== null) {
+    if (request.method !== 'POST') {
+      return methodNotAllowed(context, 'POST');
+    }
+    const crawlerID = crawlerRunsMatch[1];
+    if (!UUID_PATTERN.test(crawlerID)) {
+      return errorResponse('not_found', 'Crawler not found', 404, context);
+    }
+    return handleRunCrawler(request, environment, context, logger, crawlerID, userUUID);
+  }
+
+  // GET /crawlers/:id/runs/:runID — a direct run
+  if (crawlerRunMatch !== null) {
+    if (request.method !== 'GET') {
+      return methodNotAllowed(context, 'GET');
+    }
+    const [, crawlerID, runID] = crawlerRunMatch;
+    if (!UUID_PATTERN.test(crawlerID) || !UUID_PATTERN.test(runID)) {
+      return errorResponse('not_found', 'Crawler run not found', 404, context);
+    }
+    return handleGetCrawlerRun(environment, context, crawlerID, runID, userUUID);
+  }
+
+  // GET /files/:id — download a file
+  if (fileMatch !== null) {
+    if (request.method !== 'GET') {
+      return methodNotAllowed(context, 'GET');
+    }
+    return handleDownloadFile(environment, context, fileMatch[1], userUUID);
+  }
+
+  // GET /environment-variables — names only
+  if (isEnvironmentVariables) {
+    if (request.method !== 'GET') {
+      return methodNotAllowed(context, 'GET');
+    }
+    return handleListEnvironmentVariables(environment, context, userUUID);
+  }
+
+  // PUT, DELETE /environment-variables/:name
+  const name = environmentVariableMatch?.[1] ?? '';
+  if (request.method === 'PUT') {
+    return handlePutEnvironmentVariable(request, environment, context, name, userUUID);
+  }
+  if (request.method === 'DELETE') {
+    return handleDeleteEnvironmentVariable(environment, context, name, userUUID);
+  }
+  return methodNotAllowed(context, 'PUT, DELETE');
+}
 
 function parseCrawlerID(pathname: string): string | undefined {
   const match = pathname.match(/^\/crawlers\/([0-9a-f-]+)$/i);
@@ -363,6 +466,12 @@ export default class CrawlerManagerWorker extends WorkerEntrypoint<Environment> 
         return await handleTokenExchange(request, supabaseClient, environment.JWT_SECRET, context);
       }
 
+      // Matched before the /crawlers routes, whose invalid IDs answer 404 below
+      const crawlerRuntimeResponse = await routeCrawlerRuntime(request, url, environment, context);
+      if (crawlerRuntimeResponse !== undefined) {
+        return crawlerRuntimeResponse;
+      }
+
       // All /crawlers routes require JWT authentication
       if (url.pathname === '/crawlers' || url.pathname.startsWith('/crawlers/')) {
         const authorizationHeader = request.headers.get('Authorization');
@@ -422,26 +531,31 @@ export default class CrawlerManagerWorker extends WorkerEntrypoint<Environment> 
     }
   }
 
-  // Service Binding RPC — called by scheduler-manager-worker only.
-  // No user ownership check: binding declaration itself is the access control.
+  // Service Binding RPC — called by scheduler-manager-worker for every crawler stage.
+  // No user ownership check: binding declaration itself is the access control. The context names
+  // the user the crawler runs for; the crawler gets environment variables only when that user wrote it.
+  async runCrawler(crawlerID: string, input: unknown, context: CrawlerRunContext): Promise<CrawlerRunOutcome> {
+    const runContext = validateRunContext(context);
+    const rpcLogger = logger.createChild({
+      function: 'runCrawler',
+      metadata: { crawlerID },
+    });
+    return runCrawler(createCrawlerRuntimeDependencies(this.env, rpcLogger), crawlerID, input, runContext);
+  }
+
+  // Service Binding RPC — kept for a scheduler deployed before runCrawler; removed once the
+  // scheduler that calls runCrawler is deployed. Runs without a user: no environment variables, no files.
   async executeCrawler(crawlerID: string, input: unknown): Promise<CrawlerExecuteResult> {
     const rpcLogger = logger.createChild({
       function: 'executeCrawler',
       metadata: { crawlerID },
     });
 
-    const supabaseClient = createSupabaseClient({
-      supabaseURL: this.env.SUPABASE_URL,
-      supabaseSecretKey: this.env.SUPABASE_SECRET_KEY,
-    });
-
-    const crawler = await getCrawlerByID(supabaseClient, crawlerID);
-    if (!crawler) {
-      throw new Error(`Crawler ${crawlerID} not found`);
+    const outcome = await runCrawler(createCrawlerRuntimeDependencies(this.env, rpcLogger), crawlerID, input, undefined);
+    if (outcome.status === 'failed') {
+      throw new Error(outcome.error);
     }
-
-    const codeRunnerClient = new HTTPCodeRunnerClient(this.env.CODE_RUNNER_FUNCTION_URL);
-    return executeCrawler(codeRunnerClient, crawler, input, rpcLogger);
+    return { type: outcome.type, result: outcome.result };
   }
 
   // Service Binding RPC — resolves crawlers owned by the system user only.
@@ -456,17 +570,38 @@ export default class CrawlerManagerWorker extends WorkerEntrypoint<Environment> 
       metadata: { name },
     });
 
-    const supabaseClient = createSupabaseClient({
-      supabaseURL: this.env.SUPABASE_URL,
-      supabaseSecretKey: this.env.SUPABASE_SECRET_KEY,
-    });
+    const supabaseClient = createSupabaseClientFrom(this.env);
 
     const crawler = await getSystemCrawlerByName(supabaseClient, name);
     if (!crawler) {
       throw new Error(`System crawler '${name}' not found`);
     }
 
-    const codeRunnerClient = new HTTPCodeRunnerClient(this.env.CODE_RUNNER_FUNCTION_URL);
-    return executeCrawler(codeRunnerClient, crawler, input, rpcLogger);
+    // Runs without a user: no environment variables, no files
+    const outcome = await runLoadedCrawler(
+      createCrawlerRuntimeDependencies(this.env, rpcLogger, supabaseClient),
+      crawler,
+      input,
+      undefined,
+    );
+    if (outcome.status === 'failed') {
+      throw new Error(outcome.error);
+    }
+    return { type: outcome.type, result: outcome.result };
+  }
+
+  // The cron that removes the files of expired direct runs and of deleted file rows from R2
+  async scheduled(): Promise<void> {
+    try {
+      const result = await cleanUpCrawlerFiles({
+        supabaseClient: createSupabaseClientFrom(this.env),
+        bucket: this.env.CRAWLER_FILES,
+        logger,
+      });
+      logger.info('Crawler file cleanup finished', result, { function: 'scheduled' });
+    } catch (error) {
+      logger.error('Crawler file cleanup failed', error, { function: 'scheduled' });
+      throw error;
+    }
   }
 }

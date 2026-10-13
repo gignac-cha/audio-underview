@@ -24,3 +24,16 @@ CREATE TABLE IF NOT EXISTS key_audit_log (
 
 CREATE INDEX IF NOT EXISTS key_audit_log_user_id_id
   ON key_audit_log (user_id, id DESC);
+
+CREATE TABLE IF NOT EXISTS environment_variables (
+  user_id     TEXT    NOT NULL,
+  name        TEXT    NOT NULL,
+  ciphertext  TEXT    NOT NULL,
+  iv          TEXT    NOT NULL,
+  wrapped_dek TEXT    NOT NULL,
+  dek_iv      TEXT    NOT NULL,
+  key_version INTEGER NOT NULL DEFAULT 1,
+  created_at  TEXT    NOT NULL,
+  updated_at  TEXT    NOT NULL,
+  PRIMARY KEY (user_id, name)
+);

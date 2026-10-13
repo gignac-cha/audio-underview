@@ -9,9 +9,30 @@ ALLOWED_ORIGINS = "http://localhost:5173,https://audio-underview.pages.dev"
 # SUPABASE_URL
 # SUPABASE_SECRET_KEY
 # JWT_SECRET
-# CODE_RUNNER_FUNCTION_URL
+# CODE_RUNNER_FUNCTION_URL  stays: web crawlers still fetch their page through it
+# VAULT_INTERNAL_TOKEN      optional; the vault's value
 
+# Crawler code runs in Dynamic Workers
+[[worker_loaders]]
+binding = "LOADER"
+
+# Files crawlers save
+[[r2_buckets]]
+binding = "CRAWLER_FILES"
+bucket_name = "audio-underview-crawler-files"
+
+# Environment variables of the users
+[[services]]
+binding = "USER_VAULT"
+service = "audio-underview-user-vault-worker"
+
+# Removes expired and deleted crawler files from R2
+[triggers]
+crons = ["*/15 * * * *"]
+
+# Invocation logs stay off: the outbound gateway is an entrypoint of this worker, and the URL of
+# a request crawler code sends can carry a key in its query string
 [observability.logs]
 enabled = true
 head_sampling_rate = 1
-invocation_logs = true
+invocation_logs = false

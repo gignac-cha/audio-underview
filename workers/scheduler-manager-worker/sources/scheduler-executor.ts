@@ -7,18 +7,20 @@ import {
   createSchedulerStageRun,
   updateSchedulerStageRun,
 } from '@audio-underview/supabase-connector';
+import { resolveDefaultInput } from '@audio-underview/worker-tools';
 import type { CrawlerExecutionClient } from './crawler-execution-client.ts';
 import {
   type CrawlerStageRow,
   executeStage,
   executeFanOut,
-  resolveDefaultInput,
 } from './stage-runner.ts';
 
 export interface ExecutorDependencies {
   supabaseClient: SupabaseClient;
   crawlerExecutionClient: CrawlerExecutionClient;
   logger: Logger;
+  /** The user the crawlers run for: the owner of the scheduler */
+  userUUID: string;
 }
 
 export interface PipelineStageResult {
@@ -59,6 +61,7 @@ export async function executePipelineStage(
     supabaseClient: dependencies.supabaseClient,
     crawlerExecutionClient: dependencies.crawlerExecutionClient,
     logger: dependencies.logger,
+    userUUID: dependencies.userUUID,
   };
 
   // Fan-out check
@@ -101,12 +104,15 @@ export async function executePipelineStage(
         items_total: 0,
         items_succeeded: 0,
         items_failed: 0,
+        logs: [],
+        logs_truncated: false,
       });
       return { stageRunID: stageRun.id, output: [], partiallyFailed: false };
     }
 
     const fanOutResult = await executeFanOut(
       stageRunnerDependencies,
+      runID,
       stage,
       fanOutItems,
       1,
@@ -120,6 +126,8 @@ export async function executePipelineStage(
       items_total: fanOutResult.itemsTotal,
       items_succeeded: fanOutResult.itemsSucceeded,
       items_failed: fanOutResult.itemsFailed,
+      logs: fanOutResult.logs,
+      logs_truncated: fanOutResult.logsTruncated,
     });
 
     if (fanOutResult.status === 'failed') {
