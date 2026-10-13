@@ -1,11 +1,30 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 
 <head>
   <meta charset="UTF-8" />
   <link rel="icon" type="image/svg+xml" href="/vite.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Audio Underview</title>
+  <!--
+    The sign-in, sign-in return, and home screens use a light canvas, but the
+    legacy stylesheet paints html and body dark. For those paths only, paint the
+    canvas before anything else loads so the dark background never flashes.
+    The color must match lightTheme.color.canvas in sources/design-system/tokens.ts
+    (a test checks this). PageLayout removes the attribute once it has mounted.
+  -->
+  <style>
+    html[data-underview-canvas],
+    html[data-underview-canvas] body {
+      background-color: #EDF0EC;
+      color-scheme: light;
+    }
+  </style>
+  <script>
+    if (/^\/(?:sign\/in|authentication\/callback|home)?\/?$/.test(window.location.pathname)) {
+      document.documentElement.setAttribute('data-underview-canvas', '');
+    }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
