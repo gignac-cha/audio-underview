@@ -61,7 +61,9 @@ SHA-256 입력 = JSON.stringify({ compatibilityDate, compatibilityFlags, limits 
 
 **로그는 isolate 안에서 모은다.** runner 모듈이 `console`의 메서드를 바꿔 실행마다 버퍼에 쌓는다. 같은 isolate에서 두 실행이 동시에 돌 수 있으므로 버퍼는 `AsyncLocalStorage`로 실행별로 나눈다(`nodejs_als` flag). Tail Worker는 응답을 보낸 뒤에야 로그가 도착하므로 직접 실행 응답에 로그를 실을 수 없어 쓰지 않는다.
 
-**로그 한도는 크기와 개수 둘 다다.** 항목마다 `메시지 글자 수 + 64`를 비용으로 세어 합계 65,536까지, 항목 수는 1,000개까지 남긴다. 빈 메시지를 끝없이 찍어도 버퍼와 저장 크기가 커지지 않게 하기 위해서다. 메시지 안의 NUL(`\u0000`)은 `�`로 바꾼다. Postgres JSONB가 NUL을 받지 않기 때문이다.
+**로그 한도는 크기와 개수 둘 다다.** 항목마다 `메시지 글자 수 + 64`를 비용으로 세어 합계 65,536까지, 항목 수는 1,000개까지 남긴다. 빈 메시지를 끝없이 찍어도 버퍼와 저장 크기가 커지지 않게 하기 위해서다. 메시지 안의 NUL(`\u0000`)은 U+FFFD로 바꾸고, 짝이 없는 surrogate도 고친다(`toWellFormed`). 자를 때도 surrogate 쌍을 가르지 않는다. Postgres JSONB가 NUL과 짝 없는 surrogate를 받지 않기 때문이다.
+
+**호스트는 runner의 답을 믿지 않는다.** runner는 크롤러 코드와 같은 realm에서 돌아서, 크롤러 코드가 `String.prototype`이나 `Date.prototype`을 바꾸면 runner의 한도와 가리기가 무너진다. 그래서 호스트가 받은 로그에 같은 한도를 다시 적용하고, 다시 가리고, `timestamp`는 `YYYY-MM-DDTHH:MM:SS.sssZ` 형식일 때만 받고 아니면 호스트 시각으로 바꾼다.
 
 **시간은 runner가 먼저 끊는다.** 벽시계 5분이 지나면 runner가 그때까지의 로그와 함께 시간 초과로 끝낸다. CPU는 `limits.cpuMs`로 30초까지다. CPU를 다 쓰는 무한 루프는 runner의 타이머가 돌지 못하므로 CPU 한도가 끊는다. 지금 Lambda에서 동기 무한 루프는 시간 초과였으므로 CPU 한도 초과도 시간 초과로 분류한다. 호스트는 5분 10초에 마지막으로 끊고, 이때는 로그가 없다.
 
@@ -214,7 +216,8 @@ export function validateCrawlerRunOutcome(value: unknown): CrawlerRunOutcome;
 - 직접 실행에서 Lambda 코드의 상태 규칙
   - `invalid_request`는 400이다.
   - `fetch_timeout`은 504다.
-  - 그 밖은 모두 502다. 상태 0(연결 실패)과 `invalid_response`, Lambda의 401, 403, 404, 413, 429가 여기에 든다.
+  - 그 밖의 코드는 `error` 문구(`CodeRunner error <상태>: ...`)의 상태가 400이면 400, 504면 504, 나머지는 502다. 상태 0(연결 실패)과 `invalid_response`, Lambda의 401, 403, 404, 413, 429가 502에 든다.
+  - 실제로는 `invalid_request`와 `fetch_timeout` 코드가 오지 않는다. Lambda는 `{ error, error_description }`로 답하는데 `HTTPCodeRunnerClient`는 `error_code`를 읽으므로 Lambda의 4xx는 `execution_error`로 온다. 5xx는 재시도한 뒤 `server_error`로 온다. 지금 단계 실패 문구가 이렇게 만들어지므로 클라이언트는 고치지 않고, 상태는 문구의 숫자로 정한다.
 
 ### RPC
 
@@ -232,6 +235,7 @@ executeCrawlerByName(name: string, input: unknown): Promise<CrawlerExecuteResult
   - 크롤러가 없을 때: `Crawler <id> not found` (지금과 같다)
   - DB 오류
   - `context.userUUID`가 UUID가 아닐 때: `Invalid user UUID`
+  - `context.runID`가 있는데 UUID가 아닐 때: `Invalid run ID` (파일 행의 `run_id`로 들어가기 때문이다)
   - 자기 크롤러 실행에서 vault를 읽지 못했을 때
     - 문구는 `Environment variables could not be read: vault responded <상태> <error>`다. 연결이 안 되면 `Environment variables could not be read: vault could not be reached`다. 상태와 vault의 `error` 코드만 넣고 값이나 토큰은 넣지 않는다.
     - 스케줄 단계에서는 RPC가 던지는 다른 오류와 같다. 단계 실행 기록이 `failed`, `error`가 이 문구, `logs`는 `null`이 되고 실행 전체가 실패한다.
@@ -285,6 +289,7 @@ executeCrawlerByName(name: string, input: unknown): Promise<CrawlerExecuteResult
   - 문자열은 그대로 쓴다.
   - `Error`는 `stack`을 쓰고, 없으면 `name: message`를 쓴다.
   - 그 밖의 값은 `JSON.stringify`를 쓰고, 실패하거나 `undefined`면 `String(value)`를 쓴다.
+  - 값을 읽다 예외가 나면(던지는 getter, 던지는 Proxy trap, revoke된 Proxy) 다음 방법으로 넘어가고, 끝까지 안 되면 `[unprintable]`이다. console 메서드는 크롤러 코드로 예외를 던지지 않는다.
 - 쌓기 전에 메시지를 가리고(`capabilities.environment`의 값, 2절의 세 형태), NUL을 `�`로 바꾼다.
 - 한도는 2절과 같다(비용 합계 65,536, 항목 1,000개).
   - 비용이 넘는 항목은 남은 비용에서 64를 뺀 길이까지 메시지를 자른다. 남은 길이가 0 이하면 넣지 않는다.
@@ -315,7 +320,7 @@ isolate 안의 `files`는 `capabilities.files`를 감싼 객체다. `capabilitie
 - `close()`: 이후의 호출을 막는다. RPC로 노출하지 않도록 `static` 함수나 모듈 함수로 만든다. 예: `closeFileCapability(capability)`.
 - `save(stream, { size, name, contentType })`
   1. 닫혔으면 `Files are not available in this run`이다.
-  2. `size`(0~26,214,400의 정수), 이름, 형식을 3절 규칙으로 검사한다. 이름은 가린 뒤 저장한다.
+  2. `size`(0~26,214,400의 정수, 아니면 `Invalid file size`), 이름, 형식을 3절 규칙으로 검사한다. 이름은 받은 그대로 검사하고(code point 기준, DB check와 같다), 가린 뒤 255 code point로 잘라 저장한다. `[REDACTED]`가 4자 값보다 길기 때문이다.
   3. `crawler_files` 행을 넣는다.
      - `id`는 `crypto.randomUUID()`, `object_key`는 `<userUUID>/<id>`다.
      - 직접 실행이면 `expires_at = now + 24h`, 회차 실행이면 `run_id = runID`다.
@@ -346,8 +351,8 @@ isolate 안의 `files`는 `capabilities.files`를 감싼 객체다. `capabilitie
 주소 검사(`sources/crawler-runtime/address-policy.ts`)는 아래와 같다.
 - IPv4와 IPv6 주소를 바이트로 바꿔 아래 범위와 비교한다.
   - 막는 IPv4: `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.0.0.0/24`, `192.168.0.0/16`, `198.18.0.0/15`, `224.0.0.0/4`, `240.0.0.0/4`
-  - 막는 IPv6: `::/128`, `::1/128`, `fc00::/7`, `fe80::/10`, `fec0::/10`, `ff00::/8`
-  - IPv4를 품은 IPv6(`::ffff:0:0/96`, `::/96`, `64:ff9b::/96`, `2002::/16`)는 품은 IPv4를 꺼내 다시 검사한다.
+  - 막는 IPv6: `::/128`, `::1/128`, `fc00::/7`, `fe80::/10`, `fec0::/10`, `ff00::/8`, `64:ff9b:1::/48`(로컬 NAT64), `2001::/32`(Teredo)
+  - IPv4를 품은 IPv6(`::ffff:0:0/96`, `::ffff:0:0:0/96`, `::/96`, `64:ff9b::/96`, `2002::/16`)는 품은 IPv4를 꺼내 다시 검사한다.
 - 해석할 수 없는 주소 문자열은 막는다.
 
 `guardedFetch(request)`는 아래 순서로 처리한다.
@@ -360,13 +365,17 @@ isolate 안의 `files`는 `capabilities.files`를 감싼 객체다. `capabilitie
    - 주소가 하나도 없거나 요청이 실패하면 `TypeError`(`DNS lookup failed for '<host>'`)다.
 4. 주소 하나라도 막힌 범위면 `TypeError`(`The address of '<host>' is not allowed`)다.
 5. `redirect: 'manual'`로 보낸다. 본문은 스트림 그대로 넘기고 메모리에 모으지 않는다.
-6. 응답이 3xx이고 `Location`이 있으면 원래 요청의 `redirect` 값에 따른다.
+6. 응답이 3xx이고 `Location`이 있으면 크롤러 코드가 요청한 `redirect` 값에 따른다.
+   - Dynamic Worker의 런타임은 gateway를 언제나 `redirect: 'manual'`로 부르고, 3xx를 받으면 리다이렉트를 직접 따라간다. 이때 origin이 바뀌어도 `authorization`만 지우고 `cookie`와 `proxy-authorization`은 남긴다. 그래서 gateway가 요청의 `redirect` 값만 보면 크롤러 코드가 무엇을 요청했는지 알 수 없다(13절에서 로컬 확인).
+   - runner 모듈이 전역 `fetch`를 감싼다. 크롤러 코드가 요청한 값(`init.redirect`, 없으면 `Request`의 값)을 내부 헤더 `x-crawler-redirect-mode`에 담고, 요청은 `redirect: 'manual'`로 보낸다. 그러면 런타임은 리다이렉트를 따라가지 않고 gateway의 답을 그대로 돌려준다.
+   - gateway는 이 헤더를 읽어 지우고(없으면 `follow`) 아래 규칙을 직접 적용한다.
+   - 크롤러 코드가 runner보다 먼저 원래 `fetch`를 잡아 두거나 헤더를 직접 넣으면 모드를 우회할 수 있다(크롤러 모듈은 runner 본문보다 먼저 평가된다). 그러면 런타임이 리다이렉트를 따라가며 `cookie`와 `proxy-authorization`을 남긴다. 그 값은 크롤러 코드가 스스로 넣은 것이라 다른 사용자의 값이 새지는 않는다. 이때도 모든 hop이 gateway를 거치므로 주소 검사는 그대로다.
    - `manual`: 3xx를 그대로 돌려준다.
    - `error`: `TypeError`(`Redirect was not allowed`)다.
    - `follow`(기본): 아래 규칙으로 직접 따라간다.
      - 20번까지 따라가고, 넘으면 `TypeError`(`Too many redirects`)다. 매번 1~4를 다시 한다.
      - 301, 302는 POST일 때, 303은 GET·HEAD가 아닐 때 GET으로 바꾸고 본문을 뺀다. 이때 `content-type`, `content-length`, `content-encoding`, `content-language`, `content-location` 헤더도 지운다.
-     - 307, 308은 메서드와 본문을 유지해야 한다. 본문이 없는 요청이면 따라간다. 본문이 있으면 다시 보낼 수 없으므로 따라가지 않고 그 3xx 응답을 그대로 돌려준다.
+     - 307, 308은 메서드와 본문을 유지해야 한다. GET으로 바뀌지 않는 나머지(PUT이나 DELETE가 받은 301, 302 포함)도 같다. 본문이 없는 요청이면 따라간다. 본문이 있으면 다시 보낼 수 없으므로 따라가지 않고 그 3xx 응답을 그대로 돌려준다.
      - origin(scheme, host, port)이 바뀌면 `authorization`, `cookie`, `proxy-authorization`을 지운다.
 7. `connect()`는 gateway가 받지 않으므로 실패한다.
 
@@ -384,7 +393,7 @@ DoH 요청과 실제 요청은 crawler-manager의 전역 `fetch`로 보낸다. g
 
 ### 직접 실행 — `POST /crawlers/:id/runs`
 
-- 본문은 없거나 `{ "input": <아무 JSON> }`이다. JSON이 아니거나 객체가 아니면 400 `invalid_request`다.
+- 본문은 없거나 `{ "input": <아무 JSON> }`이다. JSON이 아니면 400 `Request body must be valid JSON`, 객체가 아니면 400 `Request body must be a JSON object`다. 본문 검사는 권한 확인보다 먼저 한다(`PUT /crawlers/:id`와 같다).
 - `input`이 없으면 `resolveDefaultInput(crawler.input_schema)`로 만든다. 이 함수가 던지면 400 `invalid_request`다.
 - 접근은 단계를 만들 때와 같은 규칙이다. `getCrawlerPermission`(owner 또는 subscriber)이 없으면 404 `Crawler not found`다.
 - 실행 사용자는 요청한 사용자다. 환경 변수는 그 사용자가 작성자일 때만 넘어간다. 파일은 24시간 기한이다.
@@ -393,6 +402,8 @@ DoH 요청과 실제 요청은 crawler-manager의 전역 `fetch`로 보낸다. g
   - 성공은 200 `{ run_id, status: 'completed', result, logs, logs_truncated }`다.
   - 실패는 4절 규칙의 상태로 `{ run_id, status: 'failed', error: <error_code>, error_description, logs, logs_truncated }`다.
   - vault를 읽지 못하면 503 `service_unavailable`이다.
+
+`/crawlers/:id/runs`와 `/crawlers/:id/runs/:runID`에서 `:id`나 `:runID`가 UUID가 아니면 각각 404 `Crawler not found`, `Crawler run not found`다.
 
 ### 직접 실행 기록 — `GET /crawlers/:id/runs/:runID`
 
@@ -453,14 +464,14 @@ CREATE TABLE IF NOT EXISTS environment_variables (
 | `/internal/environment-variables/delete` | `{ userId, name }` | `{ deleted }` | 필요 없음 |
 | `/internal/environment-variables/resolve` | `{ userId }` | `{ variables: { [name]: value } }` | 행이 있을 때만 |
 
-- 검사 순서는 토큰 → route → JSON → `userId` → route별 본문 검사 → KEK 검사다. 지금 `handleRequest`는 route를 고른 뒤 바로 KEK를 검사하는데, 이 검사를 route 안으로 옮긴다. 키 route는 지금과 같이 KEK가 필요하다. KEK가 필요한데 없으면 같은 503 `vault_unavailable`이다.
+- 환경 변수 route의 검사 순서는 토큰 → route → JSON → `userId` → route별 본문 검사 → KEK 검사다. 키 route는 지금과 같이 `userId` 다음에 KEK를 먼저 검사한다(KEK가 없으면 모르는 provider도 400이 아니라 503). KEK가 필요한데 없으면 같은 503 `vault_unavailable`이다.
 - 이름과 값의 검사는 crawler-manager와 같은 규칙이다. 틀리면 400 `{ error: 'invalid_request' }`다.
 - 암호화는 `sealProviderKey`/`openProviderKey`를 그대로 쓴다. binding은 `{ userID, provider: 'environment-variable:' + name, keyVersion, createdAt: updated_at }`다. 값을 바꿀 때마다 새로 봉인하고 `updated_at`을 바꾼다. `created_at`은 처음 값을 유지한다. `last4`는 저장하지 않는다.
 - `put`
   - 이름이 있으면 바꾼다(`created: false`).
   - 없으면 한 문장으로 한도를 검사하며 넣는다. 예: `INSERT ... SELECT ... WHERE (SELECT COUNT(*) FROM environment_variables WHERE user_id = ?) < 100`.
   - 넣은 행이 없으면 409 `{ error: 'limit_exceeded' }`다.
-  - 같은 이름을 동시에 넣다 기본 키가 충돌하면 바꾸기로 다시 한다.
+  - 넣는 문장에 `ON CONFLICT (user_id, name) DO NOTHING`을 붙인다. 넣은 행이 없으면 바꾸기를 한 번 더 시도하고, 그래도 바뀐 행이 없을 때만 409다. 같은 이름을 동시에 넣는 경우가 이렇게 바꾸기가 된다.
 - `resolve`에서 열리지 않는 행이 있으면 500 `{ error: 'decrypt_failed' }`다. 일부만 넘기지 않는다(fail-closed). 로그에는 사용자 ID와 이름만 남긴다.
 - `/internal/keys/rewrap`은 그 사용자의 `environment_variables` 행도 같은 방식으로 다시 봉인한다. 응답에 `environment_variables_rewrapped`, `environment_variables_unrecoverable`을 더한다. 기존 `rewrapped`, `unrecoverable`은 provider 키만 센다.
 - 감사 기록(`key_audit_log`)은 이번에 환경 변수로 넓히지 않는다(12절).
@@ -495,7 +506,7 @@ crawler-manager 쪽 클라이언트는 `sources/user-vault-client.ts`다.
 - 새 route `GET /schedulers/:id/runs/:runID/stage-runs/:stageRunID`
   - 소유자만 볼 수 있다.
   - 단계 실행 기록 전체(`input`, `output`, `logs`, `logs_truncated`, `progress` 포함)를 돌려준다.
-  - 그 회차의 기록이 아니면 404 `Stage run not found`다.
+  - 확인 순서는 소유자(아니면 404 `Scheduler not found`), 그 스케줄러의 회차(아니면 404 `Run not found`), 그 회차의 단계 기록(아니면 404 `Stage run not found`)이다.
 - `GET .../runs/:runID`의 `stage_runs` 요약
   - `logs`는 넣지 않고 `logs_truncated`는 넣는다.
   - 타입은 `Omit<SchedulerStageRunRow, 'input' | 'output' | 'logs'>`다.
@@ -526,7 +537,8 @@ CREATE TABLE crawler_runs (
   completed_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CHECK (completed_at >= started_at),
-  CHECK ((status = 'failed') = (error IS NOT NULL AND error_code IS NOT NULL))
+  CHECK ((status = 'failed') = (error IS NOT NULL)),
+  CHECK ((status = 'failed') = (error_code IS NOT NULL))
 );
 
 CREATE INDEX crawler_runs_crawler_id_created_at_index ON crawler_runs (crawler_id, created_at DESC);
@@ -703,7 +715,9 @@ crons = ["*/15 * * * *"]
   - Lambda 요청 본문이 `(body) => body`이고 결과가 본문 문자열이다.
   - 코드는 `LOADER`에서 실행된다.
 - `workers/crawler-manager-worker/tests/crawler-executor.test.ts`: `crawler-executor.ts`와 함께 지운다. `resolveURL`과 `url_pattern` 사례는 새 실행기 테스트로 옮긴다.
-- scheduler-manager의 `execute` mock을 쓰는 테스트(`stage-runner.test.ts`, `scheduler-executor.test.ts`, `scheduled-pipeline.test.ts`, `manual-execution.test.ts` 등)
+- `workers/user-vault-worker/sources/index.test.ts`의 `/internal/keys/rewrap` 응답 단언: 7절이 응답에 더한 두 필드(`environment_variables_rewrapped`, `environment_variables_unrecoverable`)를 더한다.
+- `stage-runner.test.ts`의 `resolveDefaultInput` 사례: 함수가 `workers/tools`로 옮겨 가므로 import만 `@audio-underview/worker-tools`로 바꾼다. 같은 사례를 `workers/tools/tests/default-input.test.ts`에도 둔다.
+- scheduler-manager의 `execute` mock을 쓰는 테스트(`stage-runner.test.ts`, `scheduler-executor.test.ts`, `scheduled-pipeline.test.ts`, `manual-execution.test.ts`, `direct-execution.test.ts`)
   - mock을 `run`으로 바꾸고, `{ status: 'completed', type, result, logs: [], logs_truncated: false }`를 돌려준다.
   - 던지는 mock은 그대로 둔다.
   - 호출 단언에 `{ userUUID, runID }`를 더한다.
@@ -852,6 +866,7 @@ crons = ["*/15 * * * *"]
 | 두 번째 인자 | 없음 | `context`. `(body, options = {}) =>`처럼 두 번째 인자를 기본값으로 쓰던 코드는 `context`를 받는다 |
 | 실행 시간, 코드 길이 | 5초, 1만 자 | 5분(CPU 30초), 1,048,576자 |
 | 크롤러 코드 실행 재시도 | 5xx면 두 번 더 | 없음(페이지 가져오기만 재시도) |
+| 결과의 NUL 문자 | 단계 출력 저장이 실패 | 같다. 결과는 바꾸지 않으므로 직접 실행은 기록이 실패해 `run_id`가 `null`, 스케줄 단계는 출력 저장 실패로 기록된다 |
 
 ### 이번에 하지 않는 것
 
@@ -863,6 +878,9 @@ crons = ["*/15 * * * *"]
 | 환경 변수 감사 기록 | 미접속 | `key_audit_log`는 provider 키만 다룬다 | 필요해지면 |
 | 크롤러 코드의 `fetch` 출발지 | 미접속 | Cloudflare에서 나가므로 `CF-Worker` 헤더가 붙고, 일부 사이트(프로토타입에서 GeekNews)가 거절할 수 있다. 페이지 가져오기는 web 크롤러로 하면 Lambda에서 나간다 | 문제가 생기면 Lambda 경유 요청을 더한다 |
 | 운영 환경 변수 기능 | 끊김 | 운영 vault 시크릿이 없어 등록이 503이다 | TES-143 |
+| 작성자가 runner를 망가뜨렸을 때의 값 일부 | 미접속 | 크롤러 코드가 `String.prototype.includes` 같은 내장 함수를 바꾸면 runner의 가리기가 멈춘 채 자르기만 동작해, 잘린 끝에 값의 앞부분이 남을 수 있다. 호스트는 값 전체만 찾는다. 작성자 자신의 코드가 자신의 값을 내보내는 경우뿐이다 | 필요해지면 |
+| gateway 로그의 hostname | 미접속 | gateway는 막은 요청의 hostname을 남긴다. 작성자가 값을 hostname에 넣으면 그 값이 crawler-manager 로그에 남는다 | 필요해지면 hostname 대신 등록 도메인만 남긴다 |
+| 런타임 오류 문구에 든 값의 일부 | 미접속 | 가리기는 값 전체(세 형태)만 찾는다. `JSON.parse(context.environment.KEY)`가 실패하면 V8 오류 문구에 값의 앞 10자가 들어가고, 이 부분은 가려지지 않는다 | 필요해지면 |
 | 시간 초과 뒤의 외부 요청 | 미접속 | 시간 초과로 기록한 뒤에도 isolate의 코드가 외부 요청을 계속할 수 있다. 파일 저장은 막힌다 | 필요해지면 |
 | 크롤러 단계만 있는 수동 실행의 5분 제한 | 끊김 가능 | 요청 안에서 파이프라인 전체에 5분을 건다. 5분을 다 쓰는 크롤러 하나로도 넘을 수 있다 | 필요해지면 Workflow로 넘긴다 |
 | 예약 실행 fan-out 단계의 15분 제한 | 끊김 가능 | 단계 하나가 Workflow step 하나(15분)다. 항목을 차례로 돌리므로 몇 분짜리 크롤러 항목이 많으면 넘는다 | 필요해지면 step을 나눈다 |
@@ -894,7 +912,8 @@ crons = ["*/15 * * * *"]
   - `connect()`는 gateway를 거쳐 실패했다.
   - `{ cjs }` 모듈은 sloppy mode였다. 선언 없는 대입, 8진수 리터럴, `arguments.callee`, `with`가 동작했다. 같은 코드를 `{ js }` 모듈로 올리면 실패했다.
   - `eval`과 `new Function`은 두 모듈 모두 `EvalError: Code generation from strings disallowed for this context`였다.
-  - `limits.cpuMs`는 로컬에서 강제되지 않아 무한 루프가 끝나지 않았다. 저장소의 `@cloudflare/workers-types` 4.20260207.0의 `WorkerLoaderWorkerCode`에는 `limits` 필드가 없다.
+  - `limits.cpuMs`는 로컬에서 강제되지 않아 무한 루프가 끝나지 않았다.
+  - isolate의 `fetch`는 크롤러 코드가 무엇을 주든 gateway에 `redirect: 'manual'`로 도착했고, 런타임이 3xx를 직접 따라갔다. origin이 바뀔 때 `authorization`만 지우고 `cookie`와 `proxy-authorization`은 남겼다. `redirect: 'error'`는 gateway에 닿기 전에 isolate 안에서 던졌다(구현 중 확인). 저장소의 `@cloudflare/workers-types` 4.20260207.0의 `WorkerLoaderWorkerCode`에는 `limits` 필드가 없다.
 
 출처
 - https://developers.cloudflare.com/changelog/post/2026-03-24-dynamic-workers-open-beta/
