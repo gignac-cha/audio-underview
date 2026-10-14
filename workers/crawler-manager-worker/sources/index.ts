@@ -543,21 +543,6 @@ export default class CrawlerManagerWorker extends WorkerEntrypoint<Environment> 
     return runCrawler(createCrawlerRuntimeDependencies(this.env, rpcLogger), crawlerID, input, runContext);
   }
 
-  // Service Binding RPC — kept for a scheduler deployed before runCrawler; removed once the
-  // scheduler that calls runCrawler is deployed. Runs without a user: no environment variables, no files.
-  async executeCrawler(crawlerID: string, input: unknown): Promise<CrawlerExecuteResult> {
-    const rpcLogger = logger.createChild({
-      function: 'executeCrawler',
-      metadata: { crawlerID },
-    });
-
-    const outcome = await runCrawler(createCrawlerRuntimeDependencies(this.env, rpcLogger), crawlerID, input, undefined);
-    if (outcome.status === 'failed') {
-      throw new Error(outcome.error);
-    }
-    return { type: outcome.type, result: outcome.result };
-  }
-
   // Service Binding RPC — resolves crawlers owned by the system user only.
   // User crawlers are never looked up by name.
   async executeCrawlerByName(name: string, input: unknown): Promise<CrawlerExecuteResult> {

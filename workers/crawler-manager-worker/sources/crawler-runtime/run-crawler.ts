@@ -444,7 +444,7 @@ function redactOutcome(outcome: CrawlerRunOutcome, redactor: Redactor): CrawlerR
  * Runs a crawler that is already read.
  *
  * @param context - the user the crawler runs for and, for a scheduled stage, the scheduler run;
- * undefined for a run without a user (executeCrawler, executeCrawlerByName)
+ * undefined for a run without a user (executeCrawlerByName)
  * @throws EnvironmentVariablesUnavailableError when the vault cannot give the variables of the author
  */
 export async function runLoadedCrawler(

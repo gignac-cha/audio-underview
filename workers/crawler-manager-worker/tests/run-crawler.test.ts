@@ -728,14 +728,12 @@ describe('environment variables', () => {
     expect(await vaultRequests(author)).toEqual([]);
   });
 
-  it('are empty in the executeCrawler and executeCrawlerByName RPCs, which do not call the vault', async () => {
+  it('are empty in the executeCrawlerByName RPC, which does not call the vault', async () => {
     const author = uniqueUUID();
     await vaultEnvironment(author, { API_KEY: 'key-value-1234' });
-    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code: ENVIRONMENT_CODE }));
     const systemCrawler = addCrawler(supabase, crawlerRow({ user_uuid: SYSTEM_USER_UUID, name: 'environment-probe', code: ENVIRONMENT_CODE }));
     const worker = SELF as unknown as Service<typeof CrawlerManagerWorker>;
 
-    await expect(worker.executeCrawler(crawler.id, {})).resolves.toEqual({ type: 'data', result: { environment: {}, frozen: true } });
     await expect(worker.executeCrawlerByName(systemCrawler.name, {})).resolves.toEqual({
       type: 'data',
       result: { environment: {}, frozen: true },

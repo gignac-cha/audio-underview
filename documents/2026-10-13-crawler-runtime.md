@@ -241,7 +241,7 @@ executeCrawlerByName(name: string, input: unknown): Promise<CrawlerExecuteResult
     - 스케줄 단계에서는 RPC가 던지는 다른 오류와 같다. 단계 실행 기록이 `failed`, `error`가 이 문구, `logs`는 `null`이 되고 실행 전체가 실패한다.
     - 직접 실행에서는 503 `service_unavailable`이고 `error_description`이 이 문구다. `crawler_runs`에는 남기지 않는다.
     - crawler-manager 로그에는 `crawlerID`, 사용자 UUID, vault 상태만 남긴다.
-- `executeCrawler`는 배포 순서가 어긋난 동안 예전 스케줄러를 위해 남긴다. 머지 뒤 스케줄러 배포를 확인하면 지운다(12절).
+- `executeCrawler`는 배포 순서가 어긋난 동안 예전 스케줄러를 위해 남겼다. 머지 뒤 `runCrawler`를 부르는 스케줄러가 배포되어 지웠다.
 
 ### 실행 순서 (`sources/crawler-runtime/run-crawler.ts`)
 
@@ -886,7 +886,7 @@ crons = ["*/15 * * * *"]
 | 시간 초과 뒤의 외부 요청 | 미접속 | 시간 초과로 기록한 뒤에도 isolate의 코드가 외부 요청을 계속할 수 있다. 파일 저장은 막힌다 | 필요해지면 |
 | 크롤러 단계만 있는 수동 실행의 5분 제한 | 끊김 가능 | 요청 안에서 파이프라인 전체에 5분을 건다. 5분을 다 쓰는 크롤러 하나로도 넘을 수 있다 | 필요해지면 Workflow로 넘긴다 |
 | 예약 실행 fan-out 단계의 15분 제한 | 끊김 가능 | 단계 하나가 Workflow step 하나(15분)다. 항목을 차례로 돌리므로 몇 분짜리 크롤러 항목이 많으면 넘는다 | 필요해지면 step을 나눈다 |
-| `executeCrawler` RPC와 `crawler-code-runner-worker` 정리 | 미접속 | `executeCrawler`는 배포 순서를 위해 남긴다. `crawler-code-runner-worker`는 배포된 적 없다 | 머지 뒤 |
+| `crawler-code-runner-worker` | 미접속 | 배포된 적 없다(배포 job `if: false`). Lambda code runner와 같은 `POST /run` API라서 Lambda가 실패할 때의 fallback으로 남겨 둔다. Cloudflare에서 나가는 요청이라 일부 사이트는 페이지 가져오기를 거절할 수 있다 | fallback을 붙일 때 |
 
 ## 13. 확인한 외부 사실
 

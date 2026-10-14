@@ -14,7 +14,7 @@ import {
   vaultRequests,
 } from './runtime-harness.ts';
 
-// The RPC methods the scheduler (runCrawler) and the older scheduler (executeCrawler) call, and the cron,
+// The RPC methods, runCrawler the scheduler calls and executeCrawlerByName for system crawlers, and the cron,
 // as a caller of the service binding meets them.
 
 const supabase = useInMemorySupabase(SUPABASE_ORIGIN);
@@ -122,53 +122,6 @@ describe('runCrawler', () => {
     supabase.intercept = () => ({ statusCode: 500, data: { message: 'database down' } });
 
     await expect(crawlerManager.runCrawler(uniqueUUID(), {}, { userUUID: uniqueUUID() })).rejects.toThrow(/Failed to get crawler by ID/);
-  });
-});
-
-describe('executeCrawler', () => {
-  it('runs without a user and answers the type and the result', async () => {
-    const crawler = addCrawler(supabase, crawlerRow({ code: '(input) => ({ doubled: input.n * 2 })' }));
-
-    await expect(crawlerManager.executeCrawler(crawler.id, { n: 4 })).resolves.toEqual({ type: 'data', result: { doubled: 8 } });
-  });
-
-  it('gives no environment variables and no files, and does not ask the vault', async () => {
-    const author = uniqueUUID();
-    const crawler = addCrawler(supabase, crawlerRow({
-      user_uuid: author,
-      code: `async (input, context) => {
-        let files;
-        try { await context.files.save('x'); files = 'saved'; } catch (error) { files = error.message; }
-        return { environment: Object.keys(context.environment), files };
-      }`,
-    }));
-    await vaultEnvironment(author, { KEY: 'a-secret-value' });
-
-    const result = await crawlerManager.executeCrawler(crawler.id, {});
-
-    expect(result.result).toEqual({ environment: [], files: 'Files are not available in this run' });
-    expect(await vaultRequests(author)).toEqual([]);
-    expect(supabase.tables.crawler_files ?? []).toEqual([]);
-  });
-
-  it('throws the text of the failure when the run fails', async () => {
-    const crawler = addCrawler(supabase, crawlerRow({ code: '() => { throw new Error("nope"); }' }));
-
-    await expect(crawlerManager.executeCrawler(crawler.id, {})).rejects.toThrow('CodeRunner error 422: [execution_failed] nope');
-  });
-
-  it('throws Crawler <id> not found for a crawler that does not exist', async () => {
-    const crawlerID = uniqueUUID();
-
-    await expect(crawlerManager.executeCrawler(crawlerID, {})).rejects.toThrow(`Crawler ${crawlerID} not found`);
-  });
-
-  it('throws the invalid input text, without a prefix, for a web crawler without a URL', async () => {
-    const crawler = addCrawler(supabase, crawlerRow({ type: 'web', url_pattern: '.*', input_schema: {}, code: '(body) => body' }));
-
-    const error = await crawlerManager.executeCrawler(crawler.id, {}).catch((caught: unknown) => caught);
-
-    expect((error as Error).message).toBe(`Crawler ${crawler.id}: no URL available. Provide url in input or set a default in input_schema.`);
   });
 });
 
