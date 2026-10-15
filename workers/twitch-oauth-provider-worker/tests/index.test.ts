@@ -1,11 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@audio-underview/axiom-logger', () => ({
   instrumentWorker: vi.fn((handler: unknown) => handler),
 }));
 
-import { env, fetchMock } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
 import { signJWT, verifyJWT } from '@audio-underview/worker-tools';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 import worker from '../sources/index.ts';
 
 const WORKER_URL = 'https://worker.example.com';
@@ -35,23 +37,28 @@ function interceptSupabase(
   status: number,
   body: unknown,
 ) {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: new RegExp(`^/rest/v1/${table}`), method })
-    .reply(status, JSON.stringify(body))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: new RegExp(`^/rest/v1/${table}`), method }),
+      () => new HttpResponse(JSON.stringify(body), { status }),
+    ),
+  );
 }
 
 /**
  * A paused Supabase project answers with a Cloudflare error page rather than a
- * PostgREST payload, which the connector surfaces as a thrown error.
+ * PostgREST payload, which the connector surfaces as a thrown error. supabase-js
+ * retries a GET answered with 503, and `Retry-After: 0` lets it retry at once.
  */
 function interceptSupabaseOutage() {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: /^\/rest\/v1\//, method: 'GET' })
-    .reply(503, JSON.stringify({ message: 'error code: 1016' }))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: /^\/rest\/v1\//, method: 'GET' }),
+      () => HttpResponse.json({ message: 'error code: 1016' }, { status: 503, headers: { 'Retry-After': '0' } }),
+    ),
+  );
 }
 
 function interceptAccountMissing() {
@@ -64,16 +71,20 @@ function interceptAccountMissing() {
 }
 
 function interceptTokenExchange() {
-  fetchMock
-    .get(TWITCH_ID_ORIGIN)
-    .intercept({ path: '/oauth2/token', method: 'POST' })
-    .reply(200, JSON.stringify({
-      access_token: 'mock-access-token',
-      expires_in: 14124,
-      refresh_token: 'mock-refresh-token',
-      scope: ['user:read:email'],
-      token_type: 'bearer',
-    }));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(TWITCH_ID_ORIGIN, { path: '/oauth2/token', method: 'POST' }),
+      () => HttpResponse.json({
+        access_token: 'mock-access-token',
+        expires_in: 14124,
+        refresh_token: 'mock-refresh-token',
+        scope: ['user:read:email'],
+        token_type: 'bearer',
+      }),
+      { once: true },
+    ),
+  );
 }
 
 function twitchUser(overrides: Record<string, unknown> = {}) {
@@ -94,10 +105,14 @@ function twitchUser(overrides: Record<string, unknown> = {}) {
 }
 
 function interceptUsers(body: unknown) {
-  fetchMock
-    .get(TWITCH_API_ORIGIN)
-    .intercept({ path: '/helix/users', method: 'GET' })
-    .reply(200, JSON.stringify(body));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(TWITCH_API_ORIGIN, { path: '/helix/users', method: 'GET' }),
+      () => new HttpResponse(JSON.stringify(body)),
+      { once: true },
+    ),
+  );
 }
 
 /** Get Users with a user access token and no query: the token's user alone. */
@@ -192,22 +207,6 @@ async function startLinkFlow(state: string, subject: string = ACCOUNT_UUID) {
 
   return { token, nonce, redirectURL, linkCode: redirectURL.searchParams.get('link_code') };
 }
-
-/** Origins that get intercepted; their mocks are reset between tests. */
-const MOCK_ORIGINS = [SUPABASE_ORIGIN, TWITCH_ID_ORIGIN, TWITCH_API_ORIGIN];
-
-beforeEach(() => {
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-});
-
-afterEach(() => {
-  // Interceptors (especially persisted ones) outlive a single test otherwise.
-  for (const origin of MOCK_ORIGINS) {
-    fetchMock.get(origin).cleanMocks();
-  }
-  fetchMock.deactivate();
-});
 
 describe('twitch-oauth-provider-worker', () => {
   describe('handleAuthorize', () => {
@@ -383,10 +382,14 @@ describe('twitch-oauth-provider-worker', () => {
     it('redirects with error when token exchange HTTP request fails', async () => {
       await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
 
-      fetchMock
-        .get(TWITCH_ID_ORIGIN)
-        .intercept({ path: '/oauth2/token', method: 'POST' })
-        .reply(400, JSON.stringify({ status: 400, message: 'Invalid authorization code' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(TWITCH_ID_ORIGIN, { path: '/oauth2/token', method: 'POST' }),
+          () => HttpResponse.json({ status: 400, message: 'Invalid authorization code' }, { status: 400 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -399,10 +402,14 @@ describe('twitch-oauth-provider-worker', () => {
     it('redirects with error when the token response carries no access token', async () => {
       await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
 
-      fetchMock
-        .get(TWITCH_ID_ORIGIN)
-        .intercept({ path: '/oauth2/token', method: 'POST' })
-        .reply(200, JSON.stringify({ token_type: 'bearer', expires_in: 14124 }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(TWITCH_ID_ORIGIN, { path: '/oauth2/token', method: 'POST' }),
+          () => HttpResponse.json({ token_type: 'bearer', expires_in: 14124 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -417,21 +424,25 @@ describe('twitch-oauth-provider-worker', () => {
       await putAuthorizationState(oauthState('tokenbody'), { redirectURI: 'https://app.example.com/callback' });
 
       // Only a request with exactly this form finds the interceptor.
-      fetchMock
-        .get(TWITCH_ID_ORIGIN)
-        .intercept({
-          path: '/oauth2/token',
-          method: 'POST',
-          body: (body: string) => {
-            const form = new URLSearchParams(body);
-            return form.get('client_id') === CLIENT_ID
-              && form.get('client_secret') === CLIENT_SECRET
-              && form.get('code') === 'test-code'
-              && form.get('grant_type') === 'authorization_code'
-              && form.get('redirect_uri') === `${WORKER_URL}/callback`;
-          },
-        })
-        .reply(200, JSON.stringify({ access_token: 'mock-access-token', token_type: 'bearer' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(TWITCH_ID_ORIGIN, {
+            path: '/oauth2/token',
+            method: 'POST',
+            body: (body) => {
+              const form = new URLSearchParams(body);
+              return form.get('client_id') === CLIENT_ID
+                && form.get('client_secret') === CLIENT_SECRET
+                && form.get('code') === 'test-code'
+                && form.get('grant_type') === 'authorization_code'
+                && form.get('redirect_uri') === `${WORKER_URL}/callback`;
+            },
+          }),
+          () => HttpResponse.json({ access_token: 'mock-access-token', token_type: 'bearer' }),
+          { once: true },
+        ),
+      );
       interceptUserInfo();
       interceptSupabase('GET', 'accounts', 200, twitchAccountRow());
 
@@ -452,21 +463,23 @@ describe('twitch-oauth-provider-worker', () => {
       // headers finds this interceptor; anything else fails like a network
       // error and the login would end in user_info_failed.
       let seenHeaders: Record<string, string> | undefined;
-      fetchMock
-        .get(TWITCH_API_ORIGIN)
-        .intercept({
-          path: '/helix/users',
-          method: 'GET',
-          headers: (headers: Record<string, string>) => {
-            const lowerCased = Object.fromEntries(
-              Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value]),
-            );
-            seenHeaders = lowerCased;
-            return lowerCased['client-id'] === CLIENT_ID
-              && lowerCased.authorization === 'Bearer mock-access-token';
-          },
-        })
-        .reply(200, JSON.stringify({ data: [twitchUser()] }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(TWITCH_API_ORIGIN, {
+            path: '/helix/users',
+            method: 'GET',
+            // The headers arrive with lower-case names
+            headers: (headers) => {
+              seenHeaders = headers;
+              return headers['client-id'] === CLIENT_ID
+                && headers.authorization === 'Bearer mock-access-token';
+            },
+          }),
+          () => HttpResponse.json({ data: [twitchUser()] }),
+          { once: true },
+        ),
+      );
       interceptSupabase('GET', 'accounts', 200, twitchAccountRow());
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('clientid')}`);
@@ -484,10 +497,14 @@ describe('twitch-oauth-provider-worker', () => {
 
       interceptTokenExchange();
 
-      fetchMock
-        .get(TWITCH_API_ORIGIN)
-        .intercept({ path: '/helix/users', method: 'GET' })
-        .reply(401, JSON.stringify({ error: 'Unauthorized', status: 401, message: 'Client ID and OAuth token do not match' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(TWITCH_API_ORIGIN, { path: '/helix/users', method: 'GET' }),
+          () => HttpResponse.json({ error: 'Unauthorized', status: 401, message: 'Client ID and OAuth token do not match' }, { status: 401 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);

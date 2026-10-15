@@ -3,7 +3,7 @@ import { env } from 'cloudflare:test';
 import type { CrawlerRunOutcome } from '@audio-underview/worker-tools';
 import { CrawlerFileCapability, closeFileCapability } from '../sources/crawler-runtime/file-capability.ts';
 import { createRedactor } from '../sources/crawler-runtime/redaction.ts';
-import { runCrawler, runLoadedCrawler } from '../sources/crawler-runtime/run-crawler.ts';
+import { CRAWLER_WORKER_OPTIONS, runCrawler, runLoadedCrawler } from '../sources/crawler-runtime/run-crawler.ts';
 import { useInMemorySupabase, type Row } from './in-memory-supabase.ts';
 import {
   SUPABASE_ORIGIN,
@@ -415,7 +415,8 @@ describe('CrawlerFileCapability', () => {
   it('keeps its fields out of reach of the Dynamic Worker, which sees only its methods', async () => {
     const capability = createCapability();
     const probe = env.LOADER.get(`file-capability-probe-${uniqueUUID()}`, async () => ({
-      compatibilityDate: '2025-11-25',
+      // The date of the crawler Dynamic Workers, which receive the capability
+      compatibilityDate: CRAWLER_WORKER_OPTIONS.compatibilityDate,
       mainModule: 'probe.js',
       modules: {
         'probe.js': `

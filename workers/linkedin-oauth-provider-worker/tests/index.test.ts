@@ -1,11 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@audio-underview/axiom-logger', () => ({
   instrumentWorker: vi.fn((handler: unknown) => handler),
 }));
 
-import { env, fetchMock } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
 import { signJWT, verifyJWT } from '@audio-underview/worker-tools';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 import worker from '../sources/index.ts';
 
 const WORKER_URL = 'https://worker.example.com';
@@ -37,23 +39,28 @@ function interceptSupabase(
   status: number,
   body: unknown,
 ) {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: new RegExp(`^/rest/v1/${table}`), method })
-    .reply(status, JSON.stringify(body))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: new RegExp(`^/rest/v1/${table}`), method }),
+      () => new HttpResponse(JSON.stringify(body), { status }),
+    ),
+  );
 }
 
 /**
  * A paused Supabase project answers with a Cloudflare error page rather than a
- * PostgREST payload, which the connector surfaces as a thrown error.
+ * PostgREST payload, which the connector surfaces as a thrown error. supabase-js
+ * retries a GET answered with 503, and `Retry-After: 0` lets it retry at once.
  */
 function interceptSupabaseOutage() {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: /^\/rest\/v1\//, method: 'GET' })
-    .reply(503, JSON.stringify({ message: 'error code: 1016' }))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: /^\/rest\/v1\//, method: 'GET' }),
+      () => HttpResponse.json({ message: 'error code: 1016' }, { status: 503, headers: { 'Retry-After': '0' } }),
+    ),
+  );
 }
 
 function interceptAccountMissing() {
@@ -66,35 +73,43 @@ function interceptAccountMissing() {
 }
 
 function interceptTokenExchange(overrides: Record<string, unknown> = {}) {
-  fetchMock
-    .get(LINKEDIN_ORIGIN)
-    .intercept({ path: '/oauth/v2/accessToken', method: 'POST' })
-    .reply(200, JSON.stringify({
-      access_token: 'mock-access-token',
-      expires_in: 5184000,
-      scope: 'email,openid,profile',
-      token_type: 'Bearer',
-      id_token: 'mock-id-token',
-      ...overrides,
-    }));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(LINKEDIN_ORIGIN, { path: '/oauth/v2/accessToken', method: 'POST' }),
+      () => HttpResponse.json({
+        access_token: 'mock-access-token',
+        expires_in: 5184000,
+        scope: 'email,openid,profile',
+        token_type: 'Bearer',
+        id_token: 'mock-id-token',
+        ...overrides,
+      }),
+      { once: true },
+    ),
+  );
 }
 
 /** The sample response of the userinfo endpoint in LinkedIn's documentation. */
 function interceptUserInfo(overrides: Record<string, unknown> = {}) {
-  fetchMock
-    .get(LINKEDIN_API_ORIGIN)
-    .intercept({ path: '/v2/userinfo', method: 'GET' })
-    .reply(200, JSON.stringify({
-      sub: LINKEDIN_MEMBER_ID,
-      name: 'Test User',
-      given_name: 'Test',
-      family_name: 'User',
-      picture: 'https://media.licdn.com/dms/image/test-picture',
-      locale: 'en-US',
-      email: 'test@example.com',
-      email_verified: true,
-      ...overrides,
-    }));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(LINKEDIN_API_ORIGIN, { path: '/v2/userinfo', method: 'GET' }),
+      () => HttpResponse.json({
+        sub: LINKEDIN_MEMBER_ID,
+        name: 'Test User',
+        given_name: 'Test',
+        family_name: 'User',
+        picture: 'https://media.licdn.com/dms/image/test-picture',
+        locale: 'en-US',
+        email: 'test@example.com',
+        email_verified: true,
+        ...overrides,
+      }),
+      { once: true },
+    ),
+  );
 }
 
 /**
@@ -102,10 +117,14 @@ function interceptUserInfo(overrides: Record<string, unknown> = {}) {
  * left out of an override, so the tests for missing fields build their own.
  */
 function interceptUserInfoBody(body: Record<string, unknown>) {
-  fetchMock
-    .get(LINKEDIN_API_ORIGIN)
-    .intercept({ path: '/v2/userinfo', method: 'GET' })
-    .reply(200, JSON.stringify(body));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(LINKEDIN_API_ORIGIN, { path: '/v2/userinfo', method: 'GET' }),
+      () => HttpResponse.json(body),
+      { once: true },
+    ),
+  );
 }
 
 function readUser(redirectURL: URL): Record<string, unknown> {
@@ -189,22 +208,6 @@ async function startLinkFlow(state: string, subject: string = ACCOUNT_UUID) {
 
   return { token, nonce, redirectURL, linkCode: redirectURL.searchParams.get('link_code') };
 }
-
-/** Origins that get intercepted; their mocks are reset between tests. */
-const MOCK_ORIGINS = [SUPABASE_ORIGIN, LINKEDIN_ORIGIN, LINKEDIN_API_ORIGIN];
-
-beforeEach(() => {
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-});
-
-afterEach(() => {
-  // Interceptors (especially persisted ones) outlive a single test otherwise.
-  for (const origin of MOCK_ORIGINS) {
-    fetchMock.get(origin).cleanMocks();
-  }
-  fetchMock.deactivate();
-});
 
 describe('linkedin-oauth-provider-worker', () => {
   describe('handleAuthorize', () => {
@@ -394,13 +397,17 @@ describe('linkedin-oauth-provider-worker', () => {
     it('redirects with error when token exchange HTTP request fails', async () => {
       await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
 
-      fetchMock
-        .get(LINKEDIN_ORIGIN)
-        .intercept({ path: '/oauth/v2/accessToken', method: 'POST' })
-        .reply(401, JSON.stringify({
-          error: 'invalid_request',
-          error_description: 'Unable to retrieve access token: authorization code not found',
-        }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(LINKEDIN_ORIGIN, { path: '/oauth/v2/accessToken', method: 'POST' }),
+          () => HttpResponse.json({
+            error: 'invalid_request',
+            error_description: 'Unable to retrieve access token: authorization code not found',
+          }, { status: 401 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -413,10 +420,14 @@ describe('linkedin-oauth-provider-worker', () => {
     it('redirects with error when the token response carries no access token', async () => {
       await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
 
-      fetchMock
-        .get(LINKEDIN_ORIGIN)
-        .intercept({ path: '/oauth/v2/accessToken', method: 'POST' })
-        .reply(200, JSON.stringify({ expires_in: 5184000, scope: 'email,openid,profile' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(LINKEDIN_ORIGIN, { path: '/oauth/v2/accessToken', method: 'POST' }),
+          () => HttpResponse.json({ expires_in: 5184000, scope: 'email,openid,profile' }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -431,21 +442,25 @@ describe('linkedin-oauth-provider-worker', () => {
       await putAuthorizationState(oauthState('tokenbody'), { redirectURI: 'https://app.example.com/callback' });
 
       // Only a request with exactly this form finds the interceptor.
-      fetchMock
-        .get(LINKEDIN_ORIGIN)
-        .intercept({
-          path: '/oauth/v2/accessToken',
-          method: 'POST',
-          body: (body: string) => {
-            const form = new URLSearchParams(body);
-            return form.get('grant_type') === 'authorization_code'
-              && form.get('code') === 'test-code'
-              && form.get('redirect_uri') === `${WORKER_URL}/callback`
-              && form.get('client_id') === CLIENT_ID
-              && form.get('client_secret') === CLIENT_SECRET;
-          },
-        })
-        .reply(200, JSON.stringify({ access_token: 'mock-access-token', expires_in: 5184000 }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(LINKEDIN_ORIGIN, {
+            path: '/oauth/v2/accessToken',
+            method: 'POST',
+            body: (body: string) => {
+              const form = new URLSearchParams(body);
+              return form.get('grant_type') === 'authorization_code'
+                && form.get('code') === 'test-code'
+                && form.get('redirect_uri') === `${WORKER_URL}/callback`
+                && form.get('client_id') === CLIENT_ID
+                && form.get('client_secret') === CLIENT_SECRET;
+            },
+          }),
+          () => HttpResponse.json({ access_token: 'mock-access-token', expires_in: 5184000 }),
+          { once: true },
+        ),
+      );
       interceptUserInfo();
       interceptSupabase('GET', 'accounts', 200, linkedInAccountRow());
 
@@ -463,16 +478,20 @@ describe('linkedin-oauth-provider-worker', () => {
       interceptTokenExchange();
       // Only a request carrying exactly this Authorization header finds the
       // interceptor.
-      fetchMock
-        .get(LINKEDIN_API_ORIGIN)
-        .intercept({
-          path: '/v2/userinfo',
-          method: 'GET',
-          headers: (headers: Record<string, string>) => Object.entries(headers).some(
-            ([name, value]) => name.toLowerCase() === 'authorization' && value === 'Bearer mock-access-token',
-          ),
-        })
-        .reply(200, JSON.stringify({ sub: LINKEDIN_MEMBER_ID, name: 'Test User' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(LINKEDIN_API_ORIGIN, {
+            path: '/v2/userinfo',
+            method: 'GET',
+            headers: (headers: Record<string, string>) => Object.entries(headers).some(
+              ([name, value]) => name.toLowerCase() === 'authorization' && value === 'Bearer mock-access-token',
+            ),
+          }),
+          () => HttpResponse.json({ sub: LINKEDIN_MEMBER_ID, name: 'Test User' }),
+          { once: true },
+        ),
+      );
       interceptSupabase('GET', 'accounts', 200, linkedInAccountRow());
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('bearer')}`);
@@ -488,10 +507,14 @@ describe('linkedin-oauth-provider-worker', () => {
 
       interceptTokenExchange();
 
-      fetchMock
-        .get(LINKEDIN_API_ORIGIN)
-        .intercept({ path: '/v2/userinfo', method: 'GET' })
-        .reply(401, JSON.stringify({ status: 401, serviceErrorCode: 65600, code: 'INVALID_ACCESS_TOKEN' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(LINKEDIN_API_ORIGIN, { path: '/v2/userinfo', method: 'GET' }),
+          () => HttpResponse.json({ status: 401, serviceErrorCode: 65600, code: 'INVALID_ACCESS_TOKEN' }, { status: 401 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);

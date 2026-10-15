@@ -1,18 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { env, fetchMock } from 'cloudflare:test';
+import { describe, it, expect } from 'vitest';
+import { env } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 import worker from '../sources/index.ts';
 import { MAX_CODE_LENGTH } from '../sources/create-code-runner.ts';
 
 const WORKER_URL = 'https://worker.example.com';
-
-beforeEach(() => {
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-});
-
-afterEach(() => {
-  fetchMock.deactivate();
-});
 
 describe('crawler-code-runner-worker', () => {
   describe('OPTIONS preflight', () => {
@@ -228,10 +221,10 @@ describe('crawler-code-runner-worker', () => {
 
   describe('POST /run web type - fetch failures', () => {
     it('returns 502 when target URL fetch fails', async () => {
-      fetchMock
-        .get('https://target.example.com')
-        .intercept({ path: '/data', method: 'GET' })
-        .replyWithError(new Error('Network error'));
+      appendHandlers(
+        network,
+        http.all(requestMatching('https://target.example.com', { path: '/data', method: 'GET' }), () => HttpResponse.error(), { once: true }),
+      );
 
       const request = new Request(`${WORKER_URL}/run`, {
         method: 'POST',
@@ -253,10 +246,10 @@ describe('crawler-code-runner-worker', () => {
 
   describe('POST /run web type - execution failures', () => {
     it('returns 422 when code execution throws an error', async () => {
-      fetchMock
-        .get('https://target.example.com')
-        .intercept({ path: '/data', method: 'GET' })
-        .reply(200, 'hello world');
+      appendHandlers(
+        network,
+        http.all(requestMatching('https://target.example.com', { path: '/data', method: 'GET' }), () => HttpResponse.text('hello world'), { once: true }),
+      );
 
       const request = new Request(`${WORKER_URL}/run`, {
         method: 'POST',
@@ -277,10 +270,10 @@ describe('crawler-code-runner-worker', () => {
     });
 
     it('returns 422 when code is syntactically invalid', async () => {
-      fetchMock
-        .get('https://target.example.com')
-        .intercept({ path: '/data', method: 'GET' })
-        .reply(200, 'hello world');
+      appendHandlers(
+        network,
+        http.all(requestMatching('https://target.example.com', { path: '/data', method: 'GET' }), () => HttpResponse.text('hello world'), { once: true }),
+      );
 
       const request = new Request(`${WORKER_URL}/run`, {
         method: 'POST',
@@ -302,10 +295,10 @@ describe('crawler-code-runner-worker', () => {
 
   describe('POST /run web type - successful execution', () => {
     it('executes code and returns result with mode test', async () => {
-      fetchMock
-        .get('https://target.example.com')
-        .intercept({ path: '/data', method: 'GET' })
-        .reply(200, 'hello world');
+      appendHandlers(
+        network,
+        http.all(requestMatching('https://target.example.com', { path: '/data', method: 'GET' }), () => HttpResponse.text('hello world'), { once: true }),
+      );
 
       const request = new Request(`${WORKER_URL}/run`, {
         method: 'POST',
@@ -327,10 +320,10 @@ describe('crawler-code-runner-worker', () => {
     });
 
     it('executes code and returns result with mode run', async () => {
-      fetchMock
-        .get('https://target.example.com')
-        .intercept({ path: '/data', method: 'GET' })
-        .reply(200, 'hello world');
+      appendHandlers(
+        network,
+        http.all(requestMatching('https://target.example.com', { path: '/data', method: 'GET' }), () => HttpResponse.text('hello world'), { once: true }),
+      );
 
       const request = new Request(`${WORKER_URL}/run`, {
         method: 'POST',
@@ -352,10 +345,14 @@ describe('crawler-code-runner-worker', () => {
     });
 
     it('handles code that returns an object', async () => {
-      fetchMock
-        .get('https://target.example.com')
-        .intercept({ path: '/page', method: 'GET' })
-        .reply(200, '<title>Test Page</title><p>Content here</p>');
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://target.example.com', { path: '/page', method: 'GET' }),
+          () => HttpResponse.text('<title>Test Page</title><p>Content here</p>'),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/run`, {
         method: 'POST',
@@ -378,10 +375,10 @@ describe('crawler-code-runner-worker', () => {
     });
 
     it('handles async code', async () => {
-      fetchMock
-        .get('https://target.example.com')
-        .intercept({ path: '/data', method: 'GET' })
-        .reply(200, 'async test');
+      appendHandlers(
+        network,
+        http.all(requestMatching('https://target.example.com', { path: '/data', method: 'GET' }), () => HttpResponse.text('async test'), { once: true }),
+      );
 
       const request = new Request(`${WORKER_URL}/run`, {
         method: 'POST',

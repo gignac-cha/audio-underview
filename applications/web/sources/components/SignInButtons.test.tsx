@@ -2,7 +2,7 @@ import { render } from 'vitest-browser-react';
 import { SignInButtons } from './SignInButtons.tsx';
 import { AuthenticationContext } from '../contexts/authentication-context-value.ts';
 import type { AuthenticationContextValue } from '../contexts/authentication-context-value.ts';
-import { page } from '@vitest/browser/context';
+import { page } from 'vitest/browser';
 
 function createWrapper(overrides: Partial<AuthenticationContextValue> = {}) {
   const auth: AuthenticationContextValue = {

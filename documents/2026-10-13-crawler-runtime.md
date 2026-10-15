@@ -138,7 +138,7 @@ async (input, context) => {
 - **`context.environment`**: 이름과 값이 담긴 얼린(frozen) 객체다. 자기 크롤러가 아니면 `{}`다.
 - **`context.files.save(data, options?)`**
   - `data`: 문자열, `ArrayBuffer`, typed array, `DataView`, `Blob`, `ReadableStream`, 그 밖에 `new Response(data)`가 받는 값.
-  - 25 MiB(26,214,400 bytes)를 넘으면 `File exceeds the maximum size of 26214400 bytes`를 던진다. `ReadableStream`은 읽으면서 세다가 넘는 순간 던진다.
+  - 25 MiB(26,214,400 bytes)를 넘으면 `File exceeds the maximum size of 26214400 bytes`를 던진다. `ReadableStream`과 iterable은 읽으면서 세다가 넘는 순간 던진다.
   - `options.name`: 1~255자. 제어 문자(U+0000–U+001F, U+007F)가 있으면 `Invalid file name`이다. 없으면 `null`이다.
   - `options.contentType`: `^[A-Za-z0-9!#$&^_.+-]{1,127}/[A-Za-z0-9!#$&^_.+-]{1,127}(;[^\r\n]*)?$`이고 255자까지다. 틀리면 `Invalid content type`이다. 없으면 `application/octet-stream`이다.
   - 돌려주는 참조는 `{ file_id, name, content_type, size }`다. 평범한 객체라 결과에 넣으면 다음 단계에 그대로 넘어간다.
@@ -256,11 +256,12 @@ executeCrawlerByName(name: string, input: unknown): Promise<CrawlerExecuteResult
    - 결과가 문자열이 아니면 `invalid_response` 실패다. `error`는 `CodeRunner error 502: [invalid_response] Expected the page body as a string`이다.
    - `CodeRunnerExecutionError`는 `failed` 결과가 된다(`error_code = errorCode`, `error = message`, `error_description = errorDescription`).
 5. 코드 길이가 1,048,576자를 넘으면 `execution_failed`다. 저장할 때 이미 같은 값으로 검사한다.
-6. `LOADER.get(isolateID, ...)`로 아래 `WorkerCode`를 올린다. 저장소의 `@cloudflare/workers-types`에는 `limits`가 없으므로 `WorkerLoaderWorkerCode & { limits: { cpuMs: number } }`로 타입을 넓힌다.
+6. `LOADER.get` 전에 `exports.CrawlerOutboundGateway`를 찾는다. 없으면 배포 설정 오류이므로 `logger.error`를 남기고 `execution_failed`로 끝낸다. 코드는 올리지 않는다.
+7. `LOADER.get(isolateID, ...)`로 아래 `WorkerCode`를 올린다. `@cloudflare/workers-types` 5는 `limits`를 선택 항목으로 두므로, CPU 한도가 늘 들어가게 `WorkerLoaderWorkerCode & { limits: { cpuMs: number } }`로 좁힌다.
 
 ```ts
 {
-  compatibilityDate: '2025-11-25',
+  compatibilityDate: '2026-10-12',
   compatibilityFlags: ['nodejs_als'],
   mainModule: 'runner.js',
   modules: {
@@ -273,12 +274,14 @@ executeCrawlerByName(name: string, input: unknown): Promise<CrawlerExecuteResult
 }
 ```
 
-7. `getEntrypoint('CrawlerRunner').run(input, capabilities)`를 부른다.
+   2026-08-04부터 `nodejs_compat`이 기본이므로 크롤러 코드에도 Node.js API(`Buffer`, `process`, `require('node:…')`)가 있다. `env`가 `{}`라 `process.env`는 비어 있고, gateway에 `connect()`가 없어 `node:net`의 소켓도 열리지 않는다.
+
+8. `getEntrypoint('CrawlerRunner').run(input, capabilities)`를 부른다.
    - `capabilities`는 `{ environment, files, timeoutMilliseconds: 300_000 }`다.
    - `files`는 실행 사용자가 있을 때만 `CrawlerFileCapability`이고, 없으면 `undefined`다.
    - 호스트 쪽 제한 시간은 310초다.
-8. runner의 답을 결과로 바꾼다. `resultJSON`을 해석하고, 결과·로그·오류 문구를 다시 가린다. 그다음 `files.close()`를 부른다. 실패나 시간 초과로 끝나도 부른다.
-9. 모듈을 올리거나 실행하다 던져진 오류(문법 오류 포함)는 `execution_failed`다. CPU 한도 초과는 위 규칙대로 `execution_timeout`이다.
+9. runner의 답을 결과로 바꾼다. `resultJSON`을 해석하고, 결과·로그·오류 문구를 다시 가린다. 그다음 `files.close()`를 부른다. 실패나 시간 초과로 끝나도 부른다.
+10. 모듈을 올리거나 실행하다 던져진 오류(문법 오류 포함)는 `execution_failed`다. CPU 한도 초과는 위 규칙대로 `execution_timeout`이다.
 
 ### runner 모듈 (`sources/crawler-runtime/runner-module.ts`)
 
@@ -308,7 +311,7 @@ isolate 안의 `files`는 `capabilities.files`를 감싼 객체다. `capabilitie
      - `ArrayBuffer`, typed array, `DataView`는 `byteLength`다.
      - `Blob`은 `size`다.
      - `ReadableStream`은 읽으면서 세어 `Uint8Array`로 모으고, 한도를 넘으면 바로 던진다.
-     - 그 밖은 `new Response(data).arrayBuffer()`의 길이다.
+     - 그 밖은 `new Response(data)`의 본문을 `ReadableStream`처럼 읽으면서 센다. `Response`가 iterable을 스트림으로 읽으므로(`fetch_iterable_type_support`) 끝없는 iterable도 한도에서 멈춘다.
   2. 한도를 넘으면 던진다.
   3. `capabilities.files.save(new Response(bytes).body, { size, name, contentType })`를 부른다.
 - `read(reference)`: `capabilities.files.read(fileID)`가 준 `{ body, content_type, size }`로 `Response`를 만든다.
@@ -728,8 +731,7 @@ crons = ["*/15 * * * *"]
 
 - crawler-manager의 `LOADER`와 R2는 `wrangler.toml`의 실제 로컬 바인딩을 쓴다. runner 모듈을 실제로 돌려야 로그 순서, ALS, 시간 초과를 시험할 수 있다.
 - `USER_VAULT`는 `vitest.config.ts`의 `miniflare.workers`에 이름 `audio-underview-user-vault-worker`인 보조 worker로 둔다(스케줄러의 `CRAWLER_MANAGER`와 같은 방식). 시험마다 응답을 바꿀 수 있게 만든다.
-- Supabase와 Lambda는 지금처럼 `fetchMock`이다.
-- gateway의 DoH와 실제 요청이 `fetchMock`에 잡히지 않으면 `vi.spyOn(globalThis, 'fetch')`로 바꾼다.
+- Supabase, Lambda, gateway의 DoH 요청은 MSW(`@msw/cloudflare`)로 흉내 낸다. 설정은 worker-tools의 `tests/network.ts`와 `tests/setup.ts`를 함께 쓰고, handler는 `requestMatching`으로 method, origin, 경로, query를 정확히 맞춘다. 맞는 handler가 없는 요청은 실패한다.
 - 시스템 크롤러 코드는 migration 010을 Vite `?raw` import로 읽는다. workerd에서는 `node:fs`를 쓸 수 없다. 코드 길이와 SHA 검사는 기존 Lambda 시험에 남긴다.
 - migration 013은 PGlite로 확인하되, 저장소 밖의 스크립트로 한다(새 의존성 없음).
 
@@ -868,6 +870,14 @@ crons = ["*/15 * * * *"]
 | 크롤러 코드 실행 재시도 | 5xx면 두 번 더 | 없음(페이지 가져오기만 재시도) |
 | 결과의 NUL 문자 | 단계 출력 저장이 실패 | 같다. 결과는 바꾸지 않으므로 직접 실행은 기록이 실패해 `run_id`가 `null`, 스케줄 단계는 출력 저장 실패로 기록된다 |
 
+머지 뒤 의존성을 올리면서 크롤러 코드가 도는 Dynamic Worker의 compatibility date도 2025-11-25에서 2026-10-12로 올렸다. 이미 저장된 크롤러 코드에는 아래가 달라진다. isolate ID에 날짜가 들어가므로 배포 뒤 isolate는 새로 올라간다.
+
+| 항목 | 2025-11-25 | 2026-10-12 |
+| -- | -- | -- |
+| Node.js API | 없음 | `nodejs_compat`이 기본이라 `Buffer`, `process`, `require('node:…')`가 있다. `process.env`는 `{}`이고 `node:fs`에는 `/bundle`, `/tmp`, `/dev`만 보인다. `connect()`, `node:net`, `node:tls`는 소켓을 열지 못하고 `node:http`는 gateway를 거친다 |
+| 배열을 body로 쓰기 | `new Response(['a','b'])`, `fetch(url, { body: ['a','b'] })`가 `"a,b"` | 배열을 스트림으로 읽는다(`fetch_iterable_type_support`). 문자열 배열은 `"ab"`이고 숫자 배열은 던진다. `files.save(['a','b'])`는 `ab`를 저장하고 `files.save([1,2,3])`은 던진다 |
+| `response.text()`의 BOM | 남는다 | 앞의 UTF-8 BOM을 지운다(`strip_bom_in_read_all_text`) |
+
 ### 이번에 하지 않는 것
 
 | 항목 | 상태 | 원인 | 이어 붙일 단위 |
@@ -916,6 +926,9 @@ crons = ["*/15 * * * *"]
   - `eval`과 `new Function`은 두 모듈 모두 `EvalError: Code generation from strings disallowed for this context`였다.
   - `limits.cpuMs`는 로컬에서 강제되지 않아 무한 루프가 끝나지 않았다.
   - isolate의 `fetch`는 크롤러 코드가 무엇을 주든 gateway에 `redirect: 'manual'`로 도착했고, 런타임이 3xx를 직접 따라갔다. origin이 바뀔 때 `authorization`만 지우고 `cookie`와 `proxy-authorization`은 남겼다. `redirect: 'error'`는 gateway에 닿기 전에 isolate 안에서 던졌다(구현 중 확인). 저장소의 `@cloudflare/workers-types` 4.20260207.0의 `WorkerLoaderWorkerCode`에는 `limits` 필드가 없다.
+- 로컬 확인(의존성을 올린 뒤, `@cloudflare/vitest-plugin` 1.4.2, workerd 1.20261012.1)
+  - 시험 plugin은 모든 entrypoint에 `connect`를 붙인다. 그래서 시험에서는 gateway를 거친 소켓이 열린 뒤 0바이트로 끝난다. plugin 없는 workerd에서는 `proxy request failed`로 거부된다. gateway에 `connect` 멤버가 하나라도 있으면 런타임이 소켓을 받아들이므로 두지 않는다.
+  - compatibility date가 2026-03-03보다 이르면 몇 microtask 뒤에 처리된 promise 거부도 처리되지 않은 것으로 보고한다(`unhandled_rejection_after_microtask_checkpoint`).
 
 출처
 - https://developers.cloudflare.com/changelog/post/2026-03-24-dynamic-workers-open-beta/

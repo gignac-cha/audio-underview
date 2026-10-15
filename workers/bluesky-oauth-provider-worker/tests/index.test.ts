@@ -1,11 +1,13 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 
 vi.mock('@audio-underview/axiom-logger', () => ({
   instrumentWorker: vi.fn((handler: unknown) => handler),
 }));
 
-import { env, fetchMock } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
+import { http, HttpResponse, type DefaultBodyType, type StrictRequest } from 'msw';
 import { signJWT, verifyJWT } from '@audio-underview/worker-tools';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 import worker from '../sources/index.ts';
 
 const WORKER_URL = 'https://worker.example.com';
@@ -111,7 +113,7 @@ async function importVerificationKey(jwk: { x: string; y: string }): Promise<Cry
   return crypto.subtle.importKey('jwk', { kty: 'EC', crv: 'P-256', x: jwk.x, y: jwk.y }, ECDSA_P256, true, ['verify']);
 }
 
-/** What the fetch mock saw of an outbound request. */
+/** What a handler saw of an outbound request, with lower-case header names. */
 interface CapturedRequest {
   path: string;
   method: string;
@@ -119,12 +121,14 @@ interface CapturedRequest {
   body: string;
 }
 
-function capture(target: CapturedRequest[] | undefined, options: any) {
-  target?.push({
-    path: options.path,
-    method: options.method,
-    headers: options.headers ?? {},
-    body: typeof options.body === 'string' ? options.body : '',
+async function capture(target: CapturedRequest[] | undefined, request: StrictRequest<DefaultBodyType>) {
+  if (target === undefined) return;
+  const url = new URL(request.url);
+  target.push({
+    path: `${url.pathname}${url.search}`,
+    method: request.method,
+    headers: Object.fromEntries(request.headers),
+    body: await request.text(),
   });
 }
 
@@ -142,23 +146,28 @@ function interceptSupabase(
   status: number,
   body: unknown,
 ) {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: new RegExp(`^/rest/v1/${table}`), method })
-    .reply(status, JSON.stringify(body))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: new RegExp(`^/rest/v1/${table}`), method }),
+      () => new HttpResponse(JSON.stringify(body), { status }),
+    ),
+  );
 }
 
 /**
  * A paused Supabase project answers with a Cloudflare error page rather than a
- * PostgREST payload, which the connector surfaces as a thrown error.
+ * PostgREST payload, which the connector surfaces as a thrown error. supabase-js
+ * retries a GET answered with 503, and `Retry-After: 0` lets it retry at once.
  */
 function interceptSupabaseOutage() {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: /^\/rest\/v1\//, method: 'GET' })
-    .reply(503, JSON.stringify({ message: 'error code: 1016' }))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: /^\/rest\/v1\//, method: 'GET' }),
+      () => HttpResponse.json({ message: 'error code: 1016' }, { status: 503, headers: { 'Retry-After': '0' } }),
+    ),
+  );
 }
 
 function interceptAccountMissing() {
@@ -171,10 +180,14 @@ function interceptAccountMissing() {
 }
 
 function interceptResolveHandle(did: string = DID) {
-  fetchMock
-    .get(APPVIEW_ORIGIN)
-    .intercept({ path: /^\/xrpc\/com\.atproto\.identity\.resolveHandle\?handle=/, method: 'GET' })
-    .reply(200, JSON.stringify({ did }));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(APPVIEW_ORIGIN, { path: /^\/xrpc\/com\.atproto\.identity\.resolveHandle\?handle=/, method: 'GET' }),
+      () => HttpResponse.json({ did }),
+      { once: true },
+    ),
+  );
 }
 
 function didDocument(overrides: Record<string, unknown> = {}) {
@@ -189,17 +202,26 @@ function didDocument(overrides: Record<string, unknown> = {}) {
 }
 
 function interceptDIDDocument(document: Record<string, unknown> = didDocument()) {
-  fetchMock
-    .get(PLC_ORIGIN)
-    .intercept({ path: `/${DID}`, method: 'GET' })
-    .reply(200, JSON.stringify(document));
+  // Matched as an exact path: MSW would read the colons of the DID as path parameters.
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(PLC_ORIGIN, { path: `/${DID}`, method: 'GET' }),
+      () => HttpResponse.json(document),
+      { once: true },
+    ),
+  );
 }
 
 function interceptProtectedResourceMetadata(pdsOrigin: string = PDS_ORIGIN) {
-  fetchMock
-    .get(pdsOrigin)
-    .intercept({ path: '/.well-known/oauth-protected-resource', method: 'GET' })
-    .reply(200, JSON.stringify({ resource: pdsOrigin, authorization_servers: [ISSUER] }));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(pdsOrigin, { path: '/.well-known/oauth-protected-resource', method: 'GET' }),
+      () => HttpResponse.json({ resource: pdsOrigin, authorization_servers: [ISSUER] }),
+      { once: true },
+    ),
+  );
 }
 
 function authorizationServerMetadata(overrides: Record<string, unknown> = {}) {
@@ -223,31 +245,41 @@ function authorizationServerMetadata(overrides: Record<string, unknown> = {}) {
 }
 
 function interceptAuthorizationServerMetadata(metadata: Record<string, unknown> = authorizationServerMetadata()) {
-  fetchMock
-    .get(ISSUER)
-    .intercept({ path: '/.well-known/oauth-authorization-server', method: 'GET' })
-    .reply(200, JSON.stringify(metadata));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(ISSUER, { path: '/.well-known/oauth-authorization-server', method: 'GET' }),
+      () => HttpResponse.json(metadata),
+      { once: true },
+    ),
+  );
 }
 
 function interceptPushedAuthorizationRequest(captured?: CapturedRequest[], nonce: string = AUTHORIZATION_SERVER_NONCE) {
-  fetchMock
-    .get(ISSUER)
-    .intercept({ path: '/oauth/par', method: 'POST' })
-    .reply(201, (options: any) => {
-      capture(captured, options);
-      return JSON.stringify({ request_uri: REQUEST_URI, expires_in: 299 });
-    }, { headers: { 'DPoP-Nonce': nonce } });
+  appendHandlers(
+    network,
+    http.all(requestMatching(ISSUER, { path: '/oauth/par', method: 'POST' }), async ({ request }) => {
+      await capture(captured, request);
+      return HttpResponse.json(
+        { request_uri: REQUEST_URI, expires_in: 299 },
+        { status: 201, headers: { 'DPoP-Nonce': nonce } },
+      );
+    }, { once: true }),
+  );
 }
 
 /** The authorization server's "send that again with my nonce" answer. */
 function interceptUseDPoPNonce(path: string, nonce: string, captured?: CapturedRequest[]) {
-  fetchMock
-    .get(ISSUER)
-    .intercept({ path, method: 'POST' })
-    .reply(400, (options: any) => {
-      capture(captured, options);
-      return JSON.stringify({ error: 'use_dpop_nonce', error_description: 'Authorization server requires nonce in DPoP proof' });
-    }, { headers: { 'DPoP-Nonce': nonce } });
+  appendHandlers(
+    network,
+    http.all(requestMatching(ISSUER, { path, method: 'POST' }), async ({ request }) => {
+      await capture(captured, request);
+      return HttpResponse.json(
+        { error: 'use_dpop_nonce', error_description: 'Authorization server requires nonce in DPoP proof' },
+        { status: 400, headers: { 'DPoP-Nonce': nonce } },
+      );
+    }, { once: true }),
+  );
 }
 
 /** Everything `/authorize` talks to, from the handle to the PAR endpoint. */
@@ -260,12 +292,11 @@ function interceptLoginStart(captured?: CapturedRequest[]) {
 }
 
 function interceptTokenExchange(captured?: CapturedRequest[], overrides: Record<string, unknown> = {}) {
-  fetchMock
-    .get(ISSUER)
-    .intercept({ path: '/oauth/token', method: 'POST' })
-    .reply(200, (options: any) => {
-      capture(captured, options);
-      return JSON.stringify({
+  appendHandlers(
+    network,
+    http.all(requestMatching(ISSUER, { path: '/oauth/token', method: 'POST' }), async ({ request }) => {
+      await capture(captured, request);
+      return HttpResponse.json({
         access_token: ACCESS_TOKEN,
         token_type: 'DPoP',
         sub: DID,
@@ -273,25 +304,26 @@ function interceptTokenExchange(captured?: CapturedRequest[], overrides: Record<
         expires_in: 300,
         refresh_token: 'test-bluesky-refresh-token',
         ...overrides,
-      });
-    }, { headers: { 'DPoP-Nonce': TOKEN_ENDPOINT_NONCE } });
+      }, { headers: { 'DPoP-Nonce': TOKEN_ENDPOINT_NONCE } });
+    }, { once: true }),
+  );
 }
 
 function interceptGetSession(captured?: CapturedRequest[], overrides: Record<string, unknown> = {}) {
-  fetchMock
-    .get(PDS_ORIGIN)
-    .intercept({ path: '/xrpc/com.atproto.server.getSession', method: 'GET' })
-    .reply(200, (options: any) => {
-      capture(captured, options);
-      return JSON.stringify({
+  appendHandlers(
+    network,
+    http.all(requestMatching(PDS_ORIGIN, { path: '/xrpc/com.atproto.server.getSession', method: 'GET' }), async ({ request }) => {
+      await capture(captured, request);
+      return HttpResponse.json({
         did: DID,
         handle: HANDLE,
         email: 'alice@example.com',
         emailConfirmed: true,
         active: true,
         ...overrides,
-      });
-    }, { headers: { 'DPoP-Nonce': PDS_NONCE } });
+      }, { headers: { 'DPoP-Nonce': PDS_NONCE } });
+    }, { once: true }),
+  );
 }
 
 /** The token half of the callback: authorization server metadata + token. */
@@ -427,22 +459,6 @@ async function startLinkFlow(state: string, subject: string = ACCOUNT_UUID) {
 
   return { token, nonce, redirectURL, linkCode: redirectURL.searchParams.get('link_code') };
 }
-
-/** Origins that get intercepted; their mocks are reset between tests. */
-const MOCK_ORIGINS = [SUPABASE_ORIGIN, APPVIEW_ORIGIN, PLC_ORIGIN, PDS_ORIGIN, ISSUER, WEB_DID_ORIGIN];
-
-beforeEach(() => {
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-});
-
-afterEach(() => {
-  // Interceptors (especially persisted ones) outlive a single test otherwise.
-  for (const origin of MOCK_ORIGINS) {
-    fetchMock.get(origin).cleanMocks();
-  }
-  fetchMock.deactivate();
-});
 
 describe('bluesky-oauth-provider-worker', () => {
   describe('client metadata', () => {
@@ -686,10 +702,14 @@ describe('bluesky-oauth-provider-worker', () => {
     it('resolves a did:web account through its /.well-known/did.json', async () => {
       const webDID = 'did:web:alice.example.com';
       interceptResolveHandle(webDID);
-      fetchMock
-        .get(WEB_DID_ORIGIN)
-        .intercept({ path: '/.well-known/did.json', method: 'GET' })
-        .reply(200, JSON.stringify(didDocument({ id: webDID, alsoKnownAs: ['at://alice.example.com'] })));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(WEB_DID_ORIGIN, { path: '/.well-known/did.json', method: 'GET' }),
+          () => HttpResponse.json(didDocument({ id: webDID, alsoKnownAs: ['at://alice.example.com'] })),
+          { once: true },
+        ),
+      );
       interceptProtectedResourceMetadata();
       interceptAuthorizationServerMetadata();
       interceptPushedAuthorizationRequest();
@@ -724,10 +744,14 @@ describe('bluesky-oauth-provider-worker', () => {
     });
 
     it('redirects with identity_resolution_failed when the handle does not resolve', async () => {
-      fetchMock
-        .get(APPVIEW_ORIGIN)
-        .intercept({ path: /^\/xrpc\/com\.atproto\.identity\.resolveHandle/, method: 'GET' })
-        .reply(400, JSON.stringify({ error: 'InvalidRequest', message: 'Unable to resolve handle' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(APPVIEW_ORIGIN, { path: /^\/xrpc\/com\.atproto\.identity\.resolveHandle/, method: 'GET' }),
+          () => HttpResponse.json({ error: 'InvalidRequest', message: 'Unable to resolve handle' }, { status: 400 }),
+          { once: true },
+        ),
+      );
 
       const response = await worker.fetch(
         authorizeRequest(`redirect_uri=https://app.example.com/callback&handle=${HANDLE}`),
@@ -1057,13 +1081,16 @@ describe('bluesky-oauth-provider-worker', () => {
 
       const sessionRequests: CapturedRequest[] = [];
       interceptTokenRoundTrip();
-      fetchMock
-        .get(PDS_ORIGIN)
-        .intercept({ path: '/xrpc/com.atproto.server.getSession', method: 'GET' })
-        .reply(401, (options: any) => {
-          capture(sessionRequests, options);
-          return JSON.stringify({ error: 'use_dpop_nonce', message: 'Resource server requires nonce in DPoP proof' });
-        }, { headers: { 'DPoP-Nonce': PDS_NONCE, 'WWW-Authenticate': 'DPoP error="use_dpop_nonce"' } });
+      appendHandlers(
+        network,
+        http.all(requestMatching(PDS_ORIGIN, { path: '/xrpc/com.atproto.server.getSession', method: 'GET' }), async ({ request }) => {
+          await capture(sessionRequests, request);
+          return HttpResponse.json(
+            { error: 'use_dpop_nonce', message: 'Resource server requires nonce in DPoP proof' },
+            { status: 401, headers: { 'DPoP-Nonce': PDS_NONCE, 'WWW-Authenticate': 'DPoP error="use_dpop_nonce"' } },
+          );
+        }, { once: true }),
+      );
       interceptGetSession(sessionRequests);
       interceptSupabase('GET', 'accounts', 200, blueskyAccountRow());
 
@@ -1078,10 +1105,14 @@ describe('bluesky-oauth-provider-worker', () => {
       await putAuthorizationState(oauthState('valid'));
 
       interceptAuthorizationServerMetadata();
-      fetchMock
-        .get(ISSUER)
-        .intercept({ path: '/oauth/token', method: 'POST' })
-        .reply(400, JSON.stringify({ error: 'invalid_grant' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(ISSUER, { path: '/oauth/token', method: 'POST' }),
+          () => HttpResponse.json({ error: 'invalid_grant' }, { status: 400 }),
+          { once: true },
+        ),
+      );
 
       const response = await worker.fetch(callbackRequest(oauthState('valid')), environment);
 
@@ -1118,10 +1149,14 @@ describe('bluesky-oauth-provider-worker', () => {
       await putAuthorizationState(oauthState('valid'));
 
       interceptTokenRoundTrip();
-      fetchMock
-        .get(PDS_ORIGIN)
-        .intercept({ path: '/xrpc/com.atproto.server.getSession', method: 'GET' })
-        .reply(401, JSON.stringify({ error: 'InvalidToken', message: 'Bad token' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(PDS_ORIGIN, { path: '/xrpc/com.atproto.server.getSession', method: 'GET' }),
+          () => HttpResponse.json({ error: 'InvalidToken', message: 'Bad token' }, { status: 401 }),
+          { once: true },
+        ),
+      );
 
       const response = await worker.fetch(callbackRequest(oauthState('valid')), environment);
 

@@ -1,6 +1,6 @@
 name = "audio-underview-user-vault-worker"
 main = "sources/index.ts"
-compatibility_date = "2025-11-25"
+compatibility_date = "2026-10-12"
 workers_dev = false
 
 [[d1_databases]]

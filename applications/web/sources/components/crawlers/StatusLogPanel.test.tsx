@@ -1,6 +1,6 @@
 import { render } from 'vitest-browser-react';
 import { StatusLogPanel } from './StatusLogPanel.tsx';
-import { page } from '@vitest/browser/context';
+import { page } from 'vitest/browser';
 import type { LogEntry } from '../../hooks/use-crawler-code-runner.ts';
 
 describe('StatusLogPanel', () => {
@@ -18,8 +18,8 @@ describe('StatusLogPanel', () => {
 
     await render(<StatusLogPanel entries={entries} />);
 
-    await expect.element(page.getByText('Starting...')).toBeVisible();
-    await expect.element(page.getByText('Done!')).toBeVisible();
+    await expect.element(page.getByText('[10:00:00]Starting...')).toBeVisible();
+    await expect.element(page.getByText('[10:00:01]Done!')).toBeVisible();
   });
 
   test('renders entry with details', async () => {
@@ -29,7 +29,7 @@ describe('StatusLogPanel', () => {
 
     await render(<StatusLogPanel entries={entries} />);
 
-    await expect.element(page.getByText('Failed')).toBeVisible();
+    await expect.element(page.getByText('[10:00:00]Failed(timeout)')).toBeVisible();
     await expect.element(page.getByText('(timeout)')).toBeVisible();
   });
 
@@ -40,6 +40,6 @@ describe('StatusLogPanel', () => {
 
     await render(<StatusLogPanel entries={entries} />);
 
-    await expect.element(page.getByText('Test')).toBeVisible();
+    await expect.element(page.getByText('[10:05:30]Test')).toBeVisible();
   });
 });

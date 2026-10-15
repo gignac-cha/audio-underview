@@ -1,5 +1,8 @@
 import { vi } from 'vitest';
-import { env, fetchMock } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
+import { exports } from 'cloudflare:workers';
+import { http, HttpResponse } from 'msw';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 import { createSupabaseClient, type CrawlerRow } from '@audio-underview/supabase-connector';
 import type { Logger } from '@audio-underview/logger';
 import { HTTPCodeRunnerClient } from '../sources/code-runner-client.ts';
@@ -13,6 +16,20 @@ export const testEnvironment = env as unknown as Environment;
 export const SUPABASE_ORIGIN = 'https://supabase.example.com';
 export const CODE_RUNNER_ORIGIN = 'https://code-runner.example.com';
 export const VAULT_TOKEN = 'test-vault-token';
+
+export interface ScheduledTrigger {
+  cron: string;
+  scheduledTime: Date;
+}
+
+/**
+ * Runs the scheduled handler of this worker as its cron trigger does, through scheduled() of its service
+ * binding, which the workers types leave out of Fetcher.
+ */
+export function runScheduledHandler(trigger: ScheduledTrigger): Promise<unknown> {
+  const binding: { scheduled(trigger: ScheduledTrigger): Promise<unknown> } = exports.default;
+  return binding.scheduled(trigger);
+}
 
 /** A UUID unique to the test, so Dynamic Workers and vault answers of tests never mix */
 export function uniqueUUID(): string {
@@ -60,6 +77,9 @@ export function createMockLogger(): MockLogger {
   return logger as unknown as MockLogger;
 }
 
+/** What a run needs of the LOADER binding, so a test can stand in for it */
+export type CrawlerLoader = CrawlerRuntimeDependencies['loader'];
+
 export interface LoaderCall {
   id: string;
   workerCode: CrawlerWorkerCode;
@@ -68,9 +88,9 @@ export interface LoaderCall {
 /**
  * The LOADER binding of the test worker, recording the ID and the code each get() loads.
  */
-export function createRecordingLoader(): { loader: WorkerLoader; calls: LoaderCall[] } {
+export function createRecordingLoader(): { loader: CrawlerLoader; calls: LoaderCall[] } {
   const calls: LoaderCall[] = [];
-  const loader: WorkerLoader = {
+  const loader: CrawlerLoader = {
     get(id, getCode) {
       return testEnvironment.LOADER.get(id, async () => {
         const workerCode = await getCode();
@@ -156,12 +176,12 @@ export async function workerRequest(
  */
 export function mockPageBody(body: string): { requests: unknown[] } {
   const requests: unknown[] = [];
-  fetchMock
-    .get(CODE_RUNNER_ORIGIN)
-    .intercept({ path: '/run', method: 'POST' })
-    .reply((options) => {
-      requests.push(JSON.parse(String(options.body)));
-      return { statusCode: 200, data: JSON.stringify({ type: 'web', mode: 'run', result: body }) };
-    });
+  appendHandlers(
+    network,
+    http.all(requestMatching(CODE_RUNNER_ORIGIN, { path: '/run', method: 'POST' }), async ({ request }) => {
+      requests.push(JSON.parse(await request.text()));
+      return HttpResponse.json({ type: 'web', mode: 'run', result: body });
+    }, { once: true }),
+  );
   return { requests };
 }

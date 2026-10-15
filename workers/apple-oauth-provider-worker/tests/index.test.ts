@@ -1,12 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@audio-underview/axiom-logger', () => ({
   instrumentWorker: vi.fn((handler: unknown) => handler),
 }));
 
-import { env, fetchMock } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
 import { signJWT, verifyJWT } from '@audio-underview/worker-tools';
 import { createMockJWT } from '@audio-underview/worker-tools/tests/mock-jwt.ts';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 import worker from '../sources/index.ts';
 
 const WORKER_URL = 'https://worker.example.com';
@@ -32,23 +34,28 @@ function interceptSupabase(
   status: number,
   body: unknown,
 ) {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: new RegExp(`^/rest/v1/${table}`), method })
-    .reply(status, JSON.stringify(body))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: new RegExp(`^/rest/v1/${table}`), method }),
+      () => new HttpResponse(JSON.stringify(body), { status }),
+    ),
+  );
 }
 
 /**
  * A paused Supabase project answers with a Cloudflare error page rather than a
- * PostgREST payload, which the connector surfaces as a thrown error.
+ * PostgREST payload, which the connector surfaces as a thrown error. supabase-js
+ * retries a GET answered with 503, and `Retry-After: 0` lets it retry at once.
  */
 function interceptSupabaseOutage() {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: /^\/rest\/v1\//, method: 'GET' })
-    .reply(503, JSON.stringify({ message: 'error code: 1016' }))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: /^\/rest\/v1\//, method: 'GET' }),
+      () => HttpResponse.json({ message: 'error code: 1016' }, { status: 503, headers: { 'Retry-After': '0' } }),
+    ),
+  );
 }
 
 function interceptAccountMissing() {
@@ -77,15 +84,15 @@ function createIDToken(overrides: Record<string, unknown> = {}): string {
 
 /** Pass null for a token response that carries no `id_token` at all. */
 function interceptTokenExchange(idToken: string | null = createIDToken()) {
-  fetchMock
-    .get(APPLE_ORIGIN)
-    .intercept({ path: '/auth/token', method: 'POST' })
-    .reply(200, JSON.stringify({
+  appendHandlers(
+    network,
+    http.all(requestMatching(APPLE_ORIGIN, { path: '/auth/token', method: 'POST' }), () => HttpResponse.json({
       access_token: 'mock-access-token',
       token_type: 'Bearer',
       expires_in: 3600,
       ...(idToken ? { id_token: idToken } : {}),
-    }));
+    }), { once: true }),
+  );
 }
 
 /**
@@ -203,22 +210,6 @@ async function importApplePublicKey(): Promise<CryptoKey> {
   const { kty, crv, x, y } = await crypto.subtle.exportKey('jwk', privateKey) as JsonWebKey;
   return crypto.subtle.importKey('jwk', { kty, crv, x, y }, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
 }
-
-/** Origins that get intercepted; their mocks are reset between tests. */
-const MOCK_ORIGINS = [SUPABASE_ORIGIN, APPLE_ORIGIN];
-
-beforeEach(() => {
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-});
-
-afterEach(() => {
-  // Interceptors (especially persisted ones) outlive a single test otherwise.
-  for (const origin of MOCK_ORIGINS) {
-    fetchMock.get(origin).cleanMocks();
-  }
-  fetchMock.deactivate();
-});
 
 describe('apple-oauth-provider-worker', () => {
   describe('handleAuthorize', () => {
@@ -418,10 +409,14 @@ describe('apple-oauth-provider-worker', () => {
     it('redirects with error when token exchange fails', async () => {
       await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
 
-      fetchMock
-        .get(APPLE_ORIGIN)
-        .intercept({ path: '/auth/token', method: 'POST' })
-        .reply(400, JSON.stringify({ error: 'invalid_grant' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(APPLE_ORIGIN, { path: '/auth/token', method: 'POST' }),
+          () => HttpResponse.json({ error: 'invalid_grant' }, { status: 400 }),
+          { once: true },
+        ),
+      );
 
       const response = await worker.fetch(
         formPostCallback({ code: 'test-code', state: oauthState('valid') }),
@@ -437,17 +432,13 @@ describe('apple-oauth-provider-worker', () => {
       await putAuthorizationState(oauthState('secret'), { redirectURI: 'https://app.example.com/callback' });
 
       let tokenRequestBody: string | undefined;
-      fetchMock
-        .get(APPLE_ORIGIN)
-        .intercept({
-          path: '/auth/token',
-          method: 'POST',
-          body: (body: string) => {
-            tokenRequestBody = body;
-            return true;
-          },
-        })
-        .reply(400, JSON.stringify({ error: 'invalid_grant' }));
+      appendHandlers(
+        network,
+        http.all(requestMatching(APPLE_ORIGIN, { path: '/auth/token', method: 'POST' }), async ({ request }) => {
+          tokenRequestBody = await request.text();
+          return HttpResponse.json({ error: 'invalid_grant' }, { status: 400 });
+        }, { once: true }),
+      );
 
       await worker.fetch(formPostCallback({ code: 'test-code', state: oauthState('secret') }), env);
 

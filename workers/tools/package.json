@@ -6,7 +6,9 @@
   "main": "./sources/index.ts",
   "exports": {
     ".": "./sources/index.ts",
-    "./tests/mock-jwt.ts": "./tests/mock-jwt.ts"
+    "./tests/mock-jwt.ts": "./tests/mock-jwt.ts",
+    "./tests/network.ts": "./tests/network.ts",
+    "./tests/setup.ts": "./tests/setup.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -17,10 +19,10 @@
     "@audio-underview/sign-provider": "workspace:*"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "catalog:worker",
+    "@cloudflare/vitest-plugin": "catalog:worker",
     "@cloudflare/workers-types": "catalog:worker",
-    "@vitest/runner": "catalog:worker",
-    "@vitest/snapshot": "catalog:worker",
+    "@msw/cloudflare": "catalog:worker",
+    "msw": "catalog:worker",
     "vitest": "catalog:worker"
   }
 }

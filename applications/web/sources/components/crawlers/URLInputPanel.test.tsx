@@ -1,6 +1,6 @@
 import { render } from 'vitest-browser-react';
 import { URLInputPanel } from './URLInputPanel.tsx';
-import { page } from '@vitest/browser/context';
+import { page } from 'vitest/browser';
 
 describe('URLInputPanel', () => {
   test('renders with label and input', async () => {

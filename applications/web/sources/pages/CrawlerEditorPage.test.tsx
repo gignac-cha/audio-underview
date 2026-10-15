@@ -8,7 +8,7 @@ import { ToastProvider } from '../contexts/ToastContext.tsx';
 import { AuthenticationContext } from '../contexts/authentication-context-value.ts';
 import type { AuthenticationContextValue } from '../contexts/authentication-context-value.ts';
 import { worker } from '../tests/mocks/browser.ts';
-import { page } from '@vitest/browser/context';
+import { page } from 'vitest/browser';
 import type { ReactNode } from 'react';
 
 const MANAGER_URL = 'http://localhost:8888';

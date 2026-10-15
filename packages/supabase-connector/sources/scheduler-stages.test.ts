@@ -6,9 +6,7 @@ import {
   deleteSchedulerStage,
   reorderSchedulerStages,
 } from './scheduler-stages.ts';
-import { createMockClient, setupTracerMock } from './test-helpers.ts';
-
-setupTracerMock();
+import { createMockClient } from './test-helpers.ts';
 
 afterEach(() => {
   vi.restoreAllMocks();

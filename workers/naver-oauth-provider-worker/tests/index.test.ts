@@ -1,12 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@audio-underview/axiom-logger', () => ({
   instrumentWorker: vi.fn((handler: unknown) => handler),
 }));
 
-import { env, fetchMock } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
 import { instrumentWorker } from '@audio-underview/axiom-logger';
 import { signJWT, verifyJWT } from '@audio-underview/worker-tools';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 import worker from '../sources/index.ts';
 
 const WORKER_URL = 'https://worker.example.com';
@@ -31,23 +33,28 @@ function interceptSupabase(
   status: number,
   body: unknown,
 ) {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: new RegExp(`^/rest/v1/${table}`), method })
-    .reply(status, JSON.stringify(body))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: new RegExp(`^/rest/v1/${table}`), method }),
+      () => new HttpResponse(JSON.stringify(body), { status }),
+    ),
+  );
 }
 
 /**
  * A paused Supabase project answers with a Cloudflare error page rather than a
- * PostgREST payload, which the connector surfaces as a thrown error.
+ * PostgREST payload, which the connector surfaces as a thrown error. supabase-js
+ * retries a GET answered with 503, and `Retry-After: 0` lets it retry at once.
  */
 function interceptSupabaseOutage() {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: /^\/rest\/v1\//, method: 'GET' })
-    .reply(503, JSON.stringify({ message: 'error code: 1016' }))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: /^\/rest\/v1\//, method: 'GET' }),
+      () => HttpResponse.json({ message: 'error code: 1016' }, { status: 503, headers: { 'Retry-After': '0' } }),
+    ),
+  );
 }
 
 function interceptAccountMissing() {
@@ -61,15 +68,19 @@ function interceptAccountMissing() {
 
 /** Naver takes the token request as query parameters on a bodiless POST. */
 function interceptTokenExchange() {
-  fetchMock
-    .get(NAVER_AUTHORIZATION_ORIGIN)
-    .intercept({ path: /^\/oauth2\.0\/token\?/, method: 'POST' })
-    .reply(200, JSON.stringify({
-      access_token: 'mock-access-token',
-      token_type: 'bearer',
-      expires_in: 3600,
-      refresh_token: 'mock-refresh-token',
-    }));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(NAVER_AUTHORIZATION_ORIGIN, { path: /^\/oauth2\.0\/token\?/, method: 'POST' }),
+      () => HttpResponse.json({
+        access_token: 'mock-access-token',
+        token_type: 'bearer',
+        expires_in: 3600,
+        refresh_token: 'mock-refresh-token',
+      }),
+      { once: true },
+    ),
+  );
 }
 
 /**
@@ -78,21 +89,25 @@ function interceptTokenExchange() {
  * field from the JSON, the way Naver omits fields the user did not consent to.
  */
 function interceptUserInfo(overrides: Record<string, unknown> = {}) {
-  fetchMock
-    .get(NAVER_API_ORIGIN)
-    .intercept({ path: '/v1/nid/me', method: 'GET' })
-    .reply(200, JSON.stringify({
-      resultcode: '00',
-      message: 'success',
-      response: {
-        id: '12345',
-        email: 'test@example.com',
-        name: 'Test User',
-        nickname: 'tester',
-        profile_image: 'https://phinf.pstatic.net/contact/profile.png',
-        ...overrides,
-      },
-    }));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(NAVER_API_ORIGIN, { path: '/v1/nid/me', method: 'GET' }),
+      () => HttpResponse.json({
+        resultcode: '00',
+        message: 'success',
+        response: {
+          id: '12345',
+          email: 'test@example.com',
+          name: 'Test User',
+          nickname: 'tester',
+          profile_image: 'https://phinf.pstatic.net/contact/profile.png',
+          ...overrides,
+        },
+      }),
+      { once: true },
+    ),
+  );
 }
 
 /**
@@ -172,22 +187,6 @@ async function startLinkFlow(state: string, subject: string = ACCOUNT_UUID) {
 
   return { token, nonce, redirectURL, linkCode: redirectURL.searchParams.get('link_code') };
 }
-
-/** Origins that get intercepted; their mocks are reset between tests. */
-const MOCK_ORIGINS = [SUPABASE_ORIGIN, NAVER_AUTHORIZATION_ORIGIN, NAVER_API_ORIGIN];
-
-beforeEach(() => {
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-});
-
-afterEach(() => {
-  // Interceptors (especially persisted ones) outlive a single test otherwise.
-  for (const origin of MOCK_ORIGINS) {
-    fetchMock.get(origin).cleanMocks();
-  }
-  fetchMock.deactivate();
-});
 
 describe('naver-oauth-provider-worker', () => {
   describe('handleAuthorize', () => {
@@ -372,16 +371,20 @@ describe('naver-oauth-provider-worker', () => {
       await putAuthorizationState(oauthState('tokenquery'), { redirectURI: 'https://app.example.com/callback' });
 
       let tokenRequestPath: string | undefined;
-      fetchMock
-        .get(NAVER_AUTHORIZATION_ORIGIN)
-        .intercept({
-          path: (path: string) => {
-            tokenRequestPath = path;
-            return path.startsWith('/oauth2.0/token?');
-          },
-          method: 'POST',
-        })
-        .reply(200, JSON.stringify({ access_token: 'mock-access-token', token_type: 'bearer' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(NAVER_AUTHORIZATION_ORIGIN, {
+            path: (path: string) => {
+              tokenRequestPath = path;
+              return path.startsWith('/oauth2.0/token?');
+            },
+            method: 'POST',
+          }),
+          () => HttpResponse.json({ access_token: 'mock-access-token', token_type: 'bearer' }),
+          { once: true },
+        ),
+      );
       interceptUserInfo();
       interceptSupabase('GET', 'accounts', 200, naverAccountRow());
 
@@ -402,10 +405,14 @@ describe('naver-oauth-provider-worker', () => {
     it('redirects with error when token exchange HTTP request fails', async () => {
       await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
 
-      fetchMock
-        .get(NAVER_AUTHORIZATION_ORIGIN)
-        .intercept({ path: /^\/oauth2\.0\/token\?/, method: 'POST' })
-        .reply(400, JSON.stringify({ error: 'invalid_grant' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(NAVER_AUTHORIZATION_ORIGIN, { path: /^\/oauth2\.0\/token\?/, method: 'POST' }),
+          () => HttpResponse.json({ error: 'invalid_grant' }, { status: 400 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -418,13 +425,17 @@ describe('naver-oauth-provider-worker', () => {
     it('redirects with a generic error when token response body contains error field (200 with error)', async () => {
       await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
 
-      fetchMock
-        .get(NAVER_AUTHORIZATION_ORIGIN)
-        .intercept({ path: /^\/oauth2\.0\/token\?/, method: 'POST' })
-        .reply(200, JSON.stringify({
-          error: 'invalid_request',
-          error_description: 'The request is missing a required parameter',
-        }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(NAVER_AUTHORIZATION_ORIGIN, { path: /^\/oauth2\.0\/token\?/, method: 'POST' }),
+          () => HttpResponse.json({
+            error: 'invalid_request',
+            error_description: 'The request is missing a required parameter',
+          }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -441,10 +452,14 @@ describe('naver-oauth-provider-worker', () => {
 
       interceptTokenExchange();
 
-      fetchMock
-        .get(NAVER_API_ORIGIN)
-        .intercept({ path: '/v1/nid/me', method: 'GET' })
-        .reply(401, 'Unauthorized');
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(NAVER_API_ORIGIN, { path: '/v1/nid/me', method: 'GET' }),
+          () => HttpResponse.text('Unauthorized', { status: 401 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -459,14 +474,18 @@ describe('naver-oauth-provider-worker', () => {
 
       interceptTokenExchange();
 
-      fetchMock
-        .get(NAVER_API_ORIGIN)
-        .intercept({ path: '/v1/nid/me', method: 'GET' })
-        .reply(200, JSON.stringify({
-          resultcode: '024',
-          message: 'Authentication failed',
-          response: {},
-        }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(NAVER_API_ORIGIN, { path: '/v1/nid/me', method: 'GET' }),
+          () => HttpResponse.json({
+            resultcode: '024',
+            message: 'Authentication failed',
+            response: {},
+          }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);

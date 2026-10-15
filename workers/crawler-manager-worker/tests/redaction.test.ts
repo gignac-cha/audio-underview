@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { SELF } from 'cloudflare:test';
+import { exports } from 'cloudflare:workers';
 import { Logger } from '@audio-underview/logger';
 import type { CrawlerRunOutcome } from '@audio-underview/worker-tools';
 import { createRedactor } from '../sources/crawler-runtime/redaction.ts';
@@ -294,7 +294,7 @@ describe('redaction of a run', () => {
       user_uuid: author,
       code: '(input, context) => { console.error(context.environment.KEY); throw new Error(context.environment.KEY); }',
     }));
-    const worker = SELF as unknown as Service<typeof CrawlerManagerWorker>;
+    const worker = exports.default as unknown as Service<typeof CrawlerManagerWorker>;
 
     const outcome = await worker.runCrawler(crawler.id, {}, { userUUID: author });
 

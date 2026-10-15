@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, afterAll } from 'vitest';
-import { env, fetchMock } from 'cloudflare:test';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { env } from 'cloudflare:test';
 import type { WorkflowStepConfig } from 'cloudflare:workers';
 import { createSupabaseClient } from '@audio-underview/supabase-connector';
 import type { Logger } from '@audio-underview/logger';
@@ -8,6 +8,8 @@ import { runScheduledPipeline } from '../sources/scheduled-pipeline.ts';
 import type { ScheduledPipelineDependencies, ScheduledPipelineStep } from '../sources/scheduled-pipeline.ts';
 import type { TaskGroupStartRequest, TaskGroupWorker } from '../sources/task-group-worker.ts';
 import { completeTaskGroupRun, failTaskGroupRun } from '../sources/task-group-reports.ts';
+import { http, HttpResponse } from 'msw';
+import { network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 
 const SUPABASE_ORIGIN = 'https://supabase.example.com';
 const USER_UUID = '00000000-0000-0000-0000-000000000001';
@@ -80,7 +82,7 @@ function runRow(overrides: Row = {}): Row {
   };
 }
 
-// --- Fake Supabase: a small in-memory PostgREST behind fetchMock ---
+// --- Fake Supabase: a small in-memory PostgREST behind MSW handlers ---
 
 interface FakeDatabase {
   schedulers: Row[];
@@ -415,24 +417,6 @@ const twoStages = [
   stageRow({ id: STAGE_ID_2, crawler_id: CRAWLER_ID_2, stage_order: 1, input_schema: {} }),
 ];
 
-// The interceptors persist, so they match only while this file runs
-let fakeSupabaseEnabled = false;
-
-beforeAll(() => {
-  fakeSupabaseEnabled = true;
-  // Registered once for the file: every handler reads the database of the current test
-  for (const method of ['GET', 'POST', 'PATCH']) {
-    fetchMock
-      .get(SUPABASE_ORIGIN)
-      .intercept({ path: (path: string) => fakeSupabaseEnabled && path.startsWith('/rest/v1/'), method })
-      .reply((options) => {
-        const { statusCode, data } = handleSupabaseRequest(method, String(options.path), String(options.body ?? ''), options.headers);
-        return { statusCode, data: JSON.stringify(data) };
-      })
-      .persist();
-  }
-});
-
 beforeEach(() => {
   database = {
     schedulers: [schedulerRow()],
@@ -444,16 +428,15 @@ beforeEach(() => {
   supabaseRequests = [];
   nextRowNumber = 1000;
   activeStep = null;
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-});
-
-afterEach(() => {
-  fetchMock.deactivate();
-});
-
-afterAll(() => {
-  fakeSupabaseEnabled = false;
+  // Handlers are reset after every test, so every test registers them again; each reads the database of the current test
+  network.use(...['GET', 'POST', 'PATCH'].map((method) => http.all(
+    requestMatching(SUPABASE_ORIGIN, { path: (path) => path.startsWith('/rest/v1/'), method }),
+    async ({ request }) => {
+      const url = new URL(request.url);
+      const { statusCode, data } = handleSupabaseRequest(method, `${url.pathname}${url.search}`, await request.text(), request.headers);
+      return new HttpResponse(JSON.stringify(data), { status: statusCode });
+    },
+  )));
 });
 
 describe('runScheduledPipeline', () => {

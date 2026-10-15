@@ -1,11 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@audio-underview/axiom-logger', () => ({
   instrumentWorker: vi.fn((handler: unknown) => handler),
 }));
 
-import { env, fetchMock } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
 import { signJWT, verifyJWT } from '@audio-underview/worker-tools';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 import worker from '../sources/index.ts';
 
 const WORKER_URL = 'https://worker.example.com';
@@ -20,9 +22,6 @@ const GOOGLE_SUBJECT = 'google-user-123';
  * splitting between providers.
  */
 const RETIRED_DETERMINISTIC_UUID = '2a620c38-ad8e-5df4-805f-174c9fa2b639';
-
-/** Origins that get intercepted; their mocks are reset between tests. */
-const MOCK_ORIGINS = [SUPABASE_ORIGIN, 'https://oauth2.googleapis.com', 'https://www.googleapis.com'];
 
 function createMockJWT(payload: Record<string, unknown>): string {
   const base64URLEncode = (data: string): string =>
@@ -56,23 +55,28 @@ function interceptSupabase(
   status: number,
   body: unknown,
 ) {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: new RegExp(`^/rest/v1/${table}`), method })
-    .reply(status, JSON.stringify(body))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: new RegExp(`^/rest/v1/${table}`), method }),
+      () => new HttpResponse(JSON.stringify(body), { status }),
+    ),
+  );
 }
 
 /**
  * A paused Supabase project answers with a Cloudflare error page rather than a
- * PostgREST payload, which the connector surfaces as a thrown error.
+ * PostgREST payload, which the connector surfaces as a thrown error. supabase-js
+ * retries a GET answered with 503, and `Retry-After: 0` lets it retry at once.
  */
 function interceptSupabaseOutage() {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: /^\/rest\/v1\//, method: 'GET' })
-    .reply(503, JSON.stringify({ message: 'error code: 1016' }))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: /^\/rest\/v1\//, method: 'GET' }),
+      () => HttpResponse.json({ message: 'error code: 1016' }, { status: 503, headers: { 'Retry-After': '0' } }),
+    ),
+  );
 }
 
 function interceptAccountMissing() {
@@ -85,16 +89,16 @@ function interceptAccountMissing() {
 }
 
 function interceptTokenExchange(extra: Record<string, unknown> = { id_token: idToken }) {
-  fetchMock
-    .get('https://oauth2.googleapis.com')
-    .intercept({ path: '/token', method: 'POST' })
-    .reply(200, JSON.stringify({
+  appendHandlers(
+    network,
+    http.all(requestMatching('https://oauth2.googleapis.com', { path: '/token', method: 'POST' }), () => HttpResponse.json({
       access_token: 'mock-access-token',
       token_type: 'Bearer',
       expires_in: 3600,
       scope: 'openid email profile',
       ...extra,
-    }));
+    }), { once: true }),
+  );
 }
 
 /**
@@ -174,19 +178,6 @@ async function startLinkFlow(state: string, subject: string = ACCOUNT_UUID) {
 
   return { token, nonce, redirectURL, linkCode: redirectURL.searchParams.get('link_code') };
 }
-
-beforeEach(() => {
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-});
-
-afterEach(() => {
-  // Interceptors (especially persisted ones) outlive a single test otherwise.
-  for (const origin of MOCK_ORIGINS) {
-    fetchMock.get(origin).cleanMocks();
-  }
-  fetchMock.deactivate();
-});
 
 describe('google-oauth-provider-worker', () => {
   describe('handleAuthorize', () => {
@@ -358,10 +349,14 @@ describe('google-oauth-provider-worker', () => {
     it('redirects with error when token exchange fails', async () => {
       await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
 
-      fetchMock
-        .get('https://oauth2.googleapis.com')
-        .intercept({ path: '/token', method: 'POST' })
-        .reply(400, JSON.stringify({ error: 'invalid_grant' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://oauth2.googleapis.com', { path: '/token', method: 'POST' }),
+          () => HttpResponse.json({ error: 'invalid_grant' }, { status: 400 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -466,10 +461,9 @@ describe('google-oauth-provider-worker', () => {
 
       interceptTokenExchange({});
 
-      fetchMock
-        .get('https://www.googleapis.com')
-        .intercept({ path: '/oauth2/v3/userinfo', method: 'GET' })
-        .reply(200, JSON.stringify({
+      appendHandlers(
+        network,
+        http.all(requestMatching('https://www.googleapis.com', { path: '/oauth2/v3/userinfo', method: 'GET' }), () => HttpResponse.json({
           sub: 'google-user-456',
           email: 'fallback@gmail.com',
           email_verified: true,
@@ -477,7 +471,8 @@ describe('google-oauth-provider-worker', () => {
           picture: 'https://lh3.googleusercontent.com/fallback.jpg',
           given_name: 'Fallback',
           family_name: 'User',
-        }));
+        }), { once: true }),
+      );
 
       interceptSupabase('GET', 'accounts', 200, { ...googleAccountRow(), identifier: 'google-user-456' });
 
@@ -503,10 +498,14 @@ describe('google-oauth-provider-worker', () => {
 
       interceptTokenExchange({});
 
-      fetchMock
-        .get('https://www.googleapis.com')
-        .intercept({ path: '/oauth2/v3/userinfo', method: 'GET' })
-        .reply(401, 'Unauthorized');
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://www.googleapis.com', { path: '/oauth2/v3/userinfo', method: 'GET' }),
+          () => HttpResponse.text('Unauthorized', { status: 401 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);

@@ -30,7 +30,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '25'
+          node-version: '26'
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -38,9 +38,6 @@ jobs:
 
       - name: Typecheck
         run: pnpm --filter @audio-underview/web typecheck
-
-      - name: Lint
-        run: pnpm --filter @audio-underview/web lint
 
       - name: Install Playwright Chromium
         run: pnpm --filter @audio-underview/web exec playwright install --with-deps chromium

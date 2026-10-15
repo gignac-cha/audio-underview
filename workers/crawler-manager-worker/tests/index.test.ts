@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from 'vitest';
-import { env, fetchMock, SELF } from 'cloudflare:test';
+import { exports } from 'cloudflare:workers';
+import { env, SELF } from 'cloudflare:test';
 import { signJWT } from '@audio-underview/worker-tools';
 import { SYSTEM_USER_UUID } from '@audio-underview/supabase-connector';
 import type CrawlerManagerWorker from '../sources/index.ts';
+import { http, HttpResponse, type JsonBodyType } from 'msw';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 
 const WORKER_URL = 'https://worker.example.com';
 const MOCK_USER_UUID = '00000000-0000-0000-0000-000000000001';
@@ -53,56 +56,67 @@ function mockCrawlerResponse(overrides: Record<string, unknown> = {}) {
 
 function mockSupabaseCrawlerCreate(overrides: Record<string, unknown> = {}) {
   const crawlerResponse = mockCrawlerResponse(overrides);
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'POST' })
-    .reply(201, JSON.stringify(crawlerResponse));
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/crawler_permissions/, method: 'POST' })
-    .reply(201, JSON.stringify({
-      id: crypto.randomUUID(),
-      crawler_id: crawlerResponse.id,
-      user_uuid: crawlerResponse.user_uuid,
-      level: 'owner',
-      created_at: new Date().toISOString(),
-    }));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/crawlers/, method: 'POST' }),
+      () => HttpResponse.json(crawlerResponse, { status: 201 }),
+      { once: true },
+    ),
+  );
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/crawler_permissions/, method: 'POST' }),
+      () => HttpResponse.json({
+        id: crypto.randomUUID(),
+        crawler_id: crawlerResponse.id,
+        user_uuid: crawlerResponse.user_uuid,
+        level: 'owner',
+        created_at: new Date().toISOString(),
+      }, { status: 201 }),
+      { once: true },
+    ),
+  );
 }
 
 function mockSupabaseCrawlerList(data: unknown[] = [mockCrawlerResponse()], total: number = 1) {
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
-    .reply(200, JSON.stringify(data), { headers: { 'content-range': data.length > 0 ? `0-${data.length - 1}/${total}` : `*/${total}` } });
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/crawlers/, method: 'GET' }),
+      () => HttpResponse.json(data, { headers: { 'content-range': data.length > 0 ? `0-${data.length - 1}/${total}` : `*/${total}` } }),
+      { once: true },
+    ),
+  );
 }
 
-function mockSupabaseCrawlerGet(data: unknown = mockCrawlerResponse()) {
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
-    .reply(200, JSON.stringify(data));
+function mockSupabaseCrawlerGet(data: JsonBodyType = mockCrawlerResponse()) {
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/crawlers/, method: 'GET' }),
+      () => HttpResponse.json(data),
+      { once: true },
+    ),
+  );
 }
 
 function mockSupabaseCrawlerNotFound() {
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
-    .reply(406, JSON.stringify({
-      code: 'PGRST116',
-      details: 'The result contains 0 rows',
-      hint: null,
-      message: 'JSON object requested, multiple (or no) rows returned',
-    }));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/crawlers/, method: 'GET' }),
+      () => HttpResponse.json({
+        code: 'PGRST116',
+        details: 'The result contains 0 rows',
+        hint: null,
+        message: 'JSON object requested, multiple (or no) rows returned',
+      }, { status: 406 }),
+      { once: true },
+    ),
+  );
 }
-
-beforeEach(() => {
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-});
-
-afterEach(() => {
-  fetchMock.deactivate();
-});
 
 describe('crawler-manager-worker', () => {
   describe('OPTIONS preflight', () => {
@@ -249,15 +263,23 @@ describe('crawler-manager-worker', () => {
 
   describe('POST /authentication/token', () => {
     it('returns a JWT for valid Google token', async () => {
-      fetchMock
-        .get('https://www.googleapis.com')
-        .intercept({ path: '/oauth2/v3/userinfo', method: 'GET' })
-        .reply(200, JSON.stringify({ sub: 'google-sub-123', email: 'test@example.com' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://www.googleapis.com', { path: '/oauth2/v3/userinfo', method: 'GET' }),
+          () => HttpResponse.json({ sub: 'google-sub-123', email: 'test@example.com' }),
+          { once: true },
+        ),
+      );
 
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/accounts/, method: 'GET' })
-        .reply(200, JSON.stringify({ provider: 'google', identifier: 'google-sub-123', uuid: MOCK_USER_UUID }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/accounts/, method: 'GET' }),
+          () => HttpResponse.json({ provider: 'google', identifier: 'google-sub-123', uuid: MOCK_USER_UUID }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/authentication/token`, {
         method: 'POST',
@@ -277,15 +299,23 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns a JWT for valid GitHub token', async () => {
-      fetchMock
-        .get('https://api.github.com')
-        .intercept({ path: '/user', method: 'GET' })
-        .reply(200, JSON.stringify({ id: 12345, login: 'testuser' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://api.github.com', { path: '/user', method: 'GET' }),
+          () => HttpResponse.json({ id: 12345, login: 'testuser' }),
+          { once: true },
+        ),
+      );
 
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/accounts/, method: 'GET' })
-        .reply(200, JSON.stringify({ provider: 'github', identifier: '12345', uuid: MOCK_USER_UUID }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/accounts/, method: 'GET' }),
+          () => HttpResponse.json({ provider: 'github', identifier: '12345', uuid: MOCK_USER_UUID }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/authentication/token`, {
         method: 'POST',
@@ -361,10 +391,14 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 401 when provider rejects the token', async () => {
-      fetchMock
-        .get('https://www.googleapis.com')
-        .intercept({ path: '/oauth2/v3/userinfo', method: 'GET' })
-        .reply(401, JSON.stringify({ error: 'invalid_token' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://www.googleapis.com', { path: '/oauth2/v3/userinfo', method: 'GET' }),
+          () => HttpResponse.json({ error: 'invalid_token' }, { status: 401 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/authentication/token`, {
         method: 'POST',
@@ -380,20 +414,28 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 401 when no account exists for the provider user', async () => {
-      fetchMock
-        .get('https://www.googleapis.com')
-        .intercept({ path: '/oauth2/v3/userinfo', method: 'GET' })
-        .reply(200, JSON.stringify({ sub: 'unknown-sub' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://www.googleapis.com', { path: '/oauth2/v3/userinfo', method: 'GET' }),
+          () => HttpResponse.json({ sub: 'unknown-sub' }),
+          { once: true },
+        ),
+      );
 
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/accounts/, method: 'GET' })
-        .reply(406, JSON.stringify({
-          code: 'PGRST116',
-          details: 'The result contains 0 rows',
-          hint: null,
-          message: 'JSON object requested, multiple (or no) rows returned',
-        }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/accounts/, method: 'GET' }),
+          () => HttpResponse.json({
+            code: 'PGRST116',
+            details: 'The result contains 0 rows',
+            hint: null,
+            message: 'JSON object requested, multiple (or no) rows returned',
+          }, { status: 406 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/authentication/token`, {
         method: 'POST',
@@ -709,10 +751,14 @@ describe('crawler-manager-worker', () => {
       const updatedData = { name: 'Updated Crawler', url_pattern: '.*', code: '(x) => x.toUpperCase()' };
       const mockResponse = mockCrawlerResponse(updatedData);
 
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'PATCH' })
-        .reply(200, JSON.stringify(mockResponse));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/crawlers/, method: 'PATCH' }),
+          () => HttpResponse.json(mockResponse),
+          { once: true },
+        ),
+      );
 
       const request = await authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
         method: 'PUT',
@@ -727,15 +773,19 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 404 when crawler does not exist or belongs to another user', async () => {
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'PATCH' })
-        .reply(406, JSON.stringify({
-          code: 'PGRST116',
-          details: 'The result contains 0 rows',
-          hint: null,
-          message: 'JSON object requested, multiple (or no) rows returned',
-        }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/crawlers/, method: 'PATCH' }),
+          () => HttpResponse.json({
+            code: 'PGRST116',
+            details: 'The result contains 0 rows',
+            hint: null,
+            message: 'JSON object requested, multiple (or no) rows returned',
+          }, { status: 406 }),
+          { once: true },
+        ),
+      );
 
       const request = await authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
         method: 'PUT',
@@ -750,10 +800,14 @@ describe('crawler-manager-worker', () => {
 
   describe('DELETE /crawlers/:id', () => {
     it('deletes a crawler and returns 200', async () => {
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'DELETE' })
-        .reply(200, JSON.stringify([mockCrawlerResponse()]));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/crawlers/, method: 'DELETE' }),
+          () => HttpResponse.json([mockCrawlerResponse()]),
+          { once: true },
+        ),
+      );
 
       const request = await authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
         method: 'DELETE',
@@ -766,10 +820,14 @@ describe('crawler-manager-worker', () => {
     });
 
     it('returns 404 when crawler belongs to another user', async () => {
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'DELETE' })
-        .reply(200, JSON.stringify([]));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/crawlers/, method: 'DELETE' }),
+          () => HttpResponse.json([]),
+          { once: true },
+        ),
+      );
 
       const request = await authenticatedRequest(`/crawlers/${MOCK_CRAWLER_ID}`, {
         method: 'DELETE',
@@ -825,7 +883,8 @@ describe('crawler-manager-worker', () => {
   });
 
   describe('executeCrawlerByName RPC', () => {
-    const crawlerManager = SELF as unknown as Service<typeof CrawlerManagerWorker>;
+    // An RPC promise is callable and expect().rejects calls what it is given, so rejecting calls are wrapped in a function
+    const crawlerManager = exports.default as unknown as Service<typeof CrawlerManagerWorker>;
     const INVALID_NAME_MESSAGE = 'Crawler name must be a non-empty string of at most 255 characters';
     let fetchSpy: MockInstance<typeof fetch>;
 
@@ -850,23 +909,28 @@ describe('crawler-manager-worker', () => {
       });
 
       let supabasePath: string | undefined;
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
-        .reply((options) => {
-          supabasePath = options.path;
-          return { statusCode: 200, data: JSON.stringify([crawler]) };
-        });
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/crawlers/, method: 'GET' }),
+          ({ request }) => {
+            const url = new URL(request.url);
+            supabasePath = `${url.pathname}${url.search}`;
+            return HttpResponse.json([crawler]);
+          },
+          { once: true },
+        ),
+      );
 
       // The Lambda only fetches the page and returns its body; the code runs in a Dynamic Worker (LOADER)
       let codeRunnerBody: unknown;
-      fetchMock
-        .get('https://code-runner.example.com')
-        .intercept({ path: '/run', method: 'POST' })
-        .reply((options) => {
-          codeRunnerBody = JSON.parse(String(options.body));
-          return { statusCode: 200, data: JSON.stringify({ type: 'web', mode: 'run', result: 'First' }) };
-        });
+      appendHandlers(
+        network,
+        http.all(requestMatching('https://code-runner.example.com', { path: '/run', method: 'POST' }), async ({ request }) => {
+          codeRunnerBody = JSON.parse(await request.text());
+          return HttpResponse.json({ type: 'web', mode: 'run', result: 'First' });
+        }, { once: true }),
+      );
 
       const result = await crawlerManager.executeCrawlerByName('geeknews-list', { url: 'https://news.hada.io/' });
 
@@ -878,33 +942,37 @@ describe('crawler-manager-worker', () => {
     });
 
     it('throws without calling the code runner when the system crawler does not exist', async () => {
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/crawlers/, method: 'GET' })
-        .reply(200, JSON.stringify([]));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/crawlers/, method: 'GET' }),
+          () => HttpResponse.json([]),
+          { once: true },
+        ),
+      );
 
-      await expect(
+      await expect(() =>
         crawlerManager.executeCrawlerByName('missing-crawler', { url: 'https://news.hada.io/' }),
       ).rejects.toThrow("System crawler 'missing-crawler' not found");
       expect(requestedOrigins()).toEqual(['https://supabase.example.com']);
     });
 
     it('throws without querying the database for an empty name', async () => {
-      await expect(
+      await expect(() =>
         crawlerManager.executeCrawlerByName('', { url: 'https://news.hada.io/' }),
       ).rejects.toThrow(INVALID_NAME_MESSAGE);
       expect(requestedOrigins()).toEqual([]);
     });
 
     it('throws without querying the database for a 256-character name', async () => {
-      await expect(
+      await expect(() =>
         crawlerManager.executeCrawlerByName('x'.repeat(256), { url: 'https://news.hada.io/' }),
       ).rejects.toThrow(INVALID_NAME_MESSAGE);
       expect(requestedOrigins()).toEqual([]);
     });
 
     it('throws without querying the database for a non-string name', async () => {
-      await expect(
+      await expect(() =>
         crawlerManager.executeCrawlerByName(42 as unknown as string, { url: 'https://news.hada.io/' }),
       ).rejects.toThrow(INVALID_NAME_MESSAGE);
       expect(requestedOrigins()).toEqual([]);

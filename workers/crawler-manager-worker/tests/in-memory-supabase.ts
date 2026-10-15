@@ -1,8 +1,9 @@
-import { beforeAll, beforeEach, afterEach, afterAll } from 'vitest';
-import { fetchMock } from 'cloudflare:test';
+import { beforeEach } from 'vitest';
+import { http, HttpResponse } from 'msw';
+import { network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 
 /**
- * A small in-memory PostgREST behind fetchMock, for tests that follow a run over several tables.
+ * A small in-memory PostgREST behind MSW handlers, for tests that follow a run over several tables.
  * It understands the filters, orders and limits the connector sends, whether a request asks for one
  * object (.single()) or an array, and the two RPC functions of migration 013 with its deletion trigger.
  */
@@ -139,7 +140,6 @@ function noSingleRowError(rowCount: number): InMemorySupabaseResponse {
  */
 export function useInMemorySupabase(origin: string): InMemorySupabase {
   let nextRowNumber = 5000;
-  let enabled = false;
 
   const supabase: InMemorySupabase = {
     tables: {},
@@ -248,36 +248,20 @@ export function useInMemorySupabase(origin: string): InMemorySupabase {
     throw new Error(`In-memory Supabase does not support ${method}`);
   }
 
-  beforeAll(() => {
-    enabled = true;
-    // Registered once for the file: every handler reads the tables of the current test
-    for (const method of ['GET', 'POST', 'PATCH', 'DELETE']) {
-      fetchMock
-        .get(origin)
-        .intercept({ path: (path: string) => enabled && path.startsWith('/rest/v1/'), method })
-        .reply((options) => {
-          const { statusCode, data } = handle(method, String(options.path), String(options.body ?? ''), options.headers);
-          return { statusCode, data: JSON.stringify(data) };
-        })
-        .persist();
-    }
-  });
-
   beforeEach(() => {
     supabase.tables = {};
     supabase.requests.length = 0;
     supabase.intercept = undefined;
     nextRowNumber = 5000;
-    fetchMock.activate();
-    fetchMock.disableNetConnect();
-  });
-
-  afterEach(() => {
-    fetchMock.deactivate();
-  });
-
-  afterAll(() => {
-    enabled = false;
+    // Handlers are reset after every test, so each test registers them again, ahead of its own
+    network.use(...['GET', 'POST', 'PATCH', 'DELETE'].map((method) => http.all(
+      requestMatching(origin, { path: (path) => path.startsWith('/rest/v1/'), method }),
+      async ({ request }) => {
+        const url = new URL(request.url);
+        const { statusCode, data } = handle(method, `${url.pathname}${url.search}`, await request.text(), request.headers);
+        return new HttpResponse(JSON.stringify(data), { status: statusCode });
+      },
+    )));
   });
 
   return supabase;

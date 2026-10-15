@@ -1,12 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@audio-underview/axiom-logger', () => ({
   instrumentWorker: vi.fn((handler: unknown) => handler),
 }));
 
-import { env, fetchMock } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
 import { instrumentWorker } from '@audio-underview/axiom-logger';
 import { signJWT, verifyJWT } from '@audio-underview/worker-tools';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 import worker from '../sources/index.ts';
 
 const WORKER_URL = 'https://worker.example.com';
@@ -33,23 +35,28 @@ function interceptSupabase(
   status: number,
   body: unknown,
 ) {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: new RegExp(`^/rest/v1/${table}`), method })
-    .reply(status, JSON.stringify(body))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: new RegExp(`^/rest/v1/${table}`), method }),
+      () => new HttpResponse(JSON.stringify(body), { status }),
+    ),
+  );
 }
 
 /**
  * A paused Supabase project answers with a Cloudflare error page rather than a
- * PostgREST payload, which the connector surfaces as a thrown error.
+ * PostgREST payload, which the connector surfaces as a thrown error. supabase-js
+ * retries a GET answered with 503, and `Retry-After: 0` lets it retry at once.
  */
 function interceptSupabaseOutage() {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: /^\/rest\/v1\//, method: 'GET' })
-    .reply(503, JSON.stringify({ message: 'error code: 1016' }))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: /^\/rest\/v1\//, method: 'GET' }),
+      () => HttpResponse.json({ message: 'error code: 1016' }, { status: 503, headers: { 'Retry-After': '0' } }),
+    ),
+  );
 }
 
 function interceptAccountMissing() {
@@ -62,18 +69,22 @@ function interceptAccountMissing() {
 }
 
 function interceptTokenExchange() {
-  fetchMock
-    .get(TIKTOK_API_ORIGIN)
-    .intercept({ path: '/v2/oauth/token/', method: 'POST' })
-    .reply(200, JSON.stringify({
-      open_id: OPEN_ID,
-      scope: 'user.info.basic',
-      access_token: 'mock-access-token',
-      expires_in: 86400,
-      refresh_token: 'mock-refresh-token',
-      refresh_expires_in: 31536000,
-      token_type: 'Bearer',
-    }));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(TIKTOK_API_ORIGIN, { path: '/v2/oauth/token/', method: 'POST' }),
+      () => HttpResponse.json({
+        open_id: OPEN_ID,
+        scope: 'user.info.basic',
+        access_token: 'mock-access-token',
+        expires_in: 86400,
+        refresh_token: 'mock-refresh-token',
+        refresh_expires_in: 31536000,
+        token_type: 'Bearer',
+      }),
+      { once: true },
+    ),
+  );
 }
 
 /** TikTok answers with the profile under `data.user` and an `ok` error code. */
@@ -93,10 +104,14 @@ function userInfoPayload(overrides: Record<string, unknown> = {}) {
 }
 
 function interceptUserInfo(overrides: Record<string, unknown> = {}) {
-  fetchMock
-    .get(TIKTOK_API_ORIGIN)
-    .intercept({ path: /^\/v2\/user\/info\//, method: 'GET' })
-    .reply(200, JSON.stringify(userInfoPayload(overrides)));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(TIKTOK_API_ORIGIN, { path: /^\/v2\/user\/info\//, method: 'GET' }),
+      () => HttpResponse.json(userInfoPayload(overrides)),
+      { once: true },
+    ),
+  );
 }
 
 /**
@@ -176,22 +191,6 @@ async function startLinkFlow(state: string, subject: string = ACCOUNT_UUID) {
 
   return { token, nonce, redirectURL, linkCode: redirectURL.searchParams.get('link_code') };
 }
-
-/** Origins that get intercepted; their mocks are reset between tests. */
-const MOCK_ORIGINS = [SUPABASE_ORIGIN, TIKTOK_API_ORIGIN];
-
-beforeEach(() => {
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-});
-
-afterEach(() => {
-  // Interceptors (especially persisted ones) outlive a single test otherwise.
-  for (const origin of MOCK_ORIGINS) {
-    fetchMock.get(origin).cleanMocks();
-  }
-  fetchMock.deactivate();
-});
 
 describe('tiktok-oauth-provider-worker', () => {
   describe('handleAuthorize', () => {
@@ -384,28 +383,24 @@ describe('tiktok-oauth-provider-worker', () => {
 
       let exchangedBody = '';
       let exchangedContentType: string | undefined;
-      fetchMock
-        .get(TIKTOK_API_ORIGIN)
-        .intercept({
-          path: '/v2/oauth/token/',
-          method: 'POST',
-          headers: (headers: Record<string, string>) => {
-            exchangedContentType = Object.entries(headers)
-              .find(([name]) => name.toLowerCase() === 'content-type')?.[1];
-            return true;
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(TIKTOK_API_ORIGIN, { path: '/v2/oauth/token/', method: 'POST' }),
+          async ({ request }) => {
+            exchangedContentType = request.headers.get('content-type') ?? undefined;
+            exchangedBody = await request.text();
+            return HttpResponse.json({
+              open_id: OPEN_ID,
+              scope: 'user.info.basic',
+              access_token: 'mock-access-token',
+              expires_in: 86400,
+              token_type: 'Bearer',
+            });
           },
-          body: (body: string) => {
-            exchangedBody = body;
-            return true;
-          },
-        })
-        .reply(200, JSON.stringify({
-          open_id: OPEN_ID,
-          scope: 'user.info.basic',
-          access_token: 'mock-access-token',
-          expires_in: 86400,
-          token_type: 'Bearer',
-        }));
+          { once: true },
+        ),
+      );
       interceptUserInfo();
       interceptSupabase('GET', 'accounts', 200, tiktokAccountRow());
 
@@ -431,17 +426,22 @@ describe('tiktok-oauth-provider-worker', () => {
 
       interceptTokenExchange();
       let requestedPath = '';
-      fetchMock
-        .get(TIKTOK_API_ORIGIN)
-        .intercept({
-          path: (path: string) => {
-            requestedPath = path;
-            return path.startsWith('/v2/user/info/');
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(TIKTOK_API_ORIGIN, {
+            path: (path) => path.startsWith('/v2/user/info/'),
+            method: 'GET',
+            headers: { Authorization: 'Bearer mock-access-token' },
+          }),
+          ({ request }) => {
+            const url = new URL(request.url);
+            requestedPath = `${url.pathname}${url.search}`;
+            return HttpResponse.json(userInfoPayload());
           },
-          method: 'GET',
-          headers: { Authorization: 'Bearer mock-access-token' },
-        })
-        .reply(200, JSON.stringify(userInfoPayload()));
+          { once: true },
+        ),
+      );
       interceptSupabase('GET', 'accounts', 200, tiktokAccountRow());
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('userinfo')}`);
@@ -456,10 +456,14 @@ describe('tiktok-oauth-provider-worker', () => {
     it('redirects with error when token exchange HTTP request fails', async () => {
       await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
 
-      fetchMock
-        .get(TIKTOK_API_ORIGIN)
-        .intercept({ path: '/v2/oauth/token/', method: 'POST' })
-        .reply(400, JSON.stringify({ error: 'invalid_grant' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(TIKTOK_API_ORIGIN, { path: '/v2/oauth/token/', method: 'POST' }),
+          () => HttpResponse.json({ error: 'invalid_grant' }, { status: 400 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -472,14 +476,18 @@ describe('tiktok-oauth-provider-worker', () => {
     it('redirects with error when token response body contains error field (200 with error)', async () => {
       await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
 
-      fetchMock
-        .get(TIKTOK_API_ORIGIN)
-        .intercept({ path: '/v2/oauth/token/', method: 'POST' })
-        .reply(200, JSON.stringify({
-          error: 'invalid_request',
-          error_description: 'Redirect_uri is not matched with the uri when requesting code.',
-          log_id: 'test-log-id',
-        }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(TIKTOK_API_ORIGIN, { path: '/v2/oauth/token/', method: 'POST' }),
+          () => HttpResponse.json({
+            error: 'invalid_request',
+            error_description: 'Redirect_uri is not matched with the uri when requesting code.',
+            log_id: 'test-log-id',
+          }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=expired-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -496,13 +504,17 @@ describe('tiktok-oauth-provider-worker', () => {
 
       interceptTokenExchange();
 
-      fetchMock
-        .get(TIKTOK_API_ORIGIN)
-        .intercept({ path: /^\/v2\/user\/info\//, method: 'GET' })
-        .reply(401, JSON.stringify({
-          data: {},
-          error: { code: 'access_token_invalid', message: 'The access token is invalid', log_id: 'test-log-id' },
-        }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(TIKTOK_API_ORIGIN, { path: /^\/v2\/user\/info\//, method: 'GET' }),
+          () => HttpResponse.json({
+            data: {},
+            error: { code: 'access_token_invalid', message: 'The access token is invalid', log_id: 'test-log-id' },
+          }, { status: 401 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -517,13 +529,17 @@ describe('tiktok-oauth-provider-worker', () => {
 
       interceptTokenExchange();
 
-      fetchMock
-        .get(TIKTOK_API_ORIGIN)
-        .intercept({ path: /^\/v2\/user\/info\//, method: 'GET' })
-        .reply(200, JSON.stringify({
-          ...userInfoPayload(),
-          error: { code: 'scope_not_authorized', message: 'The user did not authorize the scope', log_id: 'test-log-id' },
-        }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(TIKTOK_API_ORIGIN, { path: /^\/v2\/user\/info\//, method: 'GET' }),
+          () => HttpResponse.json({
+            ...userInfoPayload(),
+            error: { code: 'scope_not_authorized', message: 'The user did not authorize the scope', log_id: 'test-log-id' },
+          }),
+          { once: true },
+        ),
+      );
 
       // No Supabase interceptor: an unusable profile must never resolve an account.
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('notok')}`);

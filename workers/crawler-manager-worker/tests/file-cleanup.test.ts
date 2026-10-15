@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { SELF } from 'cloudflare:test';
 import { cleanUpCrawlerFiles } from '../sources/file-cleanup.ts';
 import { useInMemorySupabase, type Row } from './in-memory-supabase.ts';
-import { SUPABASE_ORIGIN, createMockLogger, createTestDependencies, testEnvironment, uniqueUUID } from './runtime-harness.ts';
+import { SUPABASE_ORIGIN, createMockLogger, createTestDependencies, runScheduledHandler, testEnvironment, uniqueUUID } from './runtime-harness.ts';
 
 const supabase = useInMemorySupabase(SUPABASE_ORIGIN);
 const bucket = testEnvironment.CRAWLER_FILES;
@@ -105,7 +104,7 @@ describe('cleanUpCrawlerFiles', () => {
   it('runs from the cron trigger of the worker', async () => {
     const expired = await storeFile(new Date(Date.now() - 60_000).toISOString());
 
-    await SELF.scheduled({ cron: '*/15 * * * *', scheduledTime: new Date() });
+    await runScheduledHandler({ cron: '*/15 * * * *', scheduledTime: new Date() });
 
     expect(supabase.tables.crawler_files).toEqual([]);
     expect(await bucket.head(String(expired.object_key))).toBeNull();

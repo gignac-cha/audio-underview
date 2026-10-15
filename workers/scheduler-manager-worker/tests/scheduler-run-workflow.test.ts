@@ -108,7 +108,12 @@ function createFakeStep(): WorkflowStep {
 }
 
 function manualEvent(): WorkflowEvent<SchedulerRunParameters> {
-  return { payload: { schedulerID: SCHEDULER_ID, runID: RUN_ID }, timestamp: new Date(), instanceId: `manual-${RUN_ID}` };
+  return {
+    payload: { schedulerID: SCHEDULER_ID, runID: RUN_ID },
+    timestamp: new Date(),
+    instanceId: `manual-${RUN_ID}`,
+    workflowName: 'audio-underview-scheduler-run-workflow',
+  };
 }
 
 describe('SchedulerRunWorkflow', () => {

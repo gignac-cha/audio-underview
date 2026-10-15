@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { exports } from 'cloudflare:workers';
-import { SELF } from 'cloudflare:test';
 import * as entryModule from '../sources/index.ts';
 import { CrawlerOutboundGateway } from '../sources/crawler-runtime/outbound-gateway.ts';
 import type CrawlerManagerWorker from '../sources/index.ts';
@@ -24,11 +23,12 @@ describe('the entry module', () => {
 
 describe('runCrawler RPC', () => {
   it('throws Invalid user UUID before reading anything for a context without a user UUID', async () => {
-    const crawlerManager = SELF as unknown as Service<typeof CrawlerManagerWorker>;
+    // An RPC promise is callable and expect().rejects calls what it is given, so rejecting calls are wrapped in a function
+    const crawlerManager = exports.default as unknown as Service<typeof CrawlerManagerWorker>;
 
     for (const context of [{ userUUID: 'not-a-uuid' }, {}, null]) {
-      await expect(crawlerManager.runCrawler(uniqueUUID(), {}, context as never)).rejects.toThrow('Invalid user UUID');
+      await expect(() => crawlerManager.runCrawler(uniqueUUID(), {}, context as never)).rejects.toThrow('Invalid user UUID');
     }
-    await expect(crawlerManager.runCrawler(uniqueUUID(), {}, { userUUID: uniqueUUID(), runID: 'run-1' })).rejects.toThrow('Invalid run ID');
+    await expect(() => crawlerManager.runCrawler(uniqueUUID(), {}, { userUUID: uniqueUUID(), runID: 'run-1' })).rejects.toThrow('Invalid run ID');
   });
 });

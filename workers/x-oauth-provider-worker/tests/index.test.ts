@@ -1,11 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@audio-underview/axiom-logger', () => ({
   instrumentWorker: vi.fn((handler: unknown) => handler),
 }));
 
-import { env, fetchMock } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
 import { signJWT, verifyJWT } from '@audio-underview/worker-tools';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 import worker from '../sources/index.ts';
 
 const WORKER_URL = 'https://worker.example.com';
@@ -35,23 +37,28 @@ function interceptSupabase(
   status: number,
   body: unknown,
 ) {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: new RegExp(`^/rest/v1/${table}`), method })
-    .reply(status, JSON.stringify(body))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: new RegExp(`^/rest/v1/${table}`), method }),
+      () => new HttpResponse(JSON.stringify(body), { status }),
+    ),
+  );
 }
 
 /**
  * A paused Supabase project answers with a Cloudflare error page rather than a
- * PostgREST payload, which the connector surfaces as a thrown error.
+ * PostgREST payload, which the connector surfaces as a thrown error. supabase-js
+ * retries a GET answered with 503, and `Retry-After: 0` lets it retry at once.
  */
 function interceptSupabaseOutage() {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: /^\/rest\/v1\//, method: 'GET' })
-    .reply(503, JSON.stringify({ message: 'error code: 1016' }))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: /^\/rest\/v1\//, method: 'GET' }),
+      () => HttpResponse.json({ message: 'error code: 1016' }, { status: 503, headers: { 'Retry-After': '0' } }),
+    ),
+  );
 }
 
 function interceptAccountMissing() {
@@ -75,65 +82,61 @@ function readHeader(recorded: RecordedRequest, name: string): string | undefined
     .find(([headerName]) => headerName.toLowerCase() === name.toLowerCase())?.[1];
 }
 
+/** Records the path with its query string and the headers with lower-case names. */
+function recordRequest(recorded: RecordedRequest, request: { url: string; headers: Iterable<[string, string]> }) {
+  const url = new URL(request.url);
+  recorded.path = `${url.pathname}${url.search}`;
+  recorded.headers = Object.fromEntries(request.headers);
+}
+
 function interceptTokenExchange(
   overrides: Record<string, unknown> = {},
   recorded: RecordedRequest = {},
 ) {
-  fetchMock
-    .get(X_API_ORIGIN)
-    .intercept({
-      path: (path: string) => {
-        if (path !== '/2/oauth2/token') return false;
-        recorded.path = path;
-        return true;
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(X_API_ORIGIN, { path: '/2/oauth2/token', method: 'POST' }),
+      async ({ request }) => {
+        recordRequest(recorded, request);
+        recorded.body = await request.text();
+        return HttpResponse.json({
+          token_type: 'bearer',
+          expires_in: 7200,
+          access_token: 'mock-access-token',
+          scope: 'users.read tweet.read users.email',
+          ...overrides,
+        });
       },
-      method: 'POST',
-      headers: (headers: Record<string, string>) => {
-        recorded.headers = headers;
-        return true;
-      },
-      body: (body: string) => {
-        recorded.body = body;
-        return true;
-      },
-    })
-    .reply(200, JSON.stringify({
-      token_type: 'bearer',
-      expires_in: 7200,
-      access_token: 'mock-access-token',
-      scope: 'users.read tweet.read users.email',
-      ...overrides,
-    }));
+      { once: true },
+    ),
+  );
 }
 
 function interceptUserInfo(
   overrides: Record<string, unknown> = {},
   recorded: RecordedRequest = {},
 ) {
-  fetchMock
-    .get(X_API_ORIGIN)
-    .intercept({
-      path: (path: string) => {
-        if (!path.startsWith('/2/users/me')) return false;
-        recorded.path = path;
-        return true;
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(X_API_ORIGIN, { path: (path) => path.startsWith('/2/users/me'), method: 'GET' }),
+      ({ request }) => {
+        recordRequest(recorded, request);
+        return HttpResponse.json({
+          data: {
+            id: X_USER_ID,
+            name: 'Test User',
+            username: 'testuser',
+            profile_image_url: 'https://pbs.twimg.com/profile_images/1/test_normal.jpg',
+            confirmed_email: 'test@example.com',
+            ...overrides,
+          },
+        });
       },
-      method: 'GET',
-      headers: (headers: Record<string, string>) => {
-        recorded.headers = headers;
-        return true;
-      },
-    })
-    .reply(200, JSON.stringify({
-      data: {
-        id: X_USER_ID,
-        name: 'Test User',
-        username: 'testuser',
-        profile_image_url: 'https://pbs.twimg.com/profile_images/1/test_normal.jpg',
-        confirmed_email: 'test@example.com',
-        ...overrides,
-      },
-    }));
+      { once: true },
+    ),
+  );
 }
 
 /** The provider round trip of a login whose user has a confirmed email. */
@@ -234,22 +237,6 @@ async function startLinkFlow(state: string, subject: string = ACCOUNT_UUID) {
 
   return { token, nonce, redirectURL, linkCode: redirectURL.searchParams.get('link_code') };
 }
-
-/** Origins that get intercepted; their mocks are reset between tests. */
-const MOCK_ORIGINS = [SUPABASE_ORIGIN, X_API_ORIGIN];
-
-beforeEach(() => {
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-});
-
-afterEach(() => {
-  // Interceptors (especially persisted ones) outlive a single test otherwise.
-  for (const origin of MOCK_ORIGINS) {
-    fetchMock.get(origin).cleanMocks();
-  }
-  fetchMock.deactivate();
-});
 
 describe('x-oauth-provider-worker', () => {
   describe('handleAuthorize', () => {
@@ -584,13 +571,17 @@ describe('x-oauth-provider-worker', () => {
     it('redirects with error when token exchange HTTP request fails', async () => {
       await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
 
-      fetchMock
-        .get(X_API_ORIGIN)
-        .intercept({ path: '/2/oauth2/token', method: 'POST' })
-        .reply(400, JSON.stringify({
-          error: 'invalid_request',
-          error_description: 'Value passed for the authorization code was invalid.',
-        }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(X_API_ORIGIN, { path: '/2/oauth2/token', method: 'POST' }),
+          () => HttpResponse.json({
+            error: 'invalid_request',
+            error_description: 'Value passed for the authorization code was invalid.',
+          }, { status: 400 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -603,10 +594,14 @@ describe('x-oauth-provider-worker', () => {
     it('redirects with error when the token response carries no access token', async () => {
       await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
 
-      fetchMock
-        .get(X_API_ORIGIN)
-        .intercept({ path: '/2/oauth2/token', method: 'POST' })
-        .reply(200, JSON.stringify({ token_type: 'bearer', expires_in: 7200 }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(X_API_ORIGIN, { path: '/2/oauth2/token', method: 'POST' }),
+          () => HttpResponse.json({ token_type: 'bearer', expires_in: 7200 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -622,10 +617,14 @@ describe('x-oauth-provider-worker', () => {
 
       interceptTokenExchange();
 
-      fetchMock
-        .get(X_API_ORIGIN)
-        .intercept({ path: (path: string) => path.startsWith('/2/users/me'), method: 'GET' })
-        .reply(401, JSON.stringify({ title: 'Unauthorized', status: 401, detail: 'Unauthorized' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(X_API_ORIGIN, { path: (path) => path.startsWith('/2/users/me'), method: 'GET' }),
+          () => HttpResponse.json({ title: 'Unauthorized', status: 401, detail: 'Unauthorized' }, { status: 401 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -639,10 +638,14 @@ describe('x-oauth-provider-worker', () => {
       await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
 
       interceptTokenExchange();
-      fetchMock
-        .get(X_API_ORIGIN)
-        .intercept({ path: (path: string) => path.startsWith('/2/users/me'), method: 'GET' })
-        .reply(200, JSON.stringify({ errors: [{ title: 'Forbidden', detail: 'Not permitted' }] }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(X_API_ORIGIN, { path: (path) => path.startsWith('/2/users/me'), method: 'GET' }),
+          () => HttpResponse.json({ errors: [{ title: 'Forbidden', detail: 'Not permitted' }] }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);

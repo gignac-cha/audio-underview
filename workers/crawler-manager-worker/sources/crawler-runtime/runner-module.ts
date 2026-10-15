@@ -230,12 +230,11 @@ async function collectStream(stream) {
 async function prepareFileData(data) {
   if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) return { size: data.byteLength, data };
   if (data instanceof Blob) return { size: data.size, data };
-  if (data instanceof ReadableStream) {
-    const bytes = await collectStream(data);
-    return { size: bytes.byteLength, data: bytes };
-  }
-  const buffer = await new Response(data).arrayBuffer();
-  return { size: buffer.byteLength, data: buffer };
+  // Anything else as the body of a Response, read like a stream: a Response reads an iterable as one
+  // (fetch_iterable_type_support), and an endless one must stop at the limit
+  const stream = data instanceof ReadableStream ? data : new Response(data).body;
+  const bytes = stream === null ? new Uint8Array(0) : await collectStream(stream);
+  return { size: bytes.byteLength, data: bytes };
 }
 
 function createFiles(capability) {

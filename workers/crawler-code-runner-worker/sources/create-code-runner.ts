@@ -9,7 +9,7 @@ export function createCodeRunner(
   code: string,
 ): CodeRunner {
   const worker = loader.get(`run-${crypto.randomUUID()}`, () => ({
-    compatibilityDate: '2025-11-25',
+    compatibilityDate: '2026-10-12',
     mainModule: 'runner.js',
     modules: {
       'runner.js': `

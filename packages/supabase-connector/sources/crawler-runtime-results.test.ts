@@ -1,8 +1,6 @@
 import { deleteExpiredCrawlerFiles, listCrawlerFileDeletions } from './crawler-files.ts';
 import { updateSchedulerStageRun } from './scheduler-stage-runs.ts';
-import { createMockClient, setupTracerMock } from './test-helpers.ts';
-
-setupTracerMock();
+import { createMockClient } from './test-helpers.ts';
 
 afterEach(() => {
   vi.restoreAllMocks();

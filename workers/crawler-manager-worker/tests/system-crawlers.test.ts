@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SELF } from 'cloudflare:test';
+import { exports } from 'cloudflare:workers';
 import { SYSTEM_USER_UUID } from '@audio-underview/supabase-connector';
 import migration from '../../../packages/supabase-connector/migrations/010_create_system_crawlers.sql?raw';
 import type CrawlerManagerWorker from '../sources/index.ts';
@@ -11,7 +11,7 @@ import { SUPABASE_ORIGIN, crawlerRow, mockPageBody } from './runtime-harness.ts'
 // the real sites do not change. The length and SHA-256 of the code stay checked in the Lambda tests.
 
 const supabase = useInMemorySupabase(SUPABASE_ORIGIN);
-const crawlerManager = SELF as unknown as Service<typeof CrawlerManagerWorker>;
+const crawlerManager = exports.default as unknown as Service<typeof CrawlerManagerWorker>;
 
 const SYSTEM_CRAWLER_PATTERN = /VALUES \('[0-9a-f-]+', '([a-z-]+)', 'web', '([^']*)', \$system_crawler\$([\s\S]*?)\$system_crawler\$\);/g;
 

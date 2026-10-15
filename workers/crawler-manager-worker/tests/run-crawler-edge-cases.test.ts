@@ -6,6 +6,7 @@ import { runCrawler, runLoadedCrawler } from '../sources/crawler-runtime/run-cra
 import { UserVaultError } from '../sources/user-vault-client.ts';
 import { useInMemorySupabase } from './in-memory-supabase.ts';
 import {
+  type CrawlerLoader,
   SUPABASE_ORIGIN,
   addCrawler,
   crawlerRow,
@@ -551,7 +552,7 @@ describe('the answers of the code runner Lambda', () => {
 });
 
 describe('an answer of the runtime that cannot be trusted', () => {
-  function answering(answer: unknown): WorkerLoader {
+  function answering(answer: unknown): CrawlerLoader {
     return { get: () => ({ getEntrypoint: () => ({ run: async () => answer }) }) as unknown as WorkerStub };
   }
 
@@ -591,7 +592,7 @@ describe('an answer of the runtime that cannot be trusted', () => {
 
   it('fails any other error of the runtime as execution_failed, once, without running the code again', async () => {
     const run_ = vi.fn(() => Promise.reject(new Error('Dynamic Workers are not enabled')));
-    const loader = { get: () => ({ getEntrypoint: () => ({ run: run_ }) }) as unknown as WorkerStub } as WorkerLoader;
+    const loader: CrawlerLoader = { get: () => ({ getEntrypoint: () => ({ run: run_ }) }) as unknown as WorkerStub };
 
     const outcome = failed(await run('() => 1', {}, { dependencies: createTestDependencies({ loader }) }));
 
@@ -612,7 +613,7 @@ describe('an answer of the runtime that cannot be trusted', () => {
 
   it('classifies the CPU limit of the runtime as execution_timeout whatever the case of its words', async () => {
     for (const message of ['Worker exceeded CPU time limit.', 'worker exceeded cpu time limit', 'The script exceeded CPU', 'CPU TIME LIMIT']) {
-      const loader = { get: () => ({ getEntrypoint: () => ({ run: () => Promise.reject(new Error(message)) }) }) as unknown as WorkerStub } as WorkerLoader;
+      const loader: CrawlerLoader = { get: () => ({ getEntrypoint: () => ({ run: () => Promise.reject(new Error(message)) }) }) as unknown as WorkerStub };
 
       const outcome = failed(await run('() => 1', {}, { dependencies: createTestDependencies({ loader }) }));
 
@@ -620,7 +621,7 @@ describe('an answer of the runtime that cannot be trusted', () => {
       expect(outcome.error_description, message).toBe('Code execution timed out: CPU time limit of 30000ms exceeded');
     }
     for (const message of ['boom', 'TypeError: x is not a function', 'CPU', 'exceeded memory limit', 'time limit']) {
-      const loader = { get: () => ({ getEntrypoint: () => ({ run: () => Promise.reject(new Error(message)) }) }) as unknown as WorkerStub } as WorkerLoader;
+      const loader: CrawlerLoader = { get: () => ({ getEntrypoint: () => ({ run: () => Promise.reject(new Error(message)) }) }) as unknown as WorkerStub };
 
       expect(failed(await run('() => 1', {}, { dependencies: createTestDependencies({ loader }) })).error_code, message).toBe('execution_failed');
     }
