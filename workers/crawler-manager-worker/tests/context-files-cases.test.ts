@@ -147,6 +147,26 @@ describe('context.files.save', () => {
     expect(fileRows()).toHaveLength(1);
   });
 
+  it('saves an iterable, which a Response reads as a stream, and stops reading an endless one at 25 MiB', async () => {
+    const user = uniqueUUID();
+
+    const result = resultOf(await run(`async (input, context) => {
+      const reference = await context.files.save((function* () { yield new Uint8Array([104, 105]); yield '!'; })());
+      let error;
+      try {
+        await context.files.save((async function* () { for (;;) yield new Uint8Array(1_048_576); })());
+      } catch (caught) {
+        error = caught.message;
+      }
+      return { reference, error };
+    }`, { userUUID: user }));
+
+    expect(result.error).toBe(`File exceeds the maximum size of ${MAXIMUM_SIZE} bytes`);
+    expect(result.reference.size).toBe(3);
+    expect(await storedText(user, result.reference)).toBe('hi!');
+    expect(fileRows()).toHaveLength(1);
+  });
+
   it('refuses names and types that are not valid with the same messages', async () => {
     const result = resultOf(await run(`async (input, context) => {
       const errors = [];

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { env, fetchMock } from 'cloudflare:test';
+import { describe, it, expect, vi, type Mock } from 'vitest';
+import { env } from 'cloudflare:test';
 import { createSupabaseClient } from '@audio-underview/supabase-connector';
 import type { SchedulerStageRow } from '@audio-underview/supabase-connector';
 import type { CrawlerExecutionClient } from '../sources/crawler-execution-client.ts';
@@ -10,6 +10,8 @@ import {
   executeFanOut,
 } from '../sources/stage-runner.ts';
 import type { StageRunnerDependencies } from '../sources/stage-runner.ts';
+import { http, HttpResponse } from 'msw';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 
 const MOCK_USER_UUID = '00000000-0000-0000-0000-000000000001';
 const MOCK_SCHEDULER_ID = '00000000-0000-0000-0000-000000000010';
@@ -54,24 +56,32 @@ function mockStageRunRow(overrides: Record<string, unknown> = {}) {
 }
 
 function mockSupabaseStageRunCreate(overrides: Record<string, unknown> = {}) {
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/scheduler_stage_runs/, method: 'POST' })
-    .reply(201, JSON.stringify(mockStageRunRow(overrides)));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/scheduler_stage_runs/, method: 'POST' }),
+      () => HttpResponse.json(mockStageRunRow(overrides), { status: 201 }),
+      { once: true },
+    ),
+  );
 }
 
 function mockSupabaseStageRunUpdate(overrides: Record<string, unknown> = {}) {
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/scheduler_stage_runs/, method: 'PATCH' })
-    .reply(200, JSON.stringify(mockStageRunRow(overrides)));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/scheduler_stage_runs/, method: 'PATCH' }),
+      () => HttpResponse.json(mockStageRunRow(overrides)),
+      { once: true },
+    ),
+  );
 }
 
 function createMockCrawlerExecutionClient(): CrawlerExecutionClient & {
-  run: ReturnType<typeof vi.fn>;
+  run: Mock<CrawlerExecutionClient['run']>;
 } {
   return {
-    run: vi.fn(),
+    run: vi.fn<CrawlerExecutionClient['run']>(),
   };
 }
 
@@ -104,15 +114,6 @@ function createDependencies(
     logger,
   };
 }
-
-beforeEach(() => {
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-});
-
-afterEach(() => {
-  fetchMock.deactivate();
-});
 
 describe('resolveDefaultInput', () => {
   it('extracts default values from descriptor format', () => {
@@ -261,15 +262,19 @@ describe('executeStage', () => {
     mockSupabaseStageRunCreate({ status: 'running' });
 
     // Simulate PGRST116 (no rows updated) → supabase returns 406
-    fetchMock
-      .get('https://supabase.example.com')
-      .intercept({ path: /^\/rest\/v1\/scheduler_stage_runs/, method: 'PATCH' })
-      .reply(406, JSON.stringify({
-        code: 'PGRST116',
-        details: 'The result contains 0 rows',
-        hint: null,
-        message: 'JSON object requested, multiple (or no) rows returned',
-      }));
+    appendHandlers(
+      network,
+      http.all(
+        requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/scheduler_stage_runs/, method: 'PATCH' }),
+        () => HttpResponse.json({
+          code: 'PGRST116',
+          details: 'The result contains 0 rows',
+          hint: null,
+          message: 'JSON object requested, multiple (or no) rows returned',
+        }, { status: 406 }),
+        { once: true },
+      ),
+    );
 
     const result = await executeStage(dependencies, MOCK_RUN_ID, stage, {});
 

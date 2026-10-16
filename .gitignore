@@ -214,9 +214,6 @@ web_modules/
 # Optional npm cache directory
 .npm
 
-# Optional eslint cache
-.eslintcache
-
 # Optional stylelint cache
 .stylelintcache
 
@@ -550,6 +547,9 @@ playwright/.cache/
 
 # Vitest JUnit reports
 test-results.xml
+
+# Vitest attachments, such as failure screenshots
+.vitest/
 
 # Storybook
 storybook-static/

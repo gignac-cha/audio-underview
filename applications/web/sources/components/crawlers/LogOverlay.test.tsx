@@ -1,6 +1,6 @@
 import { render } from 'vitest-browser-react';
 import { LogOverlay } from './LogOverlay.tsx';
-import { page } from '@vitest/browser/context';
+import { page } from 'vitest/browser';
 import type { LogEntry } from '../../hooks/use-crawler-code-runner.ts';
 
 describe('LogOverlay', () => {
@@ -22,8 +22,8 @@ describe('LogOverlay', () => {
       <LogOverlay open={true} onOpenChange={vi.fn()} entries={entries} onClear={vi.fn()} />,
     );
 
-    await expect.element(page.getByText('Log entry 1')).toBeVisible();
-    await expect.element(page.getByText('Log entry 2')).toBeVisible();
+    await expect.element(page.getByText('[10:00:00]Log entry 1')).toBeVisible();
+    await expect.element(page.getByText('[10:00:01]Log entry 2')).toBeVisible();
   });
 
   test('shows Clear button when entries exist', async () => {

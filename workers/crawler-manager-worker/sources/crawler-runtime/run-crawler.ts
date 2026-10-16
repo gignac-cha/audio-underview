@@ -46,12 +46,12 @@ export interface CrawlerWorkerOptions {
 }
 
 export const CRAWLER_WORKER_OPTIONS: CrawlerWorkerOptions = {
-  compatibilityDate: '2025-11-25',
+  compatibilityDate: '2026-10-12',
   compatibilityFlags: ['nodejs_als'],
   limits: { cpuMs: CPU_LIMIT_MILLISECONDS },
 };
 
-// The repository's @cloudflare/workers-types has no limits on WorkerLoaderWorkerCode yet
+// WorkerLoaderWorkerCode leaves limits optional; crawler code always runs with the CPU limit
 export type CrawlerWorkerCode = WorkerLoaderWorkerCode & { limits: { cpuMs: number } };
 
 export interface CrawlerRuntimeTimeouts {
@@ -63,7 +63,8 @@ export interface CrawlerRuntimeTimeouts {
 
 export interface CrawlerRuntimeDependencies {
   supabaseClient: SupabaseClient;
-  loader: WorkerLoader;
+  // Only get() of the LOADER binding runs crawler code
+  loader: Pick<WorkerLoader, 'get'>;
   bucket: R2Bucket;
   userVaultClient: UserVaultClient;
   codeRunnerClient: CodeRunnerClient;
@@ -123,7 +124,26 @@ export async function createIsolateID(
   return `crawler:${userUUID ?? 'none'}:${hexOf(digest)}`;
 }
 
-export function createCrawlerWorkerCode(code: string, options: CrawlerWorkerOptions = CRAWLER_WORKER_OPTIONS): CrawlerWorkerCode {
+/**
+ * The gateway every fetch() of crawler code leaves through. Without it the Dynamic Worker would reach
+ * the whole network, so the code does not run at all.
+ */
+export function outboundGatewayOf(workerExports: unknown): Fetcher {
+  const gateway = (workerExports as { CrawlerOutboundGateway?: Fetcher | null } | null | undefined)?.CrawlerOutboundGateway;
+  if (gateway === undefined || gateway === null) {
+    throw new Error('The outbound gateway for crawler code is missing, so the code does not run');
+  }
+  return gateway;
+}
+
+/**
+ * The Dynamic Worker for the code of a crawler, with `globalOutbound` as the gateway of its fetch() calls.
+ */
+export function createCrawlerWorkerCode(
+  code: string,
+  globalOutbound: Fetcher,
+  options: CrawlerWorkerOptions = CRAWLER_WORKER_OPTIONS,
+): CrawlerWorkerCode {
   return {
     compatibilityDate: options.compatibilityDate,
     compatibilityFlags: [...options.compatibilityFlags],
@@ -135,7 +155,7 @@ export function createCrawlerWorkerCode(code: string, options: CrawlerWorkerOpti
     },
     env: {},
     // Every fetch() of the code goes through the gateway of this worker
-    globalOutbound: (exports as unknown as { CrawlerOutboundGateway: Fetcher }).CrawlerOutboundGateway,
+    globalOutbound,
     limits: { cpuMs: options.limits.cpuMs },
   };
 }
@@ -361,6 +381,16 @@ async function readEnvironment(
   }
 }
 
+function readOutboundGateway(dependencies: CrawlerRuntimeDependencies, crawlerID: string): Fetcher {
+  try {
+    return outboundGatewayOf(exports);
+  } catch (error) {
+    // The deployment lacks the CrawlerOutboundGateway entrypoint of this worker
+    dependencies.logger.error(messageOf(error), undefined, { function: 'runCrawler', metadata: { crawlerID } });
+    throw error;
+  }
+}
+
 const HOST_TIMED_OUT = Symbol('host timed out');
 
 async function runInDynamicWorker(
@@ -391,7 +421,9 @@ async function runInDynamicWorker(
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const worker = dependencies.loader.get(isolateID, async () => createCrawlerWorkerCode(crawler.code));
+    // Looked up before the loader, so a missing gateway fails the run rather than throwing inside the loader callback
+    const globalOutbound = readOutboundGateway(dependencies, crawler.id);
+    const worker = dependencies.loader.get(isolateID, async () => createCrawlerWorkerCode(crawler.code, globalOutbound));
     const runner = worker.getEntrypoint('CrawlerRunner') as unknown as CrawlerRunnerStub;
     const call = Promise.resolve(runner.run(input, {
       environment,
@@ -444,7 +476,7 @@ function redactOutcome(outcome: CrawlerRunOutcome, redactor: Redactor): CrawlerR
  * Runs a crawler that is already read.
  *
  * @param context - the user the crawler runs for and, for a scheduled stage, the scheduler run;
- * undefined for a run without a user (executeCrawler, executeCrawlerByName)
+ * undefined for a run without a user (executeCrawlerByName)
  * @throws EnvironmentVariablesUnavailableError when the vault cannot give the variables of the author
  */
 export async function runLoadedCrawler(

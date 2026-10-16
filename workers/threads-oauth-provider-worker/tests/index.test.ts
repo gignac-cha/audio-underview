@@ -1,11 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@audio-underview/axiom-logger', () => ({
   instrumentWorker: vi.fn((handler: unknown) => handler),
 }));
 
-import { env, fetchMock } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
 import { signJWT, verifyJWT } from '@audio-underview/worker-tools';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 import worker from '../sources/index.ts';
 
 const WORKER_URL = 'https://worker.example.com';
@@ -33,23 +35,28 @@ function interceptSupabase(
   status: number,
   body: unknown,
 ) {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: new RegExp(`^/rest/v1/${table}`), method })
-    .reply(status, JSON.stringify(body))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: new RegExp(`^/rest/v1/${table}`), method }),
+      () => new HttpResponse(JSON.stringify(body), { status }),
+    ),
+  );
 }
 
 /**
  * A paused Supabase project answers with a Cloudflare error page rather than a
- * PostgREST payload, which the connector surfaces as a thrown error.
+ * PostgREST payload, which the connector surfaces as a thrown error. supabase-js
+ * retries a GET answered with 503, and `Retry-After: 0` lets it retry at once.
  */
 function interceptSupabaseOutage() {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: /^\/rest\/v1\//, method: 'GET' })
-    .reply(503, JSON.stringify({ message: 'error code: 1016' }))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: /^\/rest\/v1\//, method: 'GET' }),
+      () => HttpResponse.json({ message: 'error code: 1016' }, { status: 503, headers: { 'Retry-After': '0' } }),
+    ),
+  );
 }
 
 function interceptAccountMissing() {
@@ -66,17 +73,17 @@ function interceptAccountMissing() {
  * wider than 2^53 on purpose — the worker must not depend on it.
  */
 function interceptTokenExchange(onBody?: (body: string) => void) {
-  fetchMock
-    .get(THREADS_TOKEN_ORIGIN)
-    .intercept({
-      path: '/oauth/access_token',
-      method: 'POST',
-      body: (body: string) => {
-        onBody?.(body);
-        return true;
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(THREADS_TOKEN_ORIGIN, { path: '/oauth/access_token', method: 'POST' }),
+      async ({ request }) => {
+        onBody?.(await request.text());
+        return HttpResponse.text('{"access_token":"mock-access-token","token_type":"bearer","user_id":17841405793187218}');
       },
-    })
-    .reply(200, '{"access_token":"mock-access-token","token_type":"bearer","user_id":17841405793187218}');
+      { once: true },
+    ),
+  );
 }
 
 /** Matches `/v1.0/me` only when it asks for exactly the profile fields used. */
@@ -86,16 +93,20 @@ function isProfileRequestPath(path: string): boolean {
 }
 
 function interceptUserInfo(overrides: Record<string, unknown> = {}) {
-  fetchMock
-    .get(THREADS_GRAPH_ORIGIN)
-    .intercept({ path: isProfileRequestPath, method: 'GET' })
-    .reply(200, JSON.stringify({
-      id: THREADS_USER_ID,
-      username: 'threadsuser',
-      name: 'Threads User',
-      threads_profile_picture_url: 'https://scontent.example.com/threads/1234567.jpg',
-      ...overrides,
-    }));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(THREADS_GRAPH_ORIGIN, { path: isProfileRequestPath, method: 'GET' }),
+      () => HttpResponse.json({
+        id: THREADS_USER_ID,
+        username: 'threadsuser',
+        name: 'Threads User',
+        threads_profile_picture_url: 'https://scontent.example.com/threads/1234567.jpg',
+        ...overrides,
+      }),
+      { once: true },
+    ),
+  );
 }
 
 /**
@@ -175,22 +186,6 @@ async function startLinkFlow(state: string, subject: string = ACCOUNT_UUID) {
 
   return { token, nonce, redirectURL, linkCode: redirectURL.searchParams.get('link_code') };
 }
-
-/** Origins that get intercepted; their mocks are reset between tests. */
-const MOCK_ORIGINS = [SUPABASE_ORIGIN, THREADS_TOKEN_ORIGIN, THREADS_GRAPH_ORIGIN];
-
-beforeEach(() => {
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-});
-
-afterEach(() => {
-  // Interceptors (especially persisted ones) outlive a single test otherwise.
-  for (const origin of MOCK_ORIGINS) {
-    fetchMock.get(origin).cleanMocks();
-  }
-  fetchMock.deactivate();
-});
 
 describe('threads-oauth-provider-worker', () => {
   describe('handleAuthorize', () => {
@@ -397,14 +392,18 @@ describe('threads-oauth-provider-worker', () => {
       interceptTokenExchange();
       // Only a request that carries the access token as a bearer header (not
       // as an `access_token` query parameter) matches this interceptor.
-      fetchMock
-        .get(THREADS_GRAPH_ORIGIN)
-        .intercept({
-          path: (path: string) => isProfileRequestPath(path) && !path.includes('access_token'),
-          method: 'GET',
-          headers: { authorization: 'Bearer mock-access-token' },
-        })
-        .reply(200, JSON.stringify({ id: THREADS_USER_ID, username: 'threadsuser', name: 'Threads User' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(THREADS_GRAPH_ORIGIN, {
+            path: (path: string) => isProfileRequestPath(path) && !path.includes('access_token'),
+            method: 'GET',
+            headers: { authorization: 'Bearer mock-access-token' },
+          }),
+          () => HttpResponse.json({ id: THREADS_USER_ID, username: 'threadsuser', name: 'Threads User' }),
+          { once: true },
+        ),
+      );
       interceptSupabase('GET', 'accounts', 200, threadsAccountRow());
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('bearer')}`);
@@ -418,14 +417,18 @@ describe('threads-oauth-provider-worker', () => {
     it('redirects with error when token exchange HTTP request fails', async () => {
       await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
 
-      fetchMock
-        .get(THREADS_TOKEN_ORIGIN)
-        .intercept({ path: '/oauth/access_token', method: 'POST' })
-        .reply(400, JSON.stringify({
-          error_type: 'OAuthException',
-          code: 400,
-          error_message: 'Matching code was not found or was already used',
-        }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(THREADS_TOKEN_ORIGIN, { path: '/oauth/access_token', method: 'POST' }),
+          () => HttpResponse.json({
+            error_type: 'OAuthException',
+            code: 400,
+            error_message: 'Matching code was not found or was already used',
+          }, { status: 400 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -438,14 +441,18 @@ describe('threads-oauth-provider-worker', () => {
     it('redirects with error when the token response carries no access token (200 without token)', async () => {
       await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
 
-      fetchMock
-        .get(THREADS_TOKEN_ORIGIN)
-        .intercept({ path: '/oauth/access_token', method: 'POST' })
-        .reply(200, JSON.stringify({
-          error_type: 'OAuthException',
-          code: 400,
-          error_message: 'Matching code was not found or was already used',
-        }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(THREADS_TOKEN_ORIGIN, { path: '/oauth/access_token', method: 'POST' }),
+          () => HttpResponse.json({
+            error_type: 'OAuthException',
+            code: 400,
+            error_message: 'Matching code was not found or was already used',
+          }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=expired-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -461,10 +468,14 @@ describe('threads-oauth-provider-worker', () => {
 
       interceptTokenExchange();
 
-      fetchMock
-        .get(THREADS_GRAPH_ORIGIN)
-        .intercept({ path: isProfileRequestPath, method: 'GET' })
-        .reply(401, 'Unauthorized');
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(THREADS_GRAPH_ORIGIN, { path: isProfileRequestPath, method: 'GET' }),
+          () => HttpResponse.text('Unauthorized', { status: 401 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -478,10 +489,14 @@ describe('threads-oauth-provider-worker', () => {
       await putAuthorizationState(oauthState('noid'), { redirectURI: 'https://app.example.com/callback' });
 
       interceptTokenExchange();
-      fetchMock
-        .get(THREADS_GRAPH_ORIGIN)
-        .intercept({ path: isProfileRequestPath, method: 'GET' })
-        .reply(200, JSON.stringify({ username: 'threadsuser', name: 'Threads User' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(THREADS_GRAPH_ORIGIN, { path: isProfileRequestPath, method: 'GET' }),
+          () => HttpResponse.json({ username: 'threadsuser', name: 'Threads User' }),
+          { once: true },
+        ),
+      );
 
       // No Supabase interceptor: an account must not be resolved for a profile
       // without an identifier.

@@ -1,7 +1,5 @@
 import { listTaskGroups, getTaskGroup } from './task-groups.ts';
-import { createMockClient, setupTracerMock } from './test-helpers.ts';
-
-setupTracerMock();
+import { createMockClient } from './test-helpers.ts';
 
 afterEach(() => {
   vi.restoreAllMocks();

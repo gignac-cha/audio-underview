@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { env, fetchMock } from 'cloudflare:test';
+import { describe, it, expect } from 'vitest';
+import { env } from 'cloudflare:test';
 import { signJWT } from '@audio-underview/worker-tools';
 import worker from '../sources/index.ts';
+import { http, HttpResponse, type JsonBodyType } from 'msw';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 
 const WORKER_URL = 'https://worker.example.com';
 const MOCK_USER_UUID = '00000000-0000-0000-0000-000000000001';
@@ -70,10 +72,14 @@ function mockRunResponse(overrides: Record<string, unknown> = {}) {
 }
 
 function mockSupabaseSchedulerCreate(overrides: Record<string, unknown> = {}) {
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/schedulers/, method: 'POST' })
-    .reply(201, JSON.stringify(mockSchedulerResponse(overrides)));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/schedulers/, method: 'POST' }),
+      () => HttpResponse.json(mockSchedulerResponse(overrides), { status: 201 }),
+      { once: true },
+    ),
+  );
 }
 
 interface CapturedRequestBody {
@@ -82,77 +88,90 @@ interface CapturedRequestBody {
 
 function captureSupabaseSchedulerCreate(): CapturedRequestBody {
   const captured: CapturedRequestBody = { body: undefined };
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/schedulers/, method: 'POST' })
-    .reply((options) => {
-      captured.body = JSON.parse(String(options.body)) as Record<string, unknown>;
-      return { statusCode: 201, data: JSON.stringify(mockSchedulerResponse(captured.body)) };
-    });
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/schedulers/, method: 'POST' }),
+      async ({ request }) => {
+        captured.body = JSON.parse(await request.text()) as Record<string, unknown>;
+        return HttpResponse.json(mockSchedulerResponse(captured.body), { status: 201 });
+      },
+      { once: true },
+    ),
+  );
   return captured;
 }
 
 function captureSupabaseSchedulerUpdate(current: Record<string, unknown> = {}): CapturedRequestBody {
   const captured: CapturedRequestBody = { body: undefined };
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/schedulers/, method: 'PATCH' })
-    .reply((options) => {
-      captured.body = JSON.parse(String(options.body)) as Record<string, unknown>;
-      return { statusCode: 200, data: JSON.stringify(mockSchedulerResponse({ ...current, ...captured.body })) };
-    });
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/schedulers/, method: 'PATCH' }),
+      async ({ request }) => {
+        captured.body = JSON.parse(await request.text()) as Record<string, unknown>;
+        return HttpResponse.json(mockSchedulerResponse({ ...current, ...captured.body }));
+      },
+      { once: true },
+    ),
+  );
   return captured;
 }
 
 function mockSupabaseSchedulerList(data: unknown[] = [mockSchedulerResponse()], total: number = 1) {
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/schedulers/, method: 'GET' })
-    .reply(200, JSON.stringify(data), {
-      headers: { 'content-range': data.length > 0 ? `0-${data.length - 1}/${total}` : `*/${total}` },
-    });
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/schedulers/, method: 'GET' }),
+      () => HttpResponse.json(data, { headers: { 'content-range': data.length > 0 ? `0-${data.length - 1}/${total}` : `*/${total}` } }),
+      { once: true },
+    ),
+  );
 }
 
-function mockSupabaseSchedulerGet(data: unknown = mockSchedulerResponse()) {
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/schedulers/, method: 'GET' })
-    .reply(200, JSON.stringify(data));
+function mockSupabaseSchedulerGet(data: JsonBodyType = mockSchedulerResponse()) {
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/schedulers/, method: 'GET' }),
+      () => HttpResponse.json(data),
+      { once: true },
+    ),
+  );
 }
 
 function mockCrawlerPermission() {
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/crawler_permissions/, method: 'GET' })
-    .reply(200, JSON.stringify({
-      id: '00000000-0000-0000-0000-000000000099',
-      crawler_id: MOCK_CRAWLER_ID,
-      user_uuid: MOCK_USER_UUID,
-      level: 'owner',
-      created_at: '2026-01-01T00:00:00Z',
-    }));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/crawler_permissions/, method: 'GET' }),
+      () => HttpResponse.json({
+        id: '00000000-0000-0000-0000-000000000099',
+        crawler_id: MOCK_CRAWLER_ID,
+        user_uuid: MOCK_USER_UUID,
+        level: 'owner',
+        created_at: '2026-01-01T00:00:00Z',
+      }),
+      { once: true },
+    ),
+  );
 }
 
 function mockSupabaseSchedulerNotFound() {
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/schedulers/, method: 'GET' })
-    .reply(406, JSON.stringify({
-      code: 'PGRST116',
-      details: 'The result contains 0 rows',
-      hint: null,
-      message: 'JSON object requested, multiple (or no) rows returned',
-    }));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/schedulers/, method: 'GET' }),
+      () => HttpResponse.json({
+        code: 'PGRST116',
+        details: 'The result contains 0 rows',
+        hint: null,
+        message: 'JSON object requested, multiple (or no) rows returned',
+      }, { status: 406 }),
+      { once: true },
+    ),
+  );
 }
-
-beforeEach(() => {
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-});
-
-afterEach(() => {
-  fetchMock.deactivate();
-});
 
 describe('scheduler-manager-worker', () => {
   describe('OPTIONS preflight', () => {
@@ -237,15 +256,23 @@ describe('scheduler-manager-worker', () => {
 
   describe('POST /authentication/token', () => {
     it('returns a JWT for valid Google token', async () => {
-      fetchMock
-        .get('https://www.googleapis.com')
-        .intercept({ path: '/oauth2/v3/userinfo', method: 'GET' })
-        .reply(200, JSON.stringify({ sub: 'google-sub-123', email: 'test@example.com' }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://www.googleapis.com', { path: '/oauth2/v3/userinfo', method: 'GET' }),
+          () => HttpResponse.json({ sub: 'google-sub-123', email: 'test@example.com' }),
+          { once: true },
+        ),
+      );
 
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/accounts/, method: 'GET' })
-        .reply(200, JSON.stringify({ provider: 'google', identifier: 'google-sub-123', uuid: MOCK_USER_UUID }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/accounts/, method: 'GET' }),
+          () => HttpResponse.json({ provider: 'google', identifier: 'google-sub-123', uuid: MOCK_USER_UUID }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/authentication/token`, {
         method: 'POST',
@@ -552,10 +579,14 @@ describe('scheduler-manager-worker', () => {
   describe('PUT /schedulers/:id', () => {
     it('updates a scheduler and returns 200', async () => {
       const updatedData = { name: 'Updated Scheduler' };
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/schedulers/, method: 'PATCH' })
-        .reply(200, JSON.stringify(mockSchedulerResponse(updatedData)));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/schedulers/, method: 'PATCH' }),
+          () => HttpResponse.json(mockSchedulerResponse(updatedData)),
+          { once: true },
+        ),
+      );
 
       const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}`, {
         method: 'PUT',
@@ -570,15 +601,19 @@ describe('scheduler-manager-worker', () => {
     });
 
     it('returns 404 when scheduler does not exist', async () => {
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/schedulers/, method: 'PATCH' })
-        .reply(406, JSON.stringify({
-          code: 'PGRST116',
-          details: 'The result contains 0 rows',
-          hint: null,
-          message: 'JSON object requested, multiple (or no) rows returned',
-        }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/schedulers/, method: 'PATCH' }),
+          () => HttpResponse.json({
+            code: 'PGRST116',
+            details: 'The result contains 0 rows',
+            hint: null,
+            message: 'JSON object requested, multiple (or no) rows returned',
+          }, { status: 406 }),
+          { once: true },
+        ),
+      );
 
       const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}`, {
         method: 'PUT',
@@ -736,10 +771,14 @@ describe('scheduler-manager-worker', () => {
 
   describe('DELETE /schedulers/:id', () => {
     it('deletes a scheduler and returns 200', async () => {
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/schedulers/, method: 'DELETE' })
-        .reply(200, JSON.stringify([mockSchedulerResponse()]));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/schedulers/, method: 'DELETE' }),
+          () => HttpResponse.json([mockSchedulerResponse()]),
+          { once: true },
+        ),
+      );
 
       const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}`, {
         method: 'DELETE',
@@ -752,10 +791,14 @@ describe('scheduler-manager-worker', () => {
     });
 
     it('returns 404 when scheduler not found', async () => {
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/schedulers/, method: 'DELETE' })
-        .reply(200, JSON.stringify([]));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/schedulers/, method: 'DELETE' }),
+          () => HttpResponse.json([]),
+          { once: true },
+        ),
+      );
 
       const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}`, {
         method: 'DELETE',
@@ -773,10 +816,14 @@ describe('scheduler-manager-worker', () => {
       // Mock crawler permission check
       mockCrawlerPermission();
       // Mock stage creation
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/scheduler_stages/, method: 'POST' })
-        .reply(201, JSON.stringify(mockStageResponse()));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/scheduler_stages/, method: 'POST' }),
+          () => HttpResponse.json(mockStageResponse(), { status: 201 }),
+          { once: true },
+        ),
+      );
 
       const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}/stages`, {
         method: 'POST',
@@ -832,10 +879,14 @@ describe('scheduler-manager-worker', () => {
   describe('GET /schedulers/:id/stages', () => {
     it('lists stages for a scheduler', async () => {
       mockSupabaseSchedulerGet();
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/scheduler_stages/, method: 'GET' })
-        .reply(200, JSON.stringify([mockStageResponse()]));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/scheduler_stages/, method: 'GET' }),
+          () => HttpResponse.json([mockStageResponse()]),
+          { once: true },
+        ),
+      );
 
       const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}/stages`);
       const response = await worker.fetch(request, env);
@@ -850,12 +901,14 @@ describe('scheduler-manager-worker', () => {
   describe('GET /schedulers/:id/runs', () => {
     it('lists runs for a scheduler', async () => {
       mockSupabaseSchedulerGet();
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/scheduler_runs/, method: 'GET' })
-        .reply(200, JSON.stringify([mockRunResponse()]), {
-          headers: { 'content-range': '0-0/1' },
-        });
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/scheduler_runs/, method: 'GET' }),
+          () => HttpResponse.json([mockRunResponse()], { headers: { 'content-range': '0-0/1' } }),
+          { once: true },
+        ),
+      );
 
       const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}/runs`);
       const response = await worker.fetch(request, env);
@@ -870,20 +923,29 @@ describe('scheduler-manager-worker', () => {
   describe('GET /schedulers/:id/runs/:runID', () => {
     it('returns a run by ID', async () => {
       mockSupabaseSchedulerGet();
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/scheduler_runs/, method: 'GET' })
-        .reply(200, JSON.stringify(mockRunResponse()));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/scheduler_runs/, method: 'GET' }),
+          () => HttpResponse.json(mockRunResponse()),
+          { once: true },
+        ),
+      );
       // The stage runs of the run, without their input and output
       const stageRuns = [{ id: '00000000-0000-0000-0000-000000000050', run_id: MOCK_RUN_ID, stage_order: 0, status: 'running', progress: null }];
       let stageRunsPath = '';
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/scheduler_stage_runs/, method: 'GET' })
-        .reply((options) => {
-          stageRunsPath = decodeURIComponent(String(options.path));
-          return { statusCode: 200, data: JSON.stringify(stageRuns) };
-        });
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/scheduler_stage_runs/, method: 'GET' }),
+          ({ request }) => {
+            const url = new URL(request.url);
+            stageRunsPath = decodeURIComponent(`${url.pathname}${url.search}`);
+            return HttpResponse.json(stageRuns);
+          },
+          { once: true },
+        ),
+      );
 
       const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}/runs/${MOCK_RUN_ID}`);
       const response = await worker.fetch(request, env);
@@ -901,13 +963,17 @@ describe('scheduler-manager-worker', () => {
   describe('PUT /schedulers/:id/stages/reorder', () => {
     it('reorders stages and returns 200', async () => {
       mockSupabaseSchedulerGet();
-      fetchMock
-        .get('https://supabase.example.com')
-        .intercept({ path: /^\/rest\/v1\/rpc\/reorder_scheduler_stages/, method: 'POST' })
-        .reply(200, JSON.stringify([
-          mockStageResponse({ id: MOCK_STAGE_ID, stage_order: 0 }),
-          mockStageResponse({ id: '00000000-0000-0000-0000-000000000021', stage_order: 1 }),
-        ]));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/rpc\/reorder_scheduler_stages/, method: 'POST' }),
+          () => HttpResponse.json([
+            mockStageResponse({ id: MOCK_STAGE_ID, stage_order: 0 }),
+            mockStageResponse({ id: '00000000-0000-0000-0000-000000000021', stage_order: 1 }),
+          ]),
+          { once: true },
+        ),
+      );
 
       const request = await authenticatedRequest(`/schedulers/${MOCK_SCHEDULER_ID}/stages/reorder`, {
         method: 'PUT',

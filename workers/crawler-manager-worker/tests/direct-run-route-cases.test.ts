@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { SELF, fetchMock } from 'cloudflare:test';
+import { SELF } from 'cloudflare:test';
 import { signJWT } from '@audio-underview/worker-tools';
 import { useInMemorySupabase, type Row } from './in-memory-supabase.ts';
 import {
@@ -14,6 +14,8 @@ import {
   vaultRequests,
   workerRequest,
 } from './runtime-harness.ts';
+import { http, HttpResponse } from 'msw';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 
 // POST /crawlers/:id/runs and GET /crawlers/:id/runs/:runID: the cases beyond crawler-runs-routes.test.ts.
 
@@ -259,7 +261,10 @@ describe('a web crawler', () => {
 
   it.each([401, 403, 404, 413, 429])('answers 502 execution_error for an answer %i of the Lambda', async (status) => {
     const { crawler, owner } = ownCrawler(webCrawler.code, webCrawler);
-    fetchMock.get(CODE_RUNNER_ORIGIN).intercept({ path: '/run', method: 'POST' }).reply(status, JSON.stringify({ message: 'x' }));
+    appendHandlers(
+      network,
+      http.all(requestMatching(CODE_RUNNER_ORIGIN, { path: '/run', method: 'POST' }), () => HttpResponse.json({ message: 'x' }, { status }), { once: true }),
+    );
 
     const response = await post(crawler.id, owner, { input: { url: 'https://www.example.com/page' } });
 
@@ -269,8 +274,14 @@ describe('a web crawler', () => {
 
   it('answers 502 invalid_response when the Lambda does not answer a string', async () => {
     const { crawler, owner } = ownCrawler(webCrawler.code, webCrawler);
-    fetchMock.get(CODE_RUNNER_ORIGIN).intercept({ path: '/run', method: 'POST' })
-      .reply(200, JSON.stringify({ type: 'web', mode: 'run', result: { not: 'a string' } }));
+    appendHandlers(
+      network,
+      http.all(
+        requestMatching(CODE_RUNNER_ORIGIN, { path: '/run', method: 'POST' }),
+        () => HttpResponse.json({ type: 'web', mode: 'run', result: { not: 'a string' } }),
+        { once: true },
+      ),
+    );
 
     const response = await post(crawler.id, owner, { input: { url: 'https://www.example.com/page' } });
 
@@ -280,12 +291,13 @@ describe('a web crawler', () => {
   it('asks the Lambda three times for a 5xx, and takes the status of its answer from the text of the error', async () => {
     const { crawler, owner } = ownCrawler(webCrawler.code, webCrawler);
     let asked = 0;
-    fetchMock.get(CODE_RUNNER_ORIGIN).intercept({ path: '/run', method: 'POST' })
-      .reply(() => {
+    appendHandlers(
+      network,
+      ...Array.from({ length: 3 }, () => http.all(requestMatching(CODE_RUNNER_ORIGIN, { path: '/run', method: 'POST' }), () => {
         asked += 1;
-        return { statusCode: 504, data: JSON.stringify({ error: 'fetch_timeout', error_description: 'Fetch timed out after 10000ms' }) };
-      })
-      .times(3);
+        return HttpResponse.json({ error: 'fetch_timeout', error_description: 'Fetch timed out after 10000ms' }, { status: 504 });
+      }, { once: true })),
+    );
 
     const response = await post(crawler.id, owner, { input: { url: 'https://slow.example.com/' } });
 
@@ -297,12 +309,13 @@ describe('a web crawler', () => {
   it('asks the Lambda three times for a 503 too, and answers 502', async () => {
     const { crawler, owner } = ownCrawler(webCrawler.code, webCrawler);
     let asked = 0;
-    fetchMock.get(CODE_RUNNER_ORIGIN).intercept({ path: '/run', method: 'POST' })
-      .reply(() => {
+    appendHandlers(
+      network,
+      ...Array.from({ length: 3 }, () => http.all(requestMatching(CODE_RUNNER_ORIGIN, { path: '/run', method: 'POST' }), () => {
         asked += 1;
-        return { statusCode: 503, data: '{}' };
-      })
-      .times(3);
+        return HttpResponse.text('{}', { status: 503 });
+      }, { once: true })),
+    );
 
     const response = await post(crawler.id, owner, { input: { url: 'https://www.example.com/page' } });
 

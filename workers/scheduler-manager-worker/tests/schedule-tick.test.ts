@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { MockInstance } from 'vitest';
-import { env, fetchMock } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
 import { createSupabaseClient } from '@audio-underview/supabase-connector';
 import type { Logger } from '@audio-underview/logger';
 import { runScheduleTick } from '../sources/schedule-tick.ts';
 import type { ScheduleTickDependencies } from '../sources/schedule-tick.ts';
+import { http, HttpResponse } from 'msw';
+import { appendHandlers, assertNoPendingHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 
 const SUPABASE_ORIGIN = 'https://supabase.example.com';
 const USER_UUID = '00000000-0000-0000-0000-000000000001';
@@ -91,24 +93,26 @@ function interceptSupabase(
   respond: (request: SupabaseRequest) => { statusCode: number; data: unknown },
   times: number = 1,
 ) {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path, method })
-    .reply((options) => {
-      const decodedPath = decodeURIComponent(String(options.path));
+  // One handler answering once for each time
+  appendHandlers(network, ...Array.from({ length: times }, () => http.all(
+    requestMatching(SUPABASE_ORIGIN, { path, method }),
+    async ({ request }) => {
+      const url = new URL(request.url);
+      const decodedPath = decodeURIComponent(`${url.pathname}${url.search}`);
       // A GET request arrives with an empty body
-      const rawBody = String(options.body ?? '');
-      const request: SupabaseRequest = {
+      const rawBody = await request.text();
+      const supabaseRequest: SupabaseRequest = {
         method,
         table,
         query: decodedPath.slice(decodedPath.indexOf('?') + 1),
         body: rawBody === '' ? undefined : JSON.parse(rawBody) as Record<string, unknown>,
       };
-      supabaseRequests.push(request);
-      const { statusCode, data } = respond(request);
-      return { statusCode, data: JSON.stringify(data) };
-    })
-    .times(times);
+      supabaseRequests.push(supabaseRequest);
+      const { statusCode, data } = respond(supabaseRequest);
+      return new HttpResponse(JSON.stringify(data), { status: statusCode });
+    },
+    { once: true },
+  )));
 }
 
 function mockListActiveRuns(runs: unknown[]) {
@@ -212,12 +216,6 @@ function createDependencies(workflow: ReturnType<typeof createFakeWorkflow>): Sc
 beforeEach(() => {
   supabaseRequests = [];
   events = [];
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-});
-
-afterEach(() => {
-  fetchMock.deactivate();
 });
 
 describe('runScheduleTick', () => {
@@ -252,7 +250,7 @@ describe('runScheduleTick', () => {
       });
 
       expect(workflow.createBatch).not.toHaveBeenCalled();
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
 
     it('sends the schedulers of a page in one request and counts the IDs it returns', async () => {
@@ -280,7 +278,7 @@ describe('runScheduleTick', () => {
         { id: SCHEDULER_ID_2, expected_next_run_at: null, next_run_at: '2026-10-05T00:30:00.000Z' },
         { id: SCHEDULER_ID_3, expected_next_run_at: null, next_run_at: '2026-10-05T22:00:00.000Z' },
       ]);
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
   });
 
@@ -342,7 +340,7 @@ describe('runScheduleTick', () => {
         { count: 500 },
         { function: 'runScheduleTick' },
       );
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
 
     it('sends one request per page', async () => {
@@ -384,7 +382,7 @@ describe('runScheduleTick', () => {
       expect(nextRunUpdatesOf(updateRequests[1])).toEqual([
         { id: SCHEDULER_ID_2, expected_next_run_at: null, next_run_at: '2026-10-05T22:00:00.000Z' },
       ]);
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
 
     it('reads no more than 4 pages in one tick', async () => {
@@ -427,7 +425,7 @@ describe('runScheduleTick', () => {
         { count: 2000 },
         { function: 'runScheduleTick' },
       );
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
   });
 
@@ -472,7 +470,7 @@ describe('runScheduleTick', () => {
       });
 
       expect(events).toEqual(['createBatch:1', 'setSchedulerNextRuns:1']);
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
 
     it('sends next_run_at back as the expected value exactly as Supabase returned it', async () => {
@@ -500,7 +498,7 @@ describe('runScheduleTick', () => {
           next_run_at: '2026-10-06T22:00:00.000Z',
         },
       ]);
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
 
     it('runs an occurrence the tick reaches late as its own occurrence', async () => {
@@ -534,7 +532,7 @@ describe('runScheduleTick', () => {
           next_run_at: '2026-10-06T00:05:00.000Z',
         },
       ]);
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
 
     it('calls createBatch 100 at a time for 250 due schedulers, then moves all 250 in one request', async () => {
@@ -567,7 +565,7 @@ describe('runScheduleTick', () => {
         next_run_at: '2026-10-06T22:00:00.000Z',
       })));
       expect(supabaseRequests.filter((request) => request.method === 'PATCH')).toHaveLength(0);
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
 
     it('throws and moves no next_run_at when createBatch throws', async () => {
@@ -585,7 +583,7 @@ describe('runScheduleTick', () => {
 
       expect(workflow.createBatch).toHaveBeenCalledTimes(1);
       expect(setSchedulerNextRunsRequests()).toHaveLength(0);
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
 
     it('does not call createBatch when no scheduler is due', async () => {
@@ -601,7 +599,7 @@ describe('runScheduleTick', () => {
       expect(result).toEqual({ interrupted: 0, initialized: 0, started: 0 });
       expect(workflow.createBatch).not.toHaveBeenCalled();
       expect(setSchedulerNextRunsRequests()).toHaveLength(0);
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
   });
 
@@ -632,7 +630,7 @@ describe('runScheduleTick', () => {
       expect(listRequest.query).toContain('created_at=lt.2026-10-05T21:50:00.000Z');
       expect(listRequest.query).toContain('limit=200');
       expect(failSchedulerRunsRequests()).toHaveLength(0);
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
 
     it('fails a manual run', async () => {
@@ -656,7 +654,7 @@ describe('runScheduleTick', () => {
         failed_at: '2026-10-05T22:00:00.000Z',
         failure_message: 'Run was interrupted',
       });
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
 
     it('leaves alone a manual run whose instance waits for a task group', async () => {
@@ -671,7 +669,7 @@ describe('runScheduleTick', () => {
       expect(result.interrupted).toBe(0);
       expect(workflow.get).toHaveBeenCalledWith(`manual-${manualRun.id}`);
       expect(failSchedulerRunsRequests()).toHaveLength(0);
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
 
     it.each(['running', 'waiting'] as const)('leaves a run alone whose instance is %s', async (status) => {
@@ -685,7 +683,7 @@ describe('runScheduleTick', () => {
       expect(result.interrupted).toBe(0);
       expect(workflow.get).toHaveBeenCalledWith(scheduledRunInstanceID);
       expect(failSchedulerRunsRequests()).toHaveLength(0);
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
 
     it.each([
@@ -710,7 +708,7 @@ describe('runScheduleTick', () => {
         failed_at: '2026-10-05T22:00:00.000Z',
         failure_message: 'Run was interrupted',
       });
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
 
     it('fails every interrupted run in one request and counts the IDs it returns', async () => {
@@ -761,7 +759,7 @@ describe('runScheduleTick', () => {
         scheduledRun.id,
         missingInstanceRun.id,
       ]);
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
 
     it('leaves a run alone whose instance status() throws, and the tick goes on', async () => {
@@ -819,7 +817,7 @@ describe('runScheduleTick', () => {
           next_run_at: '2026-10-06T22:00:00.000Z',
         },
       ]);
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
 
     it('cleans up before it initializes and starts', async () => {
@@ -840,7 +838,7 @@ describe('runScheduleTick', () => {
       ]);
       expect(supabaseRequests[2].query).toContain('next_run_at=is.null');
       expect(supabaseRequests[3].query).toContain('next_run_at=lte.');
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
   });
 
@@ -918,7 +916,7 @@ describe('runScheduleTick', () => {
         'createBatch:50',
         'setSchedulerNextRuns:250',
       ]);
-      fetchMock.assertNoPendingInterceptors();
+      assertNoPendingHandlers(network);
     });
   });
 });

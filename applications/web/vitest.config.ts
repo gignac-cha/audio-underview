@@ -4,10 +4,21 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      // The MSW fixture registers /mockServiceWorker.js, which Vitest browser mode stopped serving in Vitest 5
+      name: 'serve-msw-worker-script',
+      resolveId(id) {
+        if (id === '/mockServiceWorker.js') {
+          return this.resolve('msw/mockServiceWorker.js', undefined, { skipSelf: true });
+        }
+      },
+    },
+  ],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './sources'),
+      '@': path.resolve(import.meta.dirname, './sources'),
     },
   },
   optimizeDeps: {

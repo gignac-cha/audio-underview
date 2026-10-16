@@ -1,6 +1,6 @@
 import { render } from 'vitest-browser-react';
 import { JSONResultPanel } from './JSONResultPanel.tsx';
-import { page } from '@vitest/browser/context';
+import { page } from 'vitest/browser';
 
 describe('JSONResultPanel', () => {
   test('shows idle message when status is idle', async () => {

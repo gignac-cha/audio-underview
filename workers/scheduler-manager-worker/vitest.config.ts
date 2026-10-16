@@ -1,27 +1,31 @@
-import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';
+import { cloudflareTest } from '@cloudflare/vitest-plugin';
+import { defineConfig } from 'vitest/config';
 
-export default defineWorkersConfig({
+export default defineConfig({
+  plugins: [
+    cloudflareTest({
+      wrangler: { configPath: './wrangler.toml' },
+      miniflare: {
+        bindings: {
+          ALLOWED_ORIGINS: 'https://example.com',
+          SUPABASE_URL: 'https://supabase.example.com',
+          SUPABASE_SECRET_KEY: 'test-secret-key',
+          JWT_SECRET: 'test-jwt-secret-key-for-testing-only',
+        },
+        workers: [
+          {
+            name: 'audio-underview-crawler-manager-worker',
+            modules: true,
+            script: 'export default { async fetch() { return Response.json({ success: true, result: null }); } }',
+          },
+        ],
+      },
+    }),
+  ],
   test: {
     include: ['tests/**/*.test.ts'],
-    poolOptions: {
-      workers: {
-        wrangler: { configPath: './wrangler.toml' },
-        miniflare: {
-          bindings: {
-            ALLOWED_ORIGINS: 'https://example.com',
-            SUPABASE_URL: 'https://supabase.example.com',
-            SUPABASE_SECRET_KEY: 'test-secret-key',
-            JWT_SECRET: 'test-jwt-secret-key-for-testing-only',
-          },
-          workers: [
-            {
-              name: 'audio-underview-crawler-manager-worker',
-              modules: true,
-              script: 'export default { async fetch() { return Response.json({ success: true, result: null }); } }',
-            },
-          ],
-        },
-      },
-    },
+    setupFiles: ['@audio-underview/worker-tools/tests/setup.ts'],
+    // The Workers runtime cannot read the module cache Vitest writes to disk
+    fsModuleCache: false,
   },
 });

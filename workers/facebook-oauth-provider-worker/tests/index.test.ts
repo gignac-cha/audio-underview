@@ -1,12 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@audio-underview/axiom-logger', () => ({
   instrumentWorker: vi.fn((handler: unknown) => handler),
 }));
 
-import { env, fetchMock } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
 import { instrumentWorker } from '@audio-underview/axiom-logger';
 import { signJWT, verifyJWT } from '@audio-underview/worker-tools';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 import worker from '../sources/index.ts';
 
 const WORKER_URL = 'https://worker.example.com';
@@ -31,23 +33,28 @@ function interceptSupabase(
   status: number,
   body: unknown,
 ) {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: new RegExp(`^/rest/v1/${table}`), method })
-    .reply(status, JSON.stringify(body))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: new RegExp(`^/rest/v1/${table}`), method }),
+      () => new HttpResponse(JSON.stringify(body), { status }),
+    ),
+  );
 }
 
 /**
  * A paused Supabase project answers with a Cloudflare error page rather than a
- * PostgREST payload, which the connector surfaces as a thrown error.
+ * PostgREST payload, which the connector surfaces as a thrown error. supabase-js
+ * retries a GET answered with 503, and `Retry-After: 0` lets it retry at once.
  */
 function interceptSupabaseOutage() {
-  fetchMock
-    .get(SUPABASE_ORIGIN)
-    .intercept({ path: /^\/rest\/v1\//, method: 'GET' })
-    .reply(503, JSON.stringify({ message: 'error code: 1016' }))
-    .persist();
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(SUPABASE_ORIGIN, { path: /^\/rest\/v1\//, method: 'GET' }),
+      () => HttpResponse.json({ message: 'error code: 1016' }, { status: 503, headers: { 'Retry-After': '0' } }),
+    ),
+  );
 }
 
 function interceptAccountMissing() {
@@ -61,60 +68,64 @@ function interceptAccountMissing() {
 
 /**
  * Facebook exchanges the code over GET, so the interceptor matches on the path
- * prefix and hands every matched path (query string included) to `onPath`.
+ * prefix and hands the path it answers (query string included) to `onPath`.
  */
 function interceptTokenExchange(onPath: (path: string) => void = () => {}) {
-  fetchMock
-    .get(FACEBOOK_GRAPH_ORIGIN)
-    .intercept({
-      path: (path: string) => {
-        if (!path.startsWith('/v22.0/oauth/access_token')) {
-          return false;
-        }
-        onPath(path);
-        return true;
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(FACEBOOK_GRAPH_ORIGIN, {
+        path: (path: string) => path.startsWith('/v22.0/oauth/access_token'),
+        method: 'GET',
+      }),
+      ({ request }) => {
+        const url = new URL(request.url);
+        onPath(`${url.pathname}${url.search}`);
+        return HttpResponse.json({
+          access_token: 'mock-access-token',
+          token_type: 'bearer',
+          expires_in: 5183944,
+        });
       },
-      method: 'GET',
-    })
-    .reply(200, JSON.stringify({
-      access_token: 'mock-access-token',
-      token_type: 'bearer',
-      expires_in: 5183944,
-    }));
+      { once: true },
+    ),
+  );
 }
 
 function interceptUserInfo(
   overrides: Record<string, unknown> = {},
   onPath: (path: string) => void = () => {},
 ) {
-  fetchMock
-    .get(FACEBOOK_GRAPH_ORIGIN)
-    .intercept({
-      path: (path: string) => {
-        if (!path.startsWith('/v22.0/me')) {
-          return false;
-        }
-        onPath(path);
-        return true;
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching(FACEBOOK_GRAPH_ORIGIN, {
+        path: (path: string) => path.startsWith('/v22.0/me'),
+        method: 'GET',
+      }),
+      ({ request }) => {
+        const url = new URL(request.url);
+        onPath(`${url.pathname}${url.search}`);
+        return HttpResponse.json({
+          id: FACEBOOK_USER_ID,
+          email: 'testuser@example.com',
+          name: 'Test User',
+          first_name: 'Test',
+          last_name: 'User',
+          picture: {
+            data: {
+              url: 'https://platform-lookaside.fbsbx.com/profile-pic-123.jpg',
+              width: 50,
+              height: 50,
+              is_silhouette: false,
+            },
+          },
+          ...overrides,
+        });
       },
-      method: 'GET',
-    })
-    .reply(200, JSON.stringify({
-      id: FACEBOOK_USER_ID,
-      email: 'testuser@example.com',
-      name: 'Test User',
-      first_name: 'Test',
-      last_name: 'User',
-      picture: {
-        data: {
-          url: 'https://platform-lookaside.fbsbx.com/profile-pic-123.jpg',
-          width: 50,
-          height: 50,
-          is_silhouette: false,
-        },
-      },
-      ...overrides,
-    }));
+      { once: true },
+    ),
+  );
 }
 
 /**
@@ -194,22 +205,6 @@ async function startLinkFlow(state: string, subject: string = ACCOUNT_UUID) {
 
   return { token, nonce, redirectURL, linkCode: redirectURL.searchParams.get('link_code') };
 }
-
-/** Origins that get intercepted; their mocks are reset between tests. */
-const MOCK_ORIGINS = [SUPABASE_ORIGIN, FACEBOOK_GRAPH_ORIGIN];
-
-beforeEach(() => {
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-});
-
-afterEach(() => {
-  // Interceptors (especially persisted ones) outlive a single test otherwise.
-  for (const origin of MOCK_ORIGINS) {
-    fetchMock.get(origin).cleanMocks();
-  }
-  fetchMock.deactivate();
-});
 
 describe('facebook-oauth-provider-worker', () => {
   describe('handleAuthorize', () => {
@@ -395,19 +390,23 @@ describe('facebook-oauth-provider-worker', () => {
     it('redirects with error when token exchange fails', async () => {
       await putAuthorizationState(oauthState('valid'), { redirectURI: 'https://app.example.com/callback' });
 
-      fetchMock
-        .get(FACEBOOK_GRAPH_ORIGIN)
-        .intercept({
-          path: (path: string) => path.startsWith('/v22.0/oauth/access_token'),
-          method: 'GET',
-        })
-        .reply(400, JSON.stringify({
-          error: {
-            message: 'This authorization code has expired.',
-            type: 'OAuthException',
-            code: 100,
-          },
-        }));
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(FACEBOOK_GRAPH_ORIGIN, {
+            path: (path: string) => path.startsWith('/v22.0/oauth/access_token'),
+            method: 'GET',
+          }),
+          () => HttpResponse.json({
+            error: {
+              message: 'This authorization code has expired.',
+              type: 'OAuthException',
+              code: 100,
+            },
+          }, { status: 400 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);
@@ -462,13 +461,17 @@ describe('facebook-oauth-provider-worker', () => {
 
       interceptTokenExchange();
 
-      fetchMock
-        .get(FACEBOOK_GRAPH_ORIGIN)
-        .intercept({
-          path: (path: string) => path.startsWith('/v22.0/me'),
-          method: 'GET',
-        })
-        .reply(401, 'Unauthorized');
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching(FACEBOOK_GRAPH_ORIGIN, {
+            path: (path: string) => path.startsWith('/v22.0/me'),
+            method: 'GET',
+          }),
+          () => HttpResponse.text('Unauthorized', { status: 401 }),
+          { once: true },
+        ),
+      );
 
       const request = new Request(`${WORKER_URL}/callback?code=test-code&state=${oauthState('valid')}`);
       const response = await worker.fetch(request, env);

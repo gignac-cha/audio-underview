@@ -1,7 +1,7 @@
 import { render } from 'vitest-browser-react';
 import { MemoryRouter } from 'react-router';
 import { NavigationLinks } from './NavigationLinks.tsx';
-import { page } from '@vitest/browser/context';
+import { page } from 'vitest/browser';
 
 describe('NavigationLinks', () => {
   test('renders Home link', async () => {

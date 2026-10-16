@@ -1,11 +1,13 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { SELF, fetchMock } from 'cloudflare:test';
+import { exports } from 'cloudflare:workers';
 import type { CrawlerRunOutcome } from '@audio-underview/worker-tools';
 import { SYSTEM_USER_UUID } from '@audio-underview/supabase-connector';
 import {
   CRAWLER_WORKER_OPTIONS,
+  createCrawlerWorkerCode,
   createIsolateID,
   isCPULimitError,
+  outboundGatewayOf,
   runCrawler,
   runLoadedCrawler,
   validateRunContext,
@@ -15,6 +17,7 @@ import type CrawlerManagerWorker from '../sources/index.ts';
 import { useInMemorySupabase } from './in-memory-supabase.ts';
 import {
   CODE_RUNNER_ORIGIN,
+  type CrawlerLoader,
   SUPABASE_ORIGIN,
   addCrawler,
   configureVault,
@@ -26,6 +29,8 @@ import {
   vaultEnvironment,
   vaultRequests,
 } from './runtime-harness.ts';
+import { http, HttpResponse } from 'msw';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 
 const supabase = useInMemorySupabase(SUPABASE_ORIGIN);
 
@@ -430,7 +435,7 @@ describe('the answer of the runner', () => {
   const TIMESTAMP = '2026-10-13T01:02:03.456Z';
 
   /** A LOADER whose runner answers as it is told, as a runner the code broke could */
-  function answeringLoader(answer: unknown): WorkerLoader {
+  function answeringLoader(answer: unknown): CrawlerLoader {
     return {
       get: () => ({
         getEntrypoint: () => ({
@@ -580,7 +585,7 @@ describe('time', () => {
   });
 
   it('turns the CPU limit into execution_timeout', async () => {
-    const loader: WorkerLoader = {
+    const loader: CrawlerLoader = {
       get: () => ({
         getEntrypoint: () => ({
           run: () => Promise.reject(new Error('Worker exceeded CPU time limit.')),
@@ -606,7 +611,7 @@ describe('time', () => {
     expect(calls).toHaveLength(1);
     const { workerCode } = calls[0];
     expect(workerCode.limits).toEqual({ cpuMs: 30_000 });
-    expect(workerCode.compatibilityDate).toBe('2025-11-25');
+    expect(workerCode.compatibilityDate).toBe('2026-10-12');
     expect(workerCode.compatibilityFlags).toEqual(['nodejs_als']);
     expect(workerCode.mainModule).toBe('runner.js');
     expect(workerCode.modules['runner.js']).toBe(RUNNER_MODULE_SOURCE);
@@ -614,6 +619,26 @@ describe('time', () => {
     expect(workerCode.env).toEqual({});
     expect(workerCode.globalOutbound).toBeDefined();
     expect(workerCode.globalOutbound).not.toBeNull();
+    expect(workerCode.globalOutbound).toBe(outboundGatewayOf(exports));
+  });
+});
+
+describe('the outbound gateway', () => {
+  it('is the CrawlerOutboundGateway entrypoint of this worker', () => {
+    expect(outboundGatewayOf(exports)).toBe((exports as unknown as { CrawlerOutboundGateway: Fetcher }).CrawlerOutboundGateway);
+  });
+
+  // A run without it is in missing-outbound-gateway.test.ts, whose worker has no such entrypoint
+  it('is required, so the code of a crawler is not built without it', () => {
+    for (const workerExports of [undefined, null, {}, { CrawlerOutboundGateway: undefined }, { CrawlerOutboundGateway: null }]) {
+      expect(() => outboundGatewayOf(workerExports), JSON.stringify(workerExports)).toThrow('The outbound gateway for crawler code is missing');
+    }
+  });
+
+  it('is the globalOutbound of the Dynamic Worker it is given to', () => {
+    const gateway = outboundGatewayOf(exports);
+
+    expect(createCrawlerWorkerCode('(input) => input', gateway, CRAWLER_WORKER_OPTIONS).globalOutbound).toBe(gateway);
   });
 });
 
@@ -684,6 +709,24 @@ describe('environment variables', () => {
     ]);
   });
 
+  it('stay out of process.env, which the Node.js APIs of the compatibility date give the code', async () => {
+    const author = uniqueUUID();
+    await vaultEnvironment(author, { API_KEY: 'key-value-1234' });
+    const crawler = addCrawler(supabase, crawlerRow({
+      user_uuid: author,
+      code: `(input, context) => ({
+        processEnvironment: Object.keys(process.env),
+        buffer: Buffer.from('hi').toString('base64'),
+        required: typeof require('node:buffer').Buffer,
+        variables: Object.keys(context.environment),
+      })`,
+    }));
+
+    const outcome = expectCompleted(await runCrawler(createTestDependencies(), crawler.id, {}, { userUUID: author }));
+
+    expect(outcome.result).toEqual({ processEnvironment: [], buffer: 'aGk=', required: 'function', variables: ['API_KEY'] });
+  });
+
   it('can be used by name inside the code', async () => {
     const author = uniqueUUID();
     await vaultEnvironment(author, { API_KEY: 'key-value-1234' });
@@ -728,14 +771,12 @@ describe('environment variables', () => {
     expect(await vaultRequests(author)).toEqual([]);
   });
 
-  it('are empty in the executeCrawler and executeCrawlerByName RPCs, which do not call the vault', async () => {
+  it('are empty in the executeCrawlerByName RPC, which does not call the vault', async () => {
     const author = uniqueUUID();
     await vaultEnvironment(author, { API_KEY: 'key-value-1234' });
-    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code: ENVIRONMENT_CODE }));
     const systemCrawler = addCrawler(supabase, crawlerRow({ user_uuid: SYSTEM_USER_UUID, name: 'environment-probe', code: ENVIRONMENT_CODE }));
-    const worker = SELF as unknown as Service<typeof CrawlerManagerWorker>;
+    const worker = exports.default as unknown as Service<typeof CrawlerManagerWorker>;
 
-    await expect(worker.executeCrawler(crawler.id, {})).resolves.toEqual({ type: 'data', result: { environment: {}, frozen: true } });
     await expect(worker.executeCrawlerByName(systemCrawler.name, {})).resolves.toEqual({
       type: 'data',
       result: { environment: {}, frozen: true },
@@ -844,10 +885,14 @@ describe('the page of a web crawler', () => {
   });
 
   it('turns a Lambda 400 into a failed outcome with the same error as before', async () => {
-    fetchMock
-      .get(CODE_RUNNER_ORIGIN)
-      .intercept({ path: '/run', method: 'POST' })
-      .reply(400, JSON.stringify({ error: 'invalid_request', error_description: "The resolved address for 'internal' is not allowed" }));
+    appendHandlers(
+      network,
+      http.all(
+        requestMatching(CODE_RUNNER_ORIGIN, { path: '/run', method: 'POST' }),
+        () => HttpResponse.json({ error: 'invalid_request', error_description: "The resolved address for 'internal' is not allowed" }, { status: 400 }),
+        { once: true },
+      ),
+    );
     const crawler = webCrawler();
 
     const outcome = expectFailed(await runCrawler(createTestDependencies(), crawler.id, { url: 'https://internal/' }, { userUUID: uniqueUUID() }));
@@ -865,7 +910,12 @@ describe('the page of a web crawler', () => {
 
   it('turns a Lambda 502 and 504, after the retries, into failed outcomes with the same errors as before', async () => {
     for (const status of [502, 504]) {
-      fetchMock.get(CODE_RUNNER_ORIGIN).intercept({ path: '/run', method: 'POST' }).reply(status, '{}').times(3);
+      appendHandlers(
+        network,
+        ...Array.from({ length: 3 }, () =>
+          http.all(requestMatching(CODE_RUNNER_ORIGIN, { path: '/run', method: 'POST' }), () => HttpResponse.text('{}', { status }), { once: true }),
+        ),
+      );
       const crawler = webCrawler();
 
       const outcome = expectFailed(await runCrawler(createTestDependencies(), crawler.id, { url: 'https://example.com/' }, { userUUID: uniqueUUID() }));
@@ -879,7 +929,12 @@ describe('the page of a web crawler', () => {
   }, 20_000);
 
   it('turns a connection failure into a failed outcome with the same error as before', async () => {
-    fetchMock.get(CODE_RUNNER_ORIGIN).intercept({ path: '/run', method: 'POST' }).replyWithError(new Error('connection refused')).times(3);
+    appendHandlers(
+      network,
+      ...Array.from({ length: 3 }, () =>
+        http.all(requestMatching(CODE_RUNNER_ORIGIN, { path: '/run', method: 'POST' }), () => HttpResponse.error(), { once: true }),
+      ),
+    );
     const crawler = webCrawler();
 
     const outcome = expectFailed(await runCrawler(createTestDependencies(), crawler.id, { url: 'https://example.com/' }, { userUUID: uniqueUUID() }));
@@ -889,10 +944,14 @@ describe('the page of a web crawler', () => {
   }, 20_000);
 
   it('fails with invalid_response when the Lambda does not answer a string', async () => {
-    fetchMock
-      .get(CODE_RUNNER_ORIGIN)
-      .intercept({ path: '/run', method: 'POST' })
-      .reply(200, JSON.stringify({ type: 'web', mode: 'run', result: { not: 'a string' } }));
+    appendHandlers(
+      network,
+      http.all(
+        requestMatching(CODE_RUNNER_ORIGIN, { path: '/run', method: 'POST' }),
+        () => HttpResponse.json({ type: 'web', mode: 'run', result: { not: 'a string' } }),
+        { once: true },
+      ),
+    );
     const crawler = webCrawler();
 
     const outcome = expectFailed(await runCrawler(createTestDependencies(), crawler.id, { url: 'https://example.com/' }, { userUUID: uniqueUUID() }));

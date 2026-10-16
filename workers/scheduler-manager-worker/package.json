@@ -13,14 +13,13 @@
   "packageManager": "pnpm@10.26.1",
   "dependencies": {
     "@audio-underview/logger": "workspace:*",
-    "@audio-underview/worker-tools": "workspace:*",
-    "@audio-underview/supabase-connector": "workspace:*"
+    "@audio-underview/supabase-connector": "workspace:*",
+    "@audio-underview/worker-tools": "workspace:*"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "catalog:worker",
+    "@cloudflare/vitest-plugin": "catalog:worker",
     "@cloudflare/workers-types": "catalog:worker",
-    "@vitest/runner": "catalog:worker",
-    "@vitest/snapshot": "catalog:worker",
+    "msw": "catalog:worker",
     "vitest": "catalog:worker"
   }
 }

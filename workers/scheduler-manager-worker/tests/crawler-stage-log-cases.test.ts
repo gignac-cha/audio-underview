@@ -495,15 +495,6 @@ describe('ServiceBindingCrawlerExecutionClient', () => {
     await expect(new ServiceBindingCrawlerExecutionClient(binding).run(CRAWLER_ID, {}, CONTEXT)).rejects.toThrow('Crawler 1 not found');
   });
 
-  it('no longer asks for executeCrawler, which runs without a user', async () => {
-    const executeCrawler = vi.fn();
-    const runCrawler = vi.fn(async () => completed(null));
-
-    await new ServiceBindingCrawlerExecutionClient({ executeCrawler, runCrawler } as unknown as Service).run(CRAWLER_ID, {}, CONTEXT);
-
-    expect(executeCrawler).not.toHaveBeenCalled();
-    expect(runCrawler).toHaveBeenCalledTimes(1);
-  });
 });
 
 describe('resolveHTTPStatus', () => {

@@ -3,7 +3,7 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { ProtectedRoute } from './ProtectedRoute.tsx';
 import { AuthenticationContext } from '../contexts/authentication-context-value.ts';
 import type { AuthenticationContextValue } from '../contexts/authentication-context-value.ts';
-import { page } from '@vitest/browser/context';
+import { page } from 'vitest/browser';
 
 function createMockAuth(overrides: Partial<AuthenticationContextValue> = {}): AuthenticationContextValue {
   return {

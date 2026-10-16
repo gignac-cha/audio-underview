@@ -1,6 +1,6 @@
 name = "worker-tools-test"
 main = "sources/index.ts"
-compatibility_date = "2025-11-25"
+compatibility_date = "2026-10-12"
 
 [[kv_namespaces]]
 binding = "AUDIO_UNDERVIEW_OAUTH_STATE"

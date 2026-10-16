@@ -1,19 +1,5 @@
 import { vi } from 'vitest';
 
-export function setupTracerMock() {
-  vi.mock('@audio-underview/axiom-logger/tracers', () => ({
-    traceDatabaseOperation: async (_options: unknown, operation: Function) =>
-      operation({
-        setAttribute: vi.fn(),
-        setStatus: vi.fn(),
-        end: vi.fn(),
-        recordException: vi.fn(),
-        addEvent: vi.fn(),
-      }),
-    SpanStatusCode: { OK: 0, ERROR: 2 },
-  }));
-}
-
 export type FakeQueryOperation = 'select' | 'insert' | 'update' | 'delete';
 
 export interface FakeQuery {

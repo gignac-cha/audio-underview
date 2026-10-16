@@ -1,9 +1,10 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { fetchMock } from 'cloudflare:test';
-import { guardedFetch, REDIRECT_MODE_HEADER } from '../sources/crawler-runtime/outbound-gateway.ts';
+import { CrawlerOutboundGateway, guardedFetch, REDIRECT_MODE_HEADER } from '../sources/crawler-runtime/outbound-gateway.ts';
 import { runCrawler } from '../sources/crawler-runtime/run-crawler.ts';
 import { useInMemorySupabase } from './in-memory-supabase.ts';
 import { SUPABASE_ORIGIN, addCrawler, crawlerRow, createMockLogger, createTestDependencies, uniqueUUID } from './runtime-harness.ts';
+import { http, HttpResponse } from 'msw';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 
 const supabase = useInMemorySupabase(SUPABASE_ORIGIN);
 
@@ -346,11 +347,13 @@ describe('fetch inside crawler code', () => {
   // Every request and every redirect hop asks again
   function mockDNS(host: string, address: string) {
     for (const type of ['A', 'AAAA']) {
-      fetchMock
-        .get('https://cloudflare-dns.com')
-        .intercept({ path: `/dns-query?name=${host}&type=${type}`, method: 'GET' })
-        .reply(200, JSON.stringify({ Status: 0, Answer: type === 'A' ? [{ name: host, type: 1, TTL: 60, data: address }] : [] }))
-        .persist();
+      appendHandlers(
+        network,
+        http.all(
+          requestMatching('https://cloudflare-dns.com', { path: `/dns-query?name=${host}&type=${type}`, method: 'GET' }),
+          () => HttpResponse.json({ Status: 0, Answer: type === 'A' ? [{ name: host, type: 1, TTL: 60, data: address }] : [] }),
+        ),
+      );
     }
   }
 
@@ -377,14 +380,22 @@ describe('fetch inside crawler code', () => {
 
   it('reaches a public address through the gateway and follows redirects there', async () => {
     mockDNS('api.example.com', '93.184.216.34');
-    fetchMock
-      .get('https://api.example.com')
-      .intercept({ path: '/v1/items?key=query-key', method: 'GET' })
-      .reply(302, '', { headers: { location: 'https://api.example.com/v1/items/final' } });
-    fetchMock
-      .get('https://api.example.com')
-      .intercept({ path: '/v1/items/final', method: 'GET' })
-      .reply(200, JSON.stringify({ items: [1, 2] }), { headers: { 'content-type': 'application/json' } });
+    appendHandlers(
+      network,
+      http.all(
+        requestMatching('https://api.example.com', { path: '/v1/items?key=query-key', method: 'GET' }),
+        () => new HttpResponse(null, { status: 302, headers: { location: 'https://api.example.com/v1/items/final' } }),
+        { once: true },
+      ),
+    );
+    appendHandlers(
+      network,
+      http.all(
+        requestMatching('https://api.example.com', { path: '/v1/items/final', method: 'GET' }),
+        () => HttpResponse.json({ items: [1, 2] }),
+        { once: true },
+      ),
+    );
 
     const outcome = await run(`async (input) => {
       const response = await fetch('https://api.example.com/v1/items?key=query-key');
@@ -396,11 +407,14 @@ describe('fetch inside crawler code', () => {
 
   it('passes the redirect mode of the code to the gateway', async () => {
     mockDNS('api.example.com', '93.184.216.34');
-    fetchMock
-      .get('https://api.example.com')
-      .intercept({ path: '/moved', method: 'GET' })
-      .reply(301, '', { headers: { location: 'https://api.example.com/elsewhere' } })
-      .times(2);
+    appendHandlers(
+      network,
+      ...Array.from({ length: 2 }, () => http.all(
+        requestMatching('https://api.example.com', { path: '/moved', method: 'GET' }),
+        () => new HttpResponse(null, { status: 301, headers: { location: 'https://api.example.com/elsewhere' } }),
+        { once: true },
+      )),
+    );
 
     const outcome = await run(`async (input) => {
       const manual = await fetch('https://api.example.com/moved', { redirect: 'manual' });
@@ -416,17 +430,55 @@ describe('fetch inside crawler code', () => {
   });
 
   it('cannot open a socket with connect()', async () => {
+    // workerd opens a socket of the code through the gateway when the gateway has any connect member
+    expect('connect' in CrawlerOutboundGateway.prototype).toBe(false);
+
+    // The gateway has no connect(), so the runtime refuses the socket. A test runner that gives every
+    // entrypoint a connect() lets it open, but the socket then ends before any data arrives.
     const outcome = await run(`async (input) => {
       const { connect } = await import('cloudflare:sockets');
+      let socket;
       try {
-        const socket = connect('example.com:443');
+        socket = connect('example.com:443');
         await socket.opened;
-        return 'opened';
-      } catch (error) {
-        return error.name;
+      } catch {
+        return { opened: false };
+      }
+      try {
+        const { done, value } = await socket.readable.getReader().read();
+        return { opened: true, ended: done, bytes: value === undefined ? 0 : value.byteLength };
+      } catch {
+        return { opened: true, ended: true, bytes: 0 };
+      } finally {
+        socket.close().catch(() => {});
       }
     }`);
 
-    expect(outcome).toMatchObject({ status: 'completed', result: 'TypeError' });
+    expect(outcome).toMatchObject({ status: 'completed' });
+    const result = (outcome as { result: { opened: boolean; ended?: boolean; bytes?: number } }).result;
+    expect(result.opened === false || (result.ended === true && result.bytes === 0), JSON.stringify(result)).toBe(true);
+  });
+
+  it('receives nothing over a node:net socket either, which the Node.js APIs of the compatibility date give the code', async () => {
+    // node:net opens its sockets with connect() of the runtime, so the same refusal applies
+    const outcome = await run(`async (input) => {
+      const net = require('node:net');
+      return new Promise((resolve) => {
+        let connected = false;
+        let bytes = 0;
+        const socket = net.connect(80, 'example.com');
+        const finish = () => resolve({ connected, bytes });
+        socket.on('connect', () => {
+          connected = true;
+          socket.write('GET / HTTP/1.0\\r\\nHost: example.com\\r\\n\\r\\n');
+        });
+        socket.on('data', (data) => { bytes += data.length; });
+        socket.on('error', finish);
+        socket.on('close', finish);
+        setTimeout(() => { socket.destroy(); finish(); }, 5_000);
+      });
+    }`);
+
+    expect(outcome).toMatchObject({ status: 'completed', result: { bytes: 0 } });
   });
 });

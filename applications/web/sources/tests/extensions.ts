@@ -3,12 +3,12 @@ import { worker } from './mocks/browser.ts';
 
 export const test = testBase.extend({
   worker: [
-    // eslint-disable-next-line no-empty-pattern -- vitest v4 requires destructuring for fixture params
+    // Vitest requires destructuring for the fixture parameters, so the empty pattern stays
     async ({}: Record<string, never>, use: (value: typeof worker) => Promise<void>) => {
       await worker.start({ quiet: true });
       await use(worker);
       worker.resetHandlers();
-      worker.stop();
+      await worker.stop();
     },
     { auto: true },
   ],

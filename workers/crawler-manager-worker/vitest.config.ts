@@ -1,4 +1,5 @@
-import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';
+import { cloudflareTest } from '@cloudflare/vitest-plugin';
+import { defineConfig } from 'vitest/config';
 
 // Stands in for user-vault-worker. A test sets the answers of each route for a user with
 // POST /__test__/configure { userId, responses: { <route>: { status, body } } } and reads the
@@ -40,30 +41,33 @@ export default {
 };
 `;
 
-export default defineWorkersConfig({
+export default defineConfig({
+  plugins: [
+    cloudflareTest({
+      wrangler: { configPath: './wrangler.toml' },
+      miniflare: {
+        bindings: {
+          ALLOWED_ORIGINS: 'https://example.com',
+          SUPABASE_URL: 'https://supabase.example.com',
+          SUPABASE_SECRET_KEY: 'test-secret-key',
+          JWT_SECRET: 'test-jwt-secret-key-for-testing-only',
+          CODE_RUNNER_FUNCTION_URL: 'https://code-runner.example.com',
+          VAULT_INTERNAL_TOKEN: 'test-vault-token',
+        },
+        workers: [
+          {
+            name: 'audio-underview-user-vault-worker',
+            modules: true,
+            script: USER_VAULT_SCRIPT,
+          },
+        ],
+      },
+    }),
+  ],
   test: {
     include: ['tests/**/*.test.ts'],
-    poolOptions: {
-      workers: {
-        wrangler: { configPath: './wrangler.toml' },
-        miniflare: {
-          bindings: {
-            ALLOWED_ORIGINS: 'https://example.com',
-            SUPABASE_URL: 'https://supabase.example.com',
-            SUPABASE_SECRET_KEY: 'test-secret-key',
-            JWT_SECRET: 'test-jwt-secret-key-for-testing-only',
-            CODE_RUNNER_FUNCTION_URL: 'https://code-runner.example.com',
-            VAULT_INTERNAL_TOKEN: 'test-vault-token',
-          },
-          workers: [
-            {
-              name: 'audio-underview-user-vault-worker',
-              modules: true,
-              script: USER_VAULT_SCRIPT,
-            },
-          ],
-        },
-      },
-    },
+    setupFiles: ['@audio-underview/worker-tools/tests/setup.ts'],
+    // The Workers runtime cannot read the module cache Vitest writes to disk
+    fsModuleCache: false,
   },
 });

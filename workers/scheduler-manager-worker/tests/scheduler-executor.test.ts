@@ -1,11 +1,13 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { env, fetchMock } from 'cloudflare:test';
+import { describe, it, expect, vi } from 'vitest';
+import { env } from 'cloudflare:test';
 import { createSupabaseClient } from '@audio-underview/supabase-connector';
 import type { SchedulerStageRow } from '@audio-underview/supabase-connector';
 import type { CrawlerExecutionClient } from '../sources/crawler-execution-client.ts';
 import type { Logger } from '@audio-underview/logger';
 import { executeScheduler } from '../sources/scheduler-executor.ts';
 import type { ExecutorDependencies } from '../sources/scheduler-executor.ts';
+import { http, HttpResponse } from 'msw';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 
 const SCHEDULER_ID = '00000000-0000-0000-0000-000000000010';
 const USER_UUID = '00000000-0000-0000-0000-000000000001';
@@ -83,45 +85,69 @@ function mockStageRunRow(overrides: Record<string, unknown> = {}) {
 // --- Supabase mock helpers ---
 
 function mockListSchedulerStages(stages: SchedulerStageRow[]) {
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/scheduler_stages/, method: 'GET' })
-    .reply(200, JSON.stringify(stages));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/scheduler_stages/, method: 'GET' }),
+      () => HttpResponse.json(stages),
+      { once: true },
+    ),
+  );
 }
 
 function mockUpdateSchedulerRun(overrides: Record<string, unknown> = {}) {
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/scheduler_runs/, method: 'PATCH' })
-    .reply(200, JSON.stringify(mockRunRow(overrides)));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/scheduler_runs/, method: 'PATCH' }),
+      () => HttpResponse.json(mockRunRow(overrides)),
+      { once: true },
+    ),
+  );
 }
 
 function mockUpdateScheduler(overrides: Record<string, unknown> = {}) {
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/schedulers/, method: 'PATCH' })
-    .reply(200, JSON.stringify(mockSchedulerRow(overrides)));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/schedulers/, method: 'PATCH' }),
+      () => HttpResponse.json(mockSchedulerRow(overrides)),
+      { once: true },
+    ),
+  );
 }
 
 function mockCreateStageRun(overrides: Record<string, unknown> = {}) {
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/scheduler_stage_runs/, method: 'POST' })
-    .reply(201, JSON.stringify(mockStageRunRow(overrides)));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/scheduler_stage_runs/, method: 'POST' }),
+      () => HttpResponse.json(mockStageRunRow(overrides), { status: 201 }),
+      { once: true },
+    ),
+  );
 }
 
 function mockUpdateStageRun(overrides: Record<string, unknown> = {}) {
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/scheduler_stage_runs/, method: 'PATCH' })
-    .reply(200, JSON.stringify(mockStageRunRow(overrides)));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/scheduler_stage_runs/, method: 'PATCH' }),
+      () => HttpResponse.json(mockStageRunRow(overrides)),
+      { once: true },
+    ),
+  );
 }
 
 function mockUpdateSchedulerRunError() {
-  fetchMock
-    .get('https://supabase.example.com')
-    .intercept({ path: /^\/rest\/v1\/scheduler_runs/, method: 'PATCH' })
-    .reply(500, JSON.stringify({ message: 'Internal Server Error' }));
+  appendHandlers(
+    network,
+    http.all(
+      requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/scheduler_runs/, method: 'PATCH' }),
+      () => HttpResponse.json({ message: 'Internal Server Error' }, { status: 500 }),
+      { once: true },
+    ),
+  );
 }
 
 // --- Crawler execution client mock ---
@@ -166,15 +192,6 @@ function createDependencies(crawlerResults: unknown[] = []): {
     logger,
   };
 }
-
-beforeEach(() => {
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-});
-
-afterEach(() => {
-  fetchMock.deactivate();
-});
 
 describe('executeScheduler', () => {
   it('marks run as completed with result null when stages are empty', async () => {
@@ -476,13 +493,17 @@ describe('executeScheduler', () => {
     mockUpdateSchedulerRun({ status: 'failed' });
     // finally: updateScheduler → capture request body to verify last_run_at
     let capturedBody: Record<string, unknown> | undefined;
-    fetchMock
-      .get('https://supabase.example.com')
-      .intercept({ path: /^\/rest\/v1\/schedulers/, method: 'PATCH' })
-      .reply(200, (request: { body: string }) => {
-        capturedBody = JSON.parse(request.body as string) as Record<string, unknown>;
-        return { data: JSON.stringify(mockSchedulerRow()) };
-      });
+    appendHandlers(
+      network,
+      http.all(
+        requestMatching('https://supabase.example.com', { path: /^\/rest\/v1\/schedulers/, method: 'PATCH' }),
+        async ({ request }) => {
+          capturedBody = JSON.parse(await request.text()) as Record<string, unknown>;
+          return HttpResponse.json({ data: JSON.stringify(mockSchedulerRow()) });
+        },
+        { once: true },
+      ),
+    );
 
     await executeScheduler(dependencies, SCHEDULER_ID, USER_UUID, RUN_ID);
 

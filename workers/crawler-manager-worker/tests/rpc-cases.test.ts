@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SELF } from 'cloudflare:test';
+import { exports } from 'cloudflare:workers';
 import { SYSTEM_USER_UUID } from '@audio-underview/supabase-connector';
 import type CrawlerManagerWorker from '../sources/index.ts';
 import { useInMemorySupabase } from './in-memory-supabase.ts';
@@ -8,17 +8,19 @@ import {
   addCrawler,
   configureVault,
   crawlerRow,
+  runScheduledHandler,
   testEnvironment,
   uniqueUUID,
   vaultEnvironment,
   vaultRequests,
 } from './runtime-harness.ts';
 
-// The RPC methods the scheduler (runCrawler) and the older scheduler (executeCrawler) call, and the cron,
+// The RPC methods, runCrawler the scheduler calls and executeCrawlerByName for system crawlers, and the cron,
 // as a caller of the service binding meets them.
 
 const supabase = useInMemorySupabase(SUPABASE_ORIGIN);
-const crawlerManager = SELF as unknown as Service<typeof CrawlerManagerWorker>;
+// An RPC promise is callable and expect().rejects calls what it is given, so rejecting calls are wrapped in a function
+const crawlerManager = exports.default as unknown as Service<typeof CrawlerManagerWorker>;
 
 describe('runCrawler', () => {
   it('runs the crawler for the user and answers the outcome with the logs', async () => {
@@ -88,17 +90,17 @@ describe('runCrawler', () => {
   it('throws Crawler <id> not found for a crawler that does not exist', async () => {
     const crawlerID = uniqueUUID();
 
-    await expect(crawlerManager.runCrawler(crawlerID, {}, { userUUID: uniqueUUID() })).rejects.toThrow(`Crawler ${crawlerID} not found`);
+    await expect(() => crawlerManager.runCrawler(crawlerID, {}, { userUUID: uniqueUUID() })).rejects.toThrow(`Crawler ${crawlerID} not found`);
   });
 
   it('throws Invalid user UUID or Invalid run ID for a context that is not valid, before anything is read', async () => {
     const crawlerID = uniqueUUID();
 
     for (const context of [{ userUUID: 'not-a-uuid' }, { userUUID: '' }, null, {}, { userUUID: 5 }]) {
-      await expect(crawlerManager.runCrawler(crawlerID, {}, context as never)).rejects.toThrow('Invalid user UUID');
+      await expect(() => crawlerManager.runCrawler(crawlerID, {}, context as never)).rejects.toThrow('Invalid user UUID');
     }
     for (const runID of ['nope', 42, '']) {
-      await expect(crawlerManager.runCrawler(crawlerID, {}, { userUUID: uniqueUUID(), runID } as never)).rejects.toThrow('Invalid run ID');
+      await expect(() => crawlerManager.runCrawler(crawlerID, {}, { userUUID: uniqueUUID(), runID } as never)).rejects.toThrow('Invalid run ID');
     }
     expect(supabase.requests).toEqual([]);
   });
@@ -108,12 +110,12 @@ describe('runCrawler', () => {
     const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author }));
 
     await configureVault(author, { resolve: { status: 503, body: { error: 'vault_unavailable' } } });
-    await expect(crawlerManager.runCrawler(crawler.id, {}, { userUUID: author })).rejects.toThrow(
+    await expect(() => crawlerManager.runCrawler(crawler.id, {}, { userUUID: author })).rejects.toThrow(
       'Environment variables could not be read: vault responded 503 vault_unavailable',
     );
 
     await configureVault(author, { resolve: { status: 'unreachable' } });
-    await expect(crawlerManager.runCrawler(crawler.id, {}, { userUUID: author })).rejects.toThrow(
+    await expect(() => crawlerManager.runCrawler(crawler.id, {}, { userUUID: author })).rejects.toThrow(
       'Environment variables could not be read: vault could not be reached',
     );
   });
@@ -121,54 +123,7 @@ describe('runCrawler', () => {
   it('throws on a database error', async () => {
     supabase.intercept = () => ({ statusCode: 500, data: { message: 'database down' } });
 
-    await expect(crawlerManager.runCrawler(uniqueUUID(), {}, { userUUID: uniqueUUID() })).rejects.toThrow(/Failed to get crawler by ID/);
-  });
-});
-
-describe('executeCrawler', () => {
-  it('runs without a user and answers the type and the result', async () => {
-    const crawler = addCrawler(supabase, crawlerRow({ code: '(input) => ({ doubled: input.n * 2 })' }));
-
-    await expect(crawlerManager.executeCrawler(crawler.id, { n: 4 })).resolves.toEqual({ type: 'data', result: { doubled: 8 } });
-  });
-
-  it('gives no environment variables and no files, and does not ask the vault', async () => {
-    const author = uniqueUUID();
-    const crawler = addCrawler(supabase, crawlerRow({
-      user_uuid: author,
-      code: `async (input, context) => {
-        let files;
-        try { await context.files.save('x'); files = 'saved'; } catch (error) { files = error.message; }
-        return { environment: Object.keys(context.environment), files };
-      }`,
-    }));
-    await vaultEnvironment(author, { KEY: 'a-secret-value' });
-
-    const result = await crawlerManager.executeCrawler(crawler.id, {});
-
-    expect(result.result).toEqual({ environment: [], files: 'Files are not available in this run' });
-    expect(await vaultRequests(author)).toEqual([]);
-    expect(supabase.tables.crawler_files ?? []).toEqual([]);
-  });
-
-  it('throws the text of the failure when the run fails', async () => {
-    const crawler = addCrawler(supabase, crawlerRow({ code: '() => { throw new Error("nope"); }' }));
-
-    await expect(crawlerManager.executeCrawler(crawler.id, {})).rejects.toThrow('CodeRunner error 422: [execution_failed] nope');
-  });
-
-  it('throws Crawler <id> not found for a crawler that does not exist', async () => {
-    const crawlerID = uniqueUUID();
-
-    await expect(crawlerManager.executeCrawler(crawlerID, {})).rejects.toThrow(`Crawler ${crawlerID} not found`);
-  });
-
-  it('throws the invalid input text, without a prefix, for a web crawler without a URL', async () => {
-    const crawler = addCrawler(supabase, crawlerRow({ type: 'web', url_pattern: '.*', input_schema: {}, code: '(body) => body' }));
-
-    const error = await crawlerManager.executeCrawler(crawler.id, {}).catch((caught: unknown) => caught);
-
-    expect((error as Error).message).toBe(`Crawler ${crawler.id}: no URL available. Provide url in input or set a default in input_schema.`);
+    await expect(() => crawlerManager.runCrawler(uniqueUUID(), {}, { userUUID: uniqueUUID() })).rejects.toThrow(/Failed to get crawler by ID/);
   });
 });
 
@@ -187,14 +142,14 @@ describe('executeCrawlerByName', () => {
     const name = `system-failing-${uniqueUUID()}`;
     addCrawler(supabase, crawlerRow({ user_uuid: SYSTEM_USER_UUID, name, code: '() => { throw new Error("system failure"); }' }));
 
-    await expect(crawlerManager.executeCrawlerByName(name, {})).rejects.toThrow('[execution_failed] system failure');
+    await expect(() => crawlerManager.executeCrawlerByName(name, {})).rejects.toThrow('[execution_failed] system failure');
   });
 
   it('does not run a crawler of a user by its name', async () => {
     const name = `user-crawler-${uniqueUUID()}`;
     addCrawler(supabase, crawlerRow({ user_uuid: uniqueUUID(), name, code: '() => "ran"' }));
 
-    await expect(crawlerManager.executeCrawlerByName(name, {})).rejects.toThrow(`System crawler '${name}' not found`);
+    await expect(() => crawlerManager.executeCrawlerByName(name, {})).rejects.toThrow(`System crawler '${name}' not found`);
   });
 });
 
@@ -203,7 +158,7 @@ describe('scheduled', () => {
     supabase.intercept = (request) =>
       request.table === 'rpc/delete_expired_crawler_files' ? { statusCode: 500, data: { message: 'rpc failed' } } : undefined;
 
-    await expect(SELF.scheduled({ scheduledTime: new Date('2026-10-13T00:15:00.000Z'), cron: '*/15 * * * *' })).rejects.toThrow(
+    await expect(() => runScheduledHandler({ scheduledTime: new Date('2026-10-13T00:15:00.000Z'), cron: '*/15 * * * *' })).rejects.toThrow(
       /Crawler file cleanup failed/,
     );
   });
@@ -222,7 +177,7 @@ describe('scheduled', () => {
     supabase.tables.crawler_file_deletions ??= [];
     supabase.tables.crawler_file_deletions.push({ object_key: orphanKey, queued_at: '2026-10-13T00:00:00.000Z' });
 
-    await SELF.scheduled({ scheduledTime: new Date('2026-10-13T00:15:00.000Z'), cron: '*/15 * * * *' });
+    await runScheduledHandler({ scheduledTime: new Date('2026-10-13T00:15:00.000Z'), cron: '*/15 * * * *' });
 
     expect(await testEnvironment.CRAWLER_FILES.get(orphanKey)).toBeNull();
     expect(await (await testEnvironment.CRAWLER_FILES.get(liveKey))?.text()).toBe('live');

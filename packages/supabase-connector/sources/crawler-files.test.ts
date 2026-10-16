@@ -7,9 +7,7 @@ import {
   listCrawlerFileDeletions,
   deleteCrawlerFileDeletions,
 } from './crawler-files.ts';
-import { createMockClient, setupTracerMock } from './test-helpers.ts';
-
-setupTracerMock();
+import { createMockClient } from './test-helpers.ts';
 
 afterEach(() => {
   vi.restoreAllMocks();

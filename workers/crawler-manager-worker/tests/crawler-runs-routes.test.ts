@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SELF, fetchMock } from 'cloudflare:test';
+import { SELF } from 'cloudflare:test';
 import { SYSTEM_USER_UUID } from '@audio-underview/supabase-connector';
 import type { CrawlerRunOutcome } from '@audio-underview/worker-tools';
 import { resolveDirectRunStatus } from '../sources/handlers/crawler-runs.ts';
@@ -17,6 +17,8 @@ import {
   vaultRequests,
   workerRequest,
 } from './runtime-harness.ts';
+import { http, HttpResponse } from 'msw';
+import { appendHandlers, network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 
 const supabase = useInMemorySupabase(SUPABASE_ORIGIN);
 
@@ -221,10 +223,22 @@ describe('POST /crawlers/:id/runs', () => {
 
   it('answers 400 for a Lambda 400 and 502 for a Lambda answer other than 400 and 504', async () => {
     const { crawler, owner } = ownCrawler('(body) => body', { type: 'web', url_pattern: '.*' });
-    fetchMock.get(CODE_RUNNER_ORIGIN).intercept({ path: '/run', method: 'POST' })
-      .reply(400, JSON.stringify({ error: 'invalid_request', error_description: "Field 'url' must be a valid URL" }));
-    fetchMock.get(CODE_RUNNER_ORIGIN).intercept({ path: '/run', method: 'POST' })
-      .reply(403, JSON.stringify({ message: 'Forbidden' }));
+    appendHandlers(
+      network,
+      http.all(
+        requestMatching(CODE_RUNNER_ORIGIN, { path: '/run', method: 'POST' }),
+        () => HttpResponse.json({ error: 'invalid_request', error_description: "Field 'url' must be a valid URL" }, { status: 400 }),
+        { once: true },
+      ),
+    );
+    appendHandlers(
+      network,
+      http.all(
+        requestMatching(CODE_RUNNER_ORIGIN, { path: '/run', method: 'POST' }),
+        () => HttpResponse.json({ message: 'Forbidden' }, { status: 403 }),
+        { once: true },
+      ),
+    );
 
     const badURL = await postRun(crawler.id, owner, '{"input":{"url":"not a url"}}');
     const forbidden = await postRun(crawler.id, owner, '{"input":{"url":"https://example.com/"}}');

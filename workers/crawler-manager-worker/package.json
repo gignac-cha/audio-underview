@@ -15,13 +15,12 @@
     "@audio-underview/logger": "workspace:*",
     "@audio-underview/supabase-connector": "workspace:*",
     "@audio-underview/worker-tools": "workspace:*",
-    "safe-regex2": "^5.1.0"
+    "safe-regex2": "^5.1.2"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "catalog:worker",
+    "@cloudflare/vitest-plugin": "catalog:worker",
     "@cloudflare/workers-types": "catalog:worker",
-    "@vitest/runner": "catalog:worker",
-    "@vitest/snapshot": "catalog:worker",
+    "msw": "catalog:worker",
     "vitest": "catalog:worker"
   }
 }

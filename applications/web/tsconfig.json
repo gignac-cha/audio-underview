@@ -12,9 +12,8 @@
     "isolatedModules": true,
     "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["sources/*"]
+      "@/*": ["./sources/*"]
     }
   },
   "include": ["sources", "vite.config.ts"],
