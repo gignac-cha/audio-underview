@@ -17,7 +17,7 @@
 1. 크롤러 코드 실행은 crawler-manager-worker가 Cloudflare Dynamic Worker로 한다. Lambda는 web 크롤러의 페이지 가져오기에만 남는다.
 2. crawler-manager는 실행 한 번마다 아래 순서로 처리한다.
    1. 크롤러를 읽고, 실행하는 사용자가 크롤러 작성자인지 본다.
-   2. 작성자면 vault에서 그 사용자의 환경 변수 값을 받는다.
+   2. 작성자이고 크롤러가 쓸 환경 변수 이름을 선언했으면, vault에서 그 사용자의 값을 받아 선언한 이름만 남긴다(2026-10-17 변경, `documents/2026-10-17-web-crawler-screen.md`).
    3. web 크롤러면 지금처럼 Lambda가 URL을 가져와 본문을 돌려준다. 이 본문이 입력이 된다. 출발 IP, 헤더, 사설망 차단이 지금과 같다.
    4. Dynamic Worker에 코드를 올려 실행한다.
    5. 결과와 로그에서 환경 변수 값을 가린다.
@@ -135,7 +135,7 @@ async (input, context) => {
 ```
 
 - **입력**: 지금과 같다. web 크롤러는 페이지 본문 문자열, data 크롤러는 앞 단계 출력이다. 기존 `(body) => ...` 코드는 그대로 동작한다.
-- **`context.environment`**: 이름과 값이 담긴 얼린(frozen) 객체다. 자기 크롤러가 아니면 `{}`다.
+- **`context.environment`**: 이름과 값이 담긴 얼린(frozen) 객체다. 크롤러가 `environment_variable_names`에 선언한 이름 중 등록된 것만 담긴다(2026-10-17 변경). 자기 크롤러가 아니면 `{}`다.
 - **`context.files.save(data, options?)`**
   - `data`: 문자열, `ArrayBuffer`, typed array, `DataView`, `Blob`, `ReadableStream`, 그 밖에 `new Response(data)`가 받는 값.
   - 25 MiB(26,214,400 bytes)를 넘으면 `File exceeds the maximum size of 26214400 bytes`를 던진다. `ReadableStream`과 iterable은 읽으면서 세다가 넘는 순간 던진다.
@@ -249,7 +249,7 @@ executeCrawlerByName(name: string, input: unknown): Promise<CrawlerExecuteResult
 
 1. `getCrawlerByID`로 크롤러를 읽는다.
 2. `ownsCrawler = context !== undefined && context.userUUID === crawler.user_uuid`. 시스템 크롤러는 시스템 사용자 소유라 언제나 거짓이다.
-3. `ownsCrawler`면 vault `resolve`로 환경 변수 객체를 받는다. 아니면 `{}`이고 vault를 부르지 않는다.
+3. `ownsCrawler`이고 선언한 이름이 있으면 vault `resolve`로 환경 변수 객체를 받아 선언한 이름만 남긴다. 아니면 `{}`이고 vault를 부르지 않는다(2026-10-17 변경).
 4. web 크롤러면 입력을 만든다.
    - URL과 `url_pattern` 경고는 지금 `resolveURL`과 같다. URL이 없으면 `invalid_input`이다.
    - `new HTTPCodeRunnerClient(CODE_RUNNER_FUNCTION_URL).run('web', url, undefined, '(body) => body')`로 Lambda에서 본문을 받는다. 재시도와 30초 요청 제한이 지금과 같다.
@@ -882,8 +882,8 @@ crons = ["*/15 * * * *"]
 
 | 항목 | 상태 | 원인 | 이어 붙일 단위 |
 | -- | -- | -- | -- |
-| 웹 편집기의 시험 실행 | 미접속 | 아직 Lambda를 직접 부른다(`use-crawler-code-runner.ts`, 5초, 1만 자, `fetch` 없음). `fetch`, 환경 변수, 파일을 쓰는 코드는 편집기의 시험 실행에서만 실패한다. `POST /crawlers/:id/runs`로 옮겨야 한다 | 웹 스케줄 편집기(09) |
-| 환경 변수 등록, 로그·파일·실행 기록 보기 화면 | 미접속 | 웹 범위 밖 | 웹 스케줄 편집기 |
+| 웹 편집기의 시험 실행 | 웹 크롤러 화면에서 처리 | 아직 Lambda를 직접 부른다(`use-crawler-code-runner.ts`, 5초, 1만 자, `fetch` 없음). `fetch`, 환경 변수, 파일을 쓰는 코드는 편집기의 시험 실행에서만 실패한다 | `documents/2026-10-17-web-crawler-screen.md` |
+| 환경 변수 등록, 로그·파일·실행 기록 보기 화면 | 웹 크롤러 화면에서 처리 | 웹 범위 밖 | `documents/2026-10-17-web-crawler-screen.md` |
 | 사용량 제한(실행, 시간, 저장 용량, 외부 요청)과 `crawler_runs` 보관 기한 | 미접속 | 요구사항에서 다음 단위로 미룸 | 다음 단위 |
 | 환경 변수 감사 기록 | 미접속 | `key_audit_log`는 provider 키만 다룬다 | 필요해지면 |
 | 크롤러 코드의 `fetch` 출발지 | 미접속 | Cloudflare에서 나가므로 `CF-Worker` 헤더가 붙고, 일부 사이트(프로토타입에서 GeekNews)가 거절할 수 있다. 페이지 가져오기는 web 크롤러로 하면 Lambda에서 나간다 | 문제가 생기면 Lambda 경유 요청을 더한다 |
