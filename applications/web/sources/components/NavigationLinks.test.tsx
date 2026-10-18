@@ -43,4 +43,14 @@ describe('NavigationLinks', () => {
 
     await expect.element(page.getByRole('link', { name: 'Crawlers' })).toHaveAttribute('href', '/crawlers');
   });
+
+  test('renders Settings link with the settings href', async () => {
+    await render(
+      <MemoryRouter>
+        <NavigationLinks />
+      </MemoryRouter>,
+    );
+
+    await expect.element(page.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings');
+  });
 });

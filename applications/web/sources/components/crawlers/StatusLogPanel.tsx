@@ -1,18 +1,15 @@
-import { useEffect, useRef } from 'react';
 import styled from '@emotion/styled';
-import type { LogEntry } from '../../hooks/use-crawler-code-runner.ts';
+import type { CrawlerRunLogEntry } from '../../schemas/crawler-runs.ts';
 
 const Container = styled.div`
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
   min-height: 0;
-  flex: 1;
 `;
 
 const LogBox = styled.div`
-  flex: 1;
-  min-height: 200px;
+  max-height: 320px;
   background: var(--bg-deep);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
@@ -23,15 +20,17 @@ const LogBox = styled.div`
   line-height: 1.8;
 `;
 
-const LOG_LEVEL_COLORS: Record<LogEntry['level'], string> = {
+const LOG_LEVEL_COLORS: Record<CrawlerRunLogEntry['level'], string> = {
+  debug: 'var(--text-muted)',
   info: 'var(--text-secondary)',
-  success: 'var(--color-success)',
+  log: 'var(--text-secondary)',
+  warn: '#f59e0b',
   error: 'var(--color-error)',
 };
 
 const LogLine = styled('div', {
   shouldForwardProp: (prop) => prop !== 'level',
-})<{ level: LogEntry['level'] }>`
+})<{ level: CrawlerRunLogEntry['level'] }>`
   color: ${({ level }) => LOG_LEVEL_COLORS[level]};
   white-space: pre-wrap;
   word-break: break-all;
@@ -42,9 +41,9 @@ const Timestamp = styled.span`
   margin-right: 0.5rem;
 `;
 
-const Details = styled.span`
-  color: var(--text-muted);
-  margin-left: 0.5rem;
+const Level = styled.span`
+  margin-right: 0.5rem;
+  font-weight: 600;
 `;
 
 const EmptyMessage = styled.p`
@@ -53,36 +52,28 @@ const EmptyMessage = styled.p`
   font-style: italic;
 `;
 
-function formatTimestamp(date: Date): string {
-  return date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+function formatTimestamp(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return timestamp;
+  return date.toLocaleTimeString('en-US', { hourCycle: 'h23', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 interface StatusLogPanelProperties {
-  entries: LogEntry[];
+  entries: CrawlerRunLogEntry[];
 }
 
 export function StatusLogPanel({ entries }: StatusLogPanelProperties) {
-  const bottomReference = useRef<HTMLDivElement>(null);
-
-  const lastEntryID = entries[entries.length - 1]?.id;
-  useEffect(() => {
-    bottomReference.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [entries.length, lastEntryID]);
-
   return (
     <Container>
-      <LogBox>
-        {entries.length === 0 && (
-          <EmptyMessage>No logs yet.</EmptyMessage>
-        )}
-        {entries.map((entry) => (
-          <LogLine key={entry.id} level={entry.level}>
+      <LogBox role="log" aria-label="Crawler logs">
+        {entries.length === 0 && <EmptyMessage>No logs.</EmptyMessage>}
+        {entries.map((entry, index) => (
+          <LogLine key={index} level={entry.level}>
             <Timestamp>[{formatTimestamp(entry.timestamp)}]</Timestamp>
+            <Level>{entry.level.toUpperCase()}</Level>
             {entry.message}
-            {entry.details && <Details>({entry.details})</Details>}
           </LogLine>
         ))}
-        <div ref={bottomReference} />
       </LogBox>
     </Container>
   );

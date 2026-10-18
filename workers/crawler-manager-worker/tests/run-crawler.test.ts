@@ -410,6 +410,7 @@ describe('logs', () => {
     await vaultEnvironment(author, { KEY: 'timestamp-secret-value' });
     const crawler = addCrawler(supabase, crawlerRow({
       user_uuid: author,
+      environment_variable_names: ['KEY'],
       code: `(input, context) => {
         Date.prototype.toISOString = function () { return context.environment.KEY + 'x'.repeat(1000000); };
         console.log('first');
@@ -644,17 +645,17 @@ describe('the outbound gateway', () => {
 
 describe('isolate IDs', () => {
   it('differ between users for the same code', async () => {
-    const first = await createIsolateID(uniqueUUID(), CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, '(input) => input');
-    const second = await createIsolateID(uniqueUUID(), CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, '(input) => input');
+    const first = await createIsolateID(uniqueUUID(), CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, '(input) => input', {});
+    const second = await createIsolateID(uniqueUUID(), CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, '(input) => input', {});
 
     expect(first).not.toBe(second);
   });
 
-  it('are the same for the same user and code', async () => {
+  it('are the same for the same user, code and environment', async () => {
     const userUUID = uniqueUUID();
 
-    const first = await createIsolateID(userUUID, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, '(input) => input');
-    const second = await createIsolateID(userUUID, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, '(input) => input');
+    const first = await createIsolateID(userUUID, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, '(input) => input', {});
+    const second = await createIsolateID(userUUID, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, '(input) => input', {});
 
     expect(first).toBe(second);
     expect(first).toMatch(new RegExp(`^crawler:${userUUID}:[0-9a-f]{64}$`));
@@ -662,13 +663,13 @@ describe('isolate IDs', () => {
 
   it('change with the code, the runner module and the options', async () => {
     const userUUID = uniqueUUID();
-    const base = await createIsolateID(userUUID, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, '(input) => input');
+    const base = await createIsolateID(userUUID, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, '(input) => input', {});
     const variants = await Promise.all([
-      createIsolateID(userUUID, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, '(input) => input + 1'),
-      createIsolateID(userUUID, CRAWLER_WORKER_OPTIONS, `${RUNNER_MODULE_SOURCE}\n`, '(input) => input'),
-      createIsolateID(userUUID, { ...CRAWLER_WORKER_OPTIONS, limits: { cpuMs: 10_000 } }, RUNNER_MODULE_SOURCE, '(input) => input'),
-      createIsolateID(userUUID, { ...CRAWLER_WORKER_OPTIONS, compatibilityDate: '2026-01-01' }, RUNNER_MODULE_SOURCE, '(input) => input'),
-      createIsolateID(userUUID, { ...CRAWLER_WORKER_OPTIONS, compatibilityFlags: ['nodejs_als', 'nodejs_compat'] }, RUNNER_MODULE_SOURCE, '(input) => input'),
+      createIsolateID(userUUID, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, '(input) => input + 1', {}),
+      createIsolateID(userUUID, CRAWLER_WORKER_OPTIONS, `${RUNNER_MODULE_SOURCE}\n`, '(input) => input', {}),
+      createIsolateID(userUUID, { ...CRAWLER_WORKER_OPTIONS, limits: { cpuMs: 10_000 } }, RUNNER_MODULE_SOURCE, '(input) => input', {}),
+      createIsolateID(userUUID, { ...CRAWLER_WORKER_OPTIONS, compatibilityDate: '2026-01-01' }, RUNNER_MODULE_SOURCE, '(input) => input', {}),
+      createIsolateID(userUUID, { ...CRAWLER_WORKER_OPTIONS, compatibilityFlags: ['nodejs_als', 'nodejs_compat'] }, RUNNER_MODULE_SOURCE, '(input) => input', {}),
     ]);
 
     for (const variant of variants) {
@@ -676,8 +677,37 @@ describe('isolate IDs', () => {
     }
   });
 
+  it('change with any name or value of the environment given to the code, and carry no value', async () => {
+    const userUUID = uniqueUUID();
+    const environments: Record<string, string>[] = [
+      {},
+      { TOKEN: 'token-value-0001' },
+      { TOKEN: 'token-value-0002' },
+      { OTHER: 'token-value-0001' },
+      { TOKEN: 'token-value-0001', OTHER: 'other-value-0001' },
+      { TOKEN: '' },
+    ];
+
+    const identifiers = await Promise.all(environments.map((environment) =>
+      createIsolateID(userUUID, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, '(input) => input', environment)));
+
+    expect(new Set(identifiers).size).toBe(environments.length);
+    for (const identifier of identifiers) {
+      expect(identifier).toMatch(new RegExp(`^crawler:${userUUID}:[0-9a-f]{64}$`));
+    }
+  });
+
+  it('do not depend on the order of the environment', async () => {
+    const userUUID = uniqueUUID();
+
+    const first = await createIsolateID(userUUID, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, '(input) => input', { A: '1', B: '2' });
+    const second = await createIsolateID(userUUID, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, '(input) => input', { B: '2', A: '1' });
+
+    expect(first).toBe(second);
+  });
+
   it('use none for a run without a user', async () => {
-    expect(await createIsolateID(undefined, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, '(input) => input')).toMatch(/^crawler:none:/);
+    expect(await createIsolateID(undefined, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, '(input) => input', {})).toMatch(/^crawler:none:/);
   });
 
   it('are what a run loads with', async () => {
@@ -687,17 +717,29 @@ describe('isolate IDs', () => {
 
     await runCode(code, {}, { userUUID, dependencies: createTestDependencies({ loader }) });
 
-    expect(calls[0].id).toBe(await createIsolateID(userUUID, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, code));
+    expect(calls[0].id).toBe(await createIsolateID(userUUID, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, code, {}));
+  });
+
+  it('are what a run loads with for the environment given to the code, not every variable of the vault', async () => {
+    const author = uniqueUUID();
+    const code = `(input) => "isolate ${uniqueUUID()}"`;
+    const { loader, calls } = createRecordingLoader();
+    await vaultEnvironment(author, { API_KEY: 'key-value-1234', UNDECLARED: 'undeclared-value-5678' });
+    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code, environment_variable_names: ['API_KEY', 'NOT_SET'] }));
+
+    await runCrawler(createTestDependencies({ loader }), crawler.id, {}, { userUUID: author });
+
+    expect(calls[0].id).toBe(await createIsolateID(author, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, code, { API_KEY: 'key-value-1234' }));
   });
 });
 
 describe('environment variables', () => {
   const ENVIRONMENT_CODE = '(input, context) => ({ environment: context.environment, frozen: Object.isFrozen(context.environment) && Object.isFrozen(context) })';
 
-  it('are in context.environment when the user runs a crawler they wrote', async () => {
+  it('are the declared ones in context.environment when the user runs a crawler they wrote', async () => {
     const author = uniqueUUID();
-    await vaultEnvironment(author, { API_KEY: 'key-value-1234', OTHER: 'other-value' });
-    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code: ENVIRONMENT_CODE }));
+    await vaultEnvironment(author, { API_KEY: 'key-value-1234', OTHER: 'other-value', UNDECLARED: 'undeclared-value' });
+    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code: ENVIRONMENT_CODE, environment_variable_names: ['API_KEY', 'OTHER'] }));
 
     const outcome = expectCompleted(await runCrawler(createTestDependencies(), crawler.id, {}, { userUUID: author }));
 
@@ -707,6 +749,172 @@ describe('environment variables', () => {
     expect(requests).toEqual([
       expect.objectContaining({ route: 'resolve', token: 'test-vault-token', body: { userId: author } }),
     ]);
+  });
+
+  it('leave out a declared name the user has no variable for, without failing', async () => {
+    const author = uniqueUUID();
+    await vaultEnvironment(author, { API_KEY: 'key-value-1234' });
+    const crawler = addCrawler(supabase, crawlerRow({
+      user_uuid: author,
+      code: '(input, context) => ({ names: Object.keys(context.environment), missing: Object.hasOwn(context.environment, "MISSING_KEY") })',
+      environment_variable_names: ['MISSING_KEY', 'API_KEY'],
+    }));
+
+    const outcome = expectCompleted(await runCrawler(createTestDependencies(), crawler.id, {}, { userUUID: author }));
+
+    expect(outcome.result).toEqual({ names: ['API_KEY'], missing: false });
+  });
+
+  it('are empty and the vault is not called when the crawler declares no name', async () => {
+    const author = uniqueUUID();
+    await vaultEnvironment(author, { API_KEY: 'key-value-1234' });
+    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code: ENVIRONMENT_CODE, environment_variable_names: [] }));
+
+    const outcome = expectCompleted(await runCrawler(createTestDependencies(), crawler.id, {}, { userUUID: author }));
+
+    expect(outcome.result).toEqual({ environment: {}, frozen: true });
+    expect(await vaultRequests(author)).toEqual([]);
+  });
+
+  it('do not call a vault that would fail when the crawler declares no name', async () => {
+    const author = uniqueUUID();
+    await configureVault(author, { resolve: { status: 503, body: { error: 'vault_unavailable' } } });
+    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code: '(input) => "ran"' }));
+
+    expect(expectCompleted(await runCrawler(createTestDependencies(), crawler.id, {}, { userUUID: author })).result).toBe('ran');
+    expect(await vaultRequests(author)).toEqual([]);
+  });
+
+  it('hide every value the vault returned, the ones not given to the code too', async () => {
+    const author = uniqueUUID();
+    await vaultEnvironment(author, { API_KEY: 'key-value-1234', UNDECLARED: 'undeclared-value-5678' });
+    const crawler = addCrawler(supabase, crawlerRow({
+      user_uuid: author,
+      code: `(input, context) => {
+        console.log(context.environment.API_KEY, "undeclared-value-5678");
+        if (input.fail === true) throw new Error("failed with undeclared-value-5678");
+        return [context.environment.API_KEY, "undeclared-value-5678"];
+      }`,
+      environment_variable_names: ['API_KEY'],
+    }));
+
+    const completed = expectCompleted(await runCrawler(createTestDependencies(), crawler.id, {}, { userUUID: author }));
+    const failed = expectFailed(await runCrawler(createTestDependencies(), crawler.id, { fail: true }, { userUUID: author }));
+
+    expect(completed.result).toEqual(['[REDACTED]', '[REDACTED]']);
+    expect(completed.logs.map((entry) => entry.message)).toEqual(['[REDACTED] [REDACTED]']);
+    expect(failed.error_description).toBe('failed with [REDACTED]');
+    expect(JSON.stringify([completed, failed])).not.toContain('undeclared-value-5678');
+  });
+
+  it('hide nothing when the vault is not called, as no value is known', async () => {
+    const author = uniqueUUID();
+    await vaultEnvironment(author, { API_KEY: 'key-value-1234' });
+    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code: '(input) => "key-value-1234"', environment_variable_names: [] }));
+
+    expect(expectCompleted(await runCrawler(createTestDependencies(), crawler.id, {}, { userUUID: author })).result).toBe('key-value-1234');
+    expect(await vaultRequests(author)).toEqual([]);
+  });
+
+  it('do not reach a later run without the declaration through a value the code kept at module scope', async () => {
+    const author = uniqueUUID();
+    const token = 'token-value-kept-0001';
+    await vaultEnvironment(author, { TOKEN: token });
+    // The module runs once per isolate, so what it keeps is there in every later run of the isolate
+    const crawler = crawlerRow({
+      user_uuid: author,
+      code: `(() => {
+        let kept;
+        return (input, context) => {
+          kept ??= context.environment.TOKEN;
+          console.log("kept " + String(kept));
+          if (input.fail === true) throw new Error("kept " + String(kept));
+          return { kept: kept ?? null };
+        };
+      })()`,
+      environment_variable_names: ['TOKEN'],
+    });
+    const dependencies = createTestDependencies();
+
+    const declared = expectCompleted(await runLoadedCrawler(dependencies, crawler, {}, { userUUID: author }));
+    // The same code after the declaration is removed: the vault is not called, so nothing would be hidden
+    const undeclared = { ...crawler, environment_variable_names: [] };
+    const completed = expectCompleted(await runLoadedCrawler(dependencies, undeclared, {}, { userUUID: author }));
+    const failed = expectFailed(await runLoadedCrawler(dependencies, undeclared, { fail: true }, { userUUID: author }));
+
+    expect(declared.result).toEqual({ kept: '[REDACTED]' });
+    expect(completed.result).toEqual({ kept: null });
+    expect(completed.logs.map((entry) => entry.message)).toEqual(['kept undefined']);
+    expect(failed.error_description).toBe('kept undefined');
+    expect(JSON.stringify([completed, failed])).not.toContain(token);
+    expect(JSON.stringify(dependencies.logger.warn.mock.calls)).not.toContain(token);
+    expect(await vaultRequests(author)).toHaveLength(1);
+  });
+
+  it('do not reach a later run that declares fewer names through a value the code kept at module scope', async () => {
+    const author = uniqueUUID();
+    const kept = 'b-value-kept-0002';
+    const code = `(() => {
+      let keptB;
+      return (input, context) => {
+        keptB ??= context.environment.B;
+        return { a: context.environment.A ?? null, keptB: keptB ?? null };
+      };
+    })()`;
+    const crawler = crawlerRow({ user_uuid: author, code, environment_variable_names: ['A', 'B'] });
+    const fewer = { ...crawler, environment_variable_names: ['A'] };
+    const dependencies = createTestDependencies();
+
+    await vaultEnvironment(author, { A: 'a-value-0001', B: kept });
+    const both = expectCompleted(await runLoadedCrawler(dependencies, crawler, {}, { userUUID: author }));
+    const onlyA = expectCompleted(await runLoadedCrawler(dependencies, fewer, {}, { userUUID: author }));
+    // With B deleted from the account it is no longer hidden, so only the isolate keeps it out
+    await vaultEnvironment(author, { A: 'a-value-0001' });
+    const deleted = expectCompleted(await runLoadedCrawler(dependencies, fewer, {}, { userUUID: author }));
+
+    expect(both.result).toEqual({ a: '[REDACTED]', keptB: '[REDACTED]' });
+    expect(onlyA.result).toEqual({ a: '[REDACTED]', keptB: null });
+    expect(deleted.result).toEqual({ a: '[REDACTED]', keptB: null });
+    expect(JSON.stringify([onlyA, deleted])).not.toContain(kept);
+  });
+
+  it('run in another isolate when a value changes under the same name, and in the same one for the same value', async () => {
+    const author = uniqueUUID();
+    const code = `(() => {
+      let kept;
+      return (input, context) => {
+        kept ??= context.environment.TOKEN;
+        return { current: kept === context.environment.TOKEN };
+      };
+    })()`;
+    const crawler = crawlerRow({ user_uuid: author, code, environment_variable_names: ['TOKEN'] });
+    const { loader, calls } = createRecordingLoader();
+    const dependencies = createTestDependencies({ loader });
+
+    const results: unknown[] = [];
+    for (const value of ['first-token-value-0001', 'second-token-value-0002', 'first-token-value-0001']) {
+      await vaultEnvironment(author, { TOKEN: value });
+      results.push(expectCompleted(await runLoadedCrawler(dependencies, crawler, {}, { userUUID: author })).result);
+    }
+
+    expect(results).toEqual([{ current: true }, { current: true }, { current: true }]);
+    expect(calls.map((call) => call.id)).toEqual([
+      await createIsolateID(author, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, code, { TOKEN: 'first-token-value-0001' }),
+      await createIsolateID(author, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, code, { TOKEN: 'second-token-value-0002' }),
+    ]);
+  });
+
+  it('are not declared for a row without environment_variable_names, as on a database before migration 014', async () => {
+    const author = uniqueUUID();
+    await vaultEnvironment(author, { API_KEY: 'key-value-1234' });
+    const { environment_variable_names: _, ...row } = crawlerRow({ user_uuid: author, code: ENVIRONMENT_CODE });
+    supabase.tables.crawlers ??= [];
+    supabase.tables.crawlers.push(row);
+
+    const outcome = expectCompleted(await runCrawler(createTestDependencies(), row.id, {}, { userUUID: author }));
+
+    expect(outcome.result).toEqual({ environment: {}, frozen: true });
+    expect(await vaultRequests(author)).toEqual([]);
   });
 
   it('stay out of process.env, which the Node.js APIs of the compatibility date give the code', async () => {
@@ -720,6 +928,7 @@ describe('environment variables', () => {
         required: typeof require('node:buffer').Buffer,
         variables: Object.keys(context.environment),
       })`,
+      environment_variable_names: ['API_KEY'],
     }));
 
     const outcome = expectCompleted(await runCrawler(createTestDependencies(), crawler.id, {}, { userUUID: author }));
@@ -730,17 +939,21 @@ describe('environment variables', () => {
   it('can be used by name inside the code', async () => {
     const author = uniqueUUID();
     await vaultEnvironment(author, { API_KEY: 'key-value-1234' });
-    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code: '(input, context) => context.environment.API_KEY.length' }));
+    const crawler = addCrawler(supabase, crawlerRow({
+      user_uuid: author,
+      code: '(input, context) => context.environment.API_KEY.length',
+      environment_variable_names: ['API_KEY'],
+    }));
 
     expect(expectCompleted(await runCrawler(createTestDependencies(), crawler.id, {}, { userUUID: author })).result).toBe(14);
   });
 
-  it('are empty and the vault is not called for a subscriber', async () => {
+  it('are empty and the vault is not called for a subscriber, though the crawler declares the name', async () => {
     const author = uniqueUUID();
     const subscriber = uniqueUUID();
     await vaultEnvironment(author, { API_KEY: 'key-value-1234' });
     await vaultEnvironment(subscriber, { API_KEY: 'subscriber-value' });
-    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code: ENVIRONMENT_CODE }));
+    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code: ENVIRONMENT_CODE, environment_variable_names: ['API_KEY'] }));
 
     const outcome = expectCompleted(await runCrawler(createTestDependencies(), crawler.id, {}, { userUUID: subscriber }));
 
@@ -749,10 +962,10 @@ describe('environment variables', () => {
     expect(await vaultRequests(author)).toEqual([]);
   });
 
-  it('are empty and the vault is not called for a system crawler', async () => {
+  it('are empty and the vault is not called for a system crawler, though it declares the name', async () => {
     const caller = uniqueUUID();
     await vaultEnvironment(caller, { API_KEY: 'key-value-1234' });
-    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: SYSTEM_USER_UUID, code: ENVIRONMENT_CODE }));
+    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: SYSTEM_USER_UUID, code: ENVIRONMENT_CODE, environment_variable_names: ['API_KEY'] }));
 
     const outcome = expectCompleted(await runCrawler(createTestDependencies(), crawler.id, {}, { userUUID: caller }));
 
@@ -763,7 +976,7 @@ describe('environment variables', () => {
   it('are empty and the vault is not called without a user', async () => {
     const author = uniqueUUID();
     await vaultEnvironment(author, { API_KEY: 'key-value-1234' });
-    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code: ENVIRONMENT_CODE }));
+    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code: ENVIRONMENT_CODE, environment_variable_names: ['API_KEY'] }));
 
     const outcome = expectCompleted(await runLoadedCrawler(createTestDependencies(), crawler, {}, undefined));
 
@@ -774,7 +987,12 @@ describe('environment variables', () => {
   it('are empty in the executeCrawlerByName RPC, which does not call the vault', async () => {
     const author = uniqueUUID();
     await vaultEnvironment(author, { API_KEY: 'key-value-1234' });
-    const systemCrawler = addCrawler(supabase, crawlerRow({ user_uuid: SYSTEM_USER_UUID, name: 'environment-probe', code: ENVIRONMENT_CODE }));
+    const systemCrawler = addCrawler(supabase, crawlerRow({
+      user_uuid: SYSTEM_USER_UUID,
+      name: 'environment-probe',
+      code: ENVIRONMENT_CODE,
+      environment_variable_names: ['API_KEY'],
+    }));
     const worker = exports.default as unknown as Service<typeof CrawlerManagerWorker>;
 
     await expect(worker.executeCrawlerByName(systemCrawler.name, {})).resolves.toEqual({
@@ -784,10 +1002,28 @@ describe('environment variables', () => {
     expect(await vaultRequests(author)).toEqual([]);
   });
 
+  it('reach the code of a test run without a crawler, which the user runs as its author', async () => {
+    const author = uniqueUUID();
+    await vaultEnvironment(author, { API_KEY: 'key-value-1234', OTHER: 'other-value' });
+
+    const outcome = expectCompleted(await runLoadedCrawler(createTestDependencies(), {
+      id: null,
+      user_uuid: author,
+      type: 'data',
+      code: ENVIRONMENT_CODE,
+      url_pattern: null,
+      input_schema: {},
+      environment_variable_names: ['API_KEY'],
+    }, {}, { userUUID: author }));
+
+    expect(outcome.result).toEqual({ environment: { API_KEY: '[REDACTED]' }, frozen: true });
+    expect(await vaultRequests(author)).toHaveLength(1);
+  });
+
   it('throw with the vault status and error code when the vault refuses', async () => {
     const author = uniqueUUID();
     await configureVault(author, { resolve: { status: 503, body: { error: 'vault_unavailable' } } });
-    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author }));
+    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, environment_variable_names: ['API_KEY'] }));
     const dependencies = createTestDependencies();
 
     await expect(runCrawler(dependencies, crawler.id, {}, { userUUID: author })).rejects.toThrow(
@@ -801,7 +1037,7 @@ describe('environment variables', () => {
 
   it('throw when the vault cannot be reached', async () => {
     const author = uniqueUUID();
-    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author }));
+    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, environment_variable_names: ['API_KEY'] }));
     const unreachable = { fetch: () => Promise.reject(new Error('connection refused')) } as unknown as Fetcher;
     const { UserVaultClient } = await import('../sources/user-vault-client.ts');
 
@@ -813,7 +1049,7 @@ describe('environment variables', () => {
   it('throw when the vault answers 401 for a token mismatch', async () => {
     const author = uniqueUUID();
     await configureVault(author, { resolve: { status: 401, body: { error: 'unauthorized' } } });
-    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author }));
+    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, environment_variable_names: ['API_KEY'] }));
 
     await expect(runCrawler(createTestDependencies(), crawler.id, {}, { userUUID: author })).rejects.toThrow(
       'Environment variables could not be read: vault responded 401 unauthorized',

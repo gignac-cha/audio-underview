@@ -37,6 +37,23 @@ describe('createCrawler', () => {
     expect(result).toEqual(sampleCrawler);
   });
 
+  test('inserts the environment variable names with the other fields', async () => {
+    const created = { ...sampleCrawler, environment_variable_names: ['API_KEY', 'OTHER'] };
+    const client = createMockClient({ crawlers: { data: created, error: null } });
+    const input = {
+      user_uuid: 'uuid-1',
+      name: 'Test Crawler',
+      url_pattern: 'https://example.com/*',
+      code: 'console.log("test")',
+      environment_variable_names: ['API_KEY', 'OTHER'],
+    };
+
+    await expect(createCrawler(client, input)).resolves.toEqual(created);
+
+    const chain = client.from.mock.results[0].value;
+    expect(chain.insert).toHaveBeenCalledWith(input);
+  });
+
   test('throws on error', async () => {
     const client = createMockClient({
       crawlers: { data: null, error: { code: 'OTHER', message: 'fail' } },
@@ -153,6 +170,20 @@ describe('updateCrawler', () => {
 
     const result = await updateCrawler(client, 'crawler-1', 'uuid-1', { name: 'Updated' });
     expect(result).toEqual(updated);
+  });
+
+  test('updates the environment variable names with the other fields', async () => {
+    const updated = { ...sampleCrawler, environment_variable_names: ['API_KEY'] };
+    const client = createMockClient({ crawlers: { data: updated, error: null } });
+
+    await expect(updateCrawler(client, 'crawler-1', 'uuid-1', { name: 'Updated', environment_variable_names: ['API_KEY'] })).resolves.toEqual(updated);
+
+    const chain = client.from.mock.results[0].value;
+    expect(chain.update).toHaveBeenCalledWith({ name: 'Updated', environment_variable_names: ['API_KEY'] });
+    expect(chain.eq.mock.calls).toEqual([
+      ['id', 'crawler-1'],
+      ['user_uuid', 'uuid-1'],
+    ]);
   });
 
   test('returns null on PGRST116', async () => {

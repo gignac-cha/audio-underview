@@ -38,7 +38,6 @@ export default defineConfig({
     ],
   },
   define: {
-    'import.meta.env.VITE_CRAWLER_CODE_RUNNER_FUNCTION_URL': JSON.stringify('http://localhost:9999'),
     'import.meta.env.VITE_CRAWLER_MANAGER_WORKER_URL': JSON.stringify('http://localhost:8888'),
   },
   test: {

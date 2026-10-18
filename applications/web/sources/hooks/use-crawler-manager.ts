@@ -20,6 +20,7 @@ interface CreateCrawlerInput {
   name: string;
   url_pattern: string;
   code: string;
+  environment_variable_names?: string[];
 }
 
 interface UpdateCrawlerWebInput {
@@ -29,6 +30,7 @@ interface UpdateCrawlerWebInput {
   url_pattern: string;
   code: string;
   output_schema?: Record<string, unknown>;
+  environment_variable_names?: string[];
 }
 
 interface UpdateCrawlerDataInput {
@@ -38,6 +40,7 @@ interface UpdateCrawlerDataInput {
   code: string;
   input_schema: Record<string, unknown>;
   output_schema?: Record<string, unknown>;
+  environment_variable_names?: string[];
 }
 
 type UpdateCrawlerInput = UpdateCrawlerWebInput | UpdateCrawlerDataInput;

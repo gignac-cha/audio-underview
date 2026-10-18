@@ -298,7 +298,7 @@ describe('without a user', () => {
 describe('after the host gave up on the run', () => {
   it('lets the code that is still running save no file: a run stopped on the host side cannot add files', async () => {
     const user = uniqueUUID();
-    // Same user and same code, so the same isolate: the second run reads what the abandoned one left behind
+    // Same user, same code and no environment, so the same isolate: the second run reads what the abandoned one left behind
     const code = `async (input, context) => {
       if (input.report) return globalThis.lateResult ?? 'nothing yet';
       await new Promise((resolve) => setTimeout(resolve, 150));

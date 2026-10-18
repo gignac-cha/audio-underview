@@ -87,6 +87,12 @@ const ErrorMessage = styled.div`
   white-space: pre-wrap;
 `;
 
+const FailureCode = styled.div`
+  color: var(--color-error);
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+`;
+
 const JSONKey = styled.span`
   color: var(--accent-primary);
 `;
@@ -188,15 +194,17 @@ function renderJSON(value: unknown, indent: number = 0): ReactNode {
   return <JSONString>{String(value)}</JSONString>;
 }
 
-type Status = 'idle' | 'running' | 'success' | 'error';
+// failed is a run that ended with an error of the crawler; error is a request that did not give an answer
+type Status = 'idle' | 'running' | 'loading' | 'success' | 'failed' | 'error';
 
 interface JSONResultPanelProperties {
-  result: { type: string; result: unknown } | undefined;
+  result: { result: unknown } | undefined;
   status: Status;
   error?: Error;
+  failure?: { code: string; description: string };
 }
 
-export function JSONResultPanel({ result, status, error }: JSONResultPanelProperties) {
+export function JSONResultPanel({ result, status, error, failure }: JSONResultPanelProperties) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(() => {
@@ -229,6 +237,18 @@ export function JSONResultPanel({ result, status, error }: JSONResultPanelProper
             <Spinner />
             <span>Executing...</span>
           </LoadingRow>
+        )}
+        {status === 'loading' && (
+          <LoadingRow>
+            <Spinner />
+            <span>Loading...</span>
+          </LoadingRow>
+        )}
+        {status === 'failed' && (
+          <>
+            <FailureCode>{failure?.code ?? 'unknown_error'}</FailureCode>
+            <ErrorMessage>{failure?.description ?? 'An unknown error occurred.'}</ErrorMessage>
+          </>
         )}
         {status === 'error' && (
           <ErrorMessage>{error?.message ?? 'An unknown error occurred.'}</ErrorMessage>

@@ -1,45 +1,54 @@
 import { render } from 'vitest-browser-react';
 import { StatusLogPanel } from './StatusLogPanel.tsx';
 import { page } from 'vitest/browser';
-import type { LogEntry } from '../../hooks/use-crawler-code-runner.ts';
+import type { CrawlerRunLogEntry } from '../../schemas/crawler-runs.ts';
 
 describe('StatusLogPanel', () => {
   test('shows empty message when no entries', async () => {
     await render(<StatusLogPanel entries={[]} />);
 
-    await expect.element(page.getByText('No logs yet.')).toBeVisible();
+    await expect.element(page.getByText('No logs.')).toBeVisible();
   });
 
-  test('renders log entries', async () => {
-    const entries: LogEntry[] = [
-      { id: '1', timestamp: new Date('2024-01-01T10:00:00'), level: 'info', message: 'Starting...' },
-      { id: '2', timestamp: new Date('2024-01-01T10:00:01'), level: 'success', message: 'Done!' },
+  test('renders the time, level and message of each entry', async () => {
+    const entries: CrawlerRunLogEntry[] = [
+      { level: 'info', message: 'Starting...', timestamp: '2024-01-01T10:00:00' },
+      { level: 'error', message: 'Done!', timestamp: '2024-01-01T10:00:01' },
     ];
 
     await render(<StatusLogPanel entries={entries} />);
 
-    await expect.element(page.getByText('[10:00:00]Starting...')).toBeVisible();
-    await expect.element(page.getByText('[10:00:01]Done!')).toBeVisible();
+    await expect.element(page.getByText('[10:00:00]INFOStarting...')).toBeVisible();
+    await expect.element(page.getByText('[10:00:01]ERRORDone!')).toBeVisible();
   });
 
-  test('renders entry with details', async () => {
-    const entries: LogEntry[] = [
-      { id: '1', timestamp: new Date('2024-01-01T10:00:00'), level: 'error', message: 'Failed', details: 'timeout' },
+  test('renders every level of the crawler log', async () => {
+    const entries: CrawlerRunLogEntry[] = [
+      { level: 'debug', message: 'a', timestamp: '2024-01-01T10:00:00' },
+      { level: 'log', message: 'b', timestamp: '2024-01-01T10:00:00' },
+      { level: 'warn', message: 'c', timestamp: '2024-01-01T10:00:00' },
     ];
 
     await render(<StatusLogPanel entries={entries} />);
 
-    await expect.element(page.getByText('[10:00:00]Failed(timeout)')).toBeVisible();
-    await expect.element(page.getByText('(timeout)')).toBeVisible();
+    await expect.element(page.getByText('DEBUG')).toBeVisible();
+    await expect.element(page.getByText('LOG', { exact: true })).toBeVisible();
+    await expect.element(page.getByText('WARN')).toBeVisible();
   });
 
-  test('displays timestamps', async () => {
-    const entries: LogEntry[] = [
-      { id: '1', timestamp: new Date('2024-01-01T10:05:30'), level: 'info', message: 'Test' },
-    ];
+  test('keeps the raw text of a timestamp that is not a date', async () => {
+    const entries: CrawlerRunLogEntry[] = [{ level: 'info', message: 'Test', timestamp: 'not a date' }];
 
     await render(<StatusLogPanel entries={entries} />);
 
-    await expect.element(page.getByText('[10:05:30]Test')).toBeVisible();
+    await expect.element(page.getByText('[not a date]INFOTest')).toBeVisible();
+  });
+
+  test('shows midnight as 00 rather than 24', async () => {
+    const entries: CrawlerRunLogEntry[] = [{ level: 'info', message: 'Test', timestamp: '2024-01-01T00:05:30' }];
+
+    await render(<StatusLogPanel entries={entries} />);
+
+    await expect.element(page.getByText('[00:05:30]INFOTest')).toBeVisible();
   });
 });

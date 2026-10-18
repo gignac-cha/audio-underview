@@ -24,7 +24,7 @@ const MAXIMUM_MESSAGE_LENGTH = 65_536 - 64;
 async function runOwn(code: string, environment: Record<string, string> = { KEY: SECRET }): Promise<CrawlerRunOutcome> {
   const author = uniqueUUID();
   await vaultEnvironment(author, environment);
-  const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code }));
+  const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code, environment_variable_names: Object.keys(environment) }));
   return runCrawler(createTestDependencies(), crawler.id, {}, { userUUID: author });
 }
 

@@ -15,7 +15,7 @@ export const ENVIRONMENT_VARIABLE_NAME_PATTERN = /^[A-Z_][A-Z0-9_]{0,63}$/;
 export const ENVIRONMENT_VARIABLE_VALUE_MINIMUM_LENGTH = 4;
 export const ENVIRONMENT_VARIABLE_VALUE_MAXIMUM_LENGTH = 16_384;
 
-const INVALID_NAME_MESSAGE = 'Environment variable name must match ^[A-Z_][A-Z0-9_]{0,63}$';
+export const INVALID_ENVIRONMENT_VARIABLE_NAME_MESSAGE = 'Environment variable name must match ^[A-Z_][A-Z0-9_]{0,63}$';
 const INVALID_VALUE_MESSAGE = `Field 'value' must be a string of ${ENVIRONMENT_VARIABLE_VALUE_MINIMUM_LENGTH} to ${ENVIRONMENT_VARIABLE_VALUE_MAXIMUM_LENGTH} characters`;
 
 function vaultErrorResponse(error: unknown, context: ResponseContext): Response {
@@ -51,7 +51,7 @@ export async function handlePutEnvironmentVariable(
   userUUID: string,
 ): Promise<Response> {
   if (!ENVIRONMENT_VARIABLE_NAME_PATTERN.test(name)) {
-    return errorResponse('invalid_request', INVALID_NAME_MESSAGE, 400, context);
+    return errorResponse('invalid_request', INVALID_ENVIRONMENT_VARIABLE_NAME_MESSAGE, 400, context);
   }
 
   let body: unknown;
@@ -90,7 +90,7 @@ export async function handleDeleteEnvironmentVariable(
   userUUID: string,
 ): Promise<Response> {
   if (!ENVIRONMENT_VARIABLE_NAME_PATTERN.test(name)) {
-    return errorResponse('invalid_request', INVALID_NAME_MESSAGE, 400, context);
+    return errorResponse('invalid_request', INVALID_ENVIRONMENT_VARIABLE_NAME_MESSAGE, 400, context);
   }
   try {
     const deleted = await createUserVaultClient(environment).deleteEnvironmentVariable(userUUID, name);

@@ -141,6 +141,7 @@ export function useCrawlerEditor(id: string | undefined) {
           name: trimmedName,
           url_pattern: trimmedURLPattern,
           code: formState.form.code,
+          environment_variable_names: formState.form.environment_variable_names,
         });
         showToast('Created', `Crawler "${trimmedName}" has been created.`, 'success');
         navigate(`/crawlers/${created.id}`);
@@ -166,6 +167,7 @@ export function useCrawlerEditor(id: string | undefined) {
               code: formState.form.code,
               input_schema: parsedInputSchema,
               output_schema: parsedOutputSchema,
+              environment_variable_names: formState.form.environment_variable_names,
             }
           : {
               id: crawler.id,
@@ -174,6 +176,7 @@ export function useCrawlerEditor(id: string | undefined) {
               url_pattern: trimmedURLPattern,
               code: formState.form.code,
               output_schema: parsedOutputSchema,
+              environment_variable_names: formState.form.environment_variable_names,
             };
 
       const submittedForm = formState.form;

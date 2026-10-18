@@ -1,6 +1,6 @@
 import styled from '@emotion/styled';
 import Editor from '@monaco-editor/react';
-import { MAX_CODE_LENGTH } from '../../schemas/crawler-code-runner.ts';
+import { MAXIMUM_CODE_LENGTH } from '../../schemas/crawler-code.ts';
 
 const DEFAULT_CODE = `// Write a function that receives the page body as a string
 // and returns the extracted data.
@@ -54,14 +54,14 @@ interface CodeEditorPanelProperties {
 
 export function CodeEditorPanel({ value, onChange, disabled, showDefaultTemplate = true }: CodeEditorPanelProperties) {
   const displayValue = showDefaultTemplate && value.length === 0 ? DEFAULT_CODE : value;
-  const isOverLimit = displayValue.length > MAX_CODE_LENGTH;
+  const isOverLimit = displayValue.length > MAXIMUM_CODE_LENGTH;
 
   return (
     <Container>
       <HeaderRow>
         <Label>Crawler Code</Label>
         <CharacterCounter isOver={isOverLimit}>
-          {displayValue.length.toLocaleString()} / {MAX_CODE_LENGTH.toLocaleString()}
+          {displayValue.length.toLocaleString()} / {MAXIMUM_CODE_LENGTH.toLocaleString()}
         </CharacterCounter>
       </HeaderRow>
       <EditorWrapper>

@@ -58,7 +58,9 @@ export type CrawlerType = 'web' | 'data';
 
 /**
  * Crawler table row type
- * Represents a user-defined crawler with code to process matched URLs
+ * Represents a user-defined crawler with code to process matched URLs.
+ * environment_variable_names are the names of the account environment variables the code reads;
+ * only these reach context.environment, and only when the author runs it.
  */
 export interface CrawlerRow {
   [key: string]: unknown;
@@ -70,6 +72,7 @@ export interface CrawlerRow {
   code: string;
   input_schema: Record<string, unknown>;
   output_schema: Record<string, unknown>;
+  environment_variable_names: string[];
   created_at: string;
   updated_at: string;
 }
@@ -248,15 +251,25 @@ export interface CrawlerRunLogEntry {
 export type CrawlerRunStatus = 'completed' | 'failed';
 
 /**
+ * What a crawler run ran: a saved crawler ('direct'), or the code of the editor ('test')
+ */
+export type CrawlerRunKind = 'direct' | 'test';
+
+/**
  * Crawler run table row type
- * One direct run of a crawler (POST /crawlers/:id/runs). result, error and logs are redacted.
- * A failed run has both error_code and error.
+ * One run a user started outside a scheduler (POST /crawlers/:id/runs, the test runs of the editor).
+ * result, error and logs are redacted. A failed run has both error_code and error.
+ * A test run has the code it ran and a type; crawler_id is null for a test run of code without a crawler.
+ * type is null only for the direct runs recorded before migration 014.
  */
 export interface CrawlerRunRow {
   [key: string]: unknown;
   id: string;
   user_uuid: string;
-  crawler_id: string;
+  crawler_id: string | null;
+  kind: CrawlerRunKind;
+  type: CrawlerType | null;
+  code: string | null;
   status: CrawlerRunStatus;
   result: unknown;
   error_code: string | null;
@@ -267,6 +280,12 @@ export interface CrawlerRunRow {
   completed_at: string;
   created_at: string;
 }
+
+/** A crawler run without the result, the logs and the code, which can be large */
+export type CrawlerRunSummary = Pick<
+  CrawlerRunRow,
+  'id' | 'crawler_id' | 'kind' | 'type' | 'status' | 'error_code' | 'logs_truncated' | 'started_at' | 'completed_at' | 'created_at'
+>;
 
 /**
  * Crawler file table row type
@@ -367,6 +386,7 @@ export interface Database {
           code: string;
           input_schema?: Record<string, unknown>;
           output_schema?: Record<string, unknown>;
+          environment_variable_names?: string[];
         };
         Update: Partial<Omit<CrawlerRow, 'created_at' | 'updated_at'>>;
         Relationships: [
@@ -530,7 +550,10 @@ export interface Database {
           [key: string]: unknown;
           id?: string;
           user_uuid: string;
-          crawler_id: string;
+          crawler_id: string | null;
+          kind?: CrawlerRunKind;
+          type?: CrawlerType | null;
+          code?: string | null;
           status: CrawlerRunStatus;
           result?: unknown;
           error_code?: string | null;

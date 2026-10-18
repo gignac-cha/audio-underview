@@ -158,7 +158,7 @@ describe('who may run', () => {
     const { crawler, owner } = ownCrawler(`(input, context) => {
       console.log('using ' + context.environment.SPEECH_API_KEY);
       return { header: 'Bearer ' + context.environment.SPEECH_API_KEY, list: [context.environment.SPEECH_API_KEY] };
-    }`);
+    }`, { environment_variable_names: ['SPEECH_API_KEY'] });
     await vaultEnvironment(owner, { SPEECH_API_KEY: 'speech-secret-value-0001' });
 
     const response = await post(crawler.id, owner, { input: {} });
@@ -213,7 +213,7 @@ describe('a failed run', () => {
   });
 
   it('answers 503 service_unavailable, recording nothing, for every way the vault can fail', async () => {
-    const { crawler, owner } = ownCrawler('() => "never runs"');
+    const { crawler, owner } = ownCrawler('() => "never runs"', { environment_variable_names: ['KEY'] });
 
     await configureVault(owner, { resolve: { status: 503, body: { error: 'vault_unavailable' } } });
     expect(await post(crawler.id, owner)).toEqual({
@@ -235,7 +235,7 @@ describe('a failed run', () => {
     const { crawler, owner } = ownCrawler(`(input, context) => {
       console.log("printed by the crawler: " + context.environment.KEY);
       throw new Error("failure text: " + context.environment.KEY);
-    }`);
+    }`, { environment_variable_names: ['KEY'] });
     await vaultEnvironment(owner, { KEY: SECRET });
     const lines: string[] = [];
     for (const method of ['debug', 'info', 'warn', 'error', 'log'] as const) {
@@ -355,16 +355,16 @@ describe('a result with NUL characters', () => {
 });
 
 describe('methods and paths', () => {
-  it('answers 405 to a method other than POST on the runs path, and other than GET on a run', async () => {
+  it('answers 405 to a method other than GET and POST on the runs path, and other than GET on a run', async () => {
     const { crawler, owner } = ownCrawler('(input) => input');
     const created = await post(crawler.id, owner);
     const runID = created.body.run_id as string;
 
-    for (const method of ['GET', 'PUT', 'DELETE']) {
+    for (const method of ['PUT', 'DELETE', 'PATCH']) {
       const response = await SELF.fetch(await workerRequest(`/crawlers/${crawler.id}/runs`, { method, userUUID: owner }));
       await response.text();
       expect(response.status, method).toBe(405);
-      expect(response.headers.get('Allow')).toContain('POST');
+      expect(response.headers.get('Allow')).toBe('GET, POST');
     }
     for (const method of ['POST', 'PUT', 'DELETE']) {
       const response = await SELF.fetch(await workerRequest(`/crawlers/${crawler.id}/runs/${runID}`, { method, userUUID: owner }));
@@ -402,6 +402,9 @@ describe('the record of a run', () => {
       id: runID,
       user_uuid: owner,
       crawler_id: crawler.id,
+      kind: 'direct',
+      type: 'data',
+      code: null,
       status: 'completed',
       result: { v: 1 },
       error_code: null,
