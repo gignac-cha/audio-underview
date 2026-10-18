@@ -137,6 +137,15 @@ describe('EnvironmentVariableNamesPanel', () => {
     expect(page.getByRole('link', { name: 'Set A_TOKEN in Settings' }).query()).toBeNull();
   });
 
+  test('opens the Settings link in a new tab so that unsaved edits are kept', async () => {
+    await render(<Harness initialNames={['B_TOKEN']} registeredNames={new Set()} />);
+
+    const link = page.getByRole('link', { name: 'Set B_TOKEN in Settings' });
+    await expect.element(link).toHaveAttribute('href', '/settings');
+    await expect.element(link).toHaveAttribute('target', '_blank');
+    await expect.element(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
   test('shows no registration while the account list is not known', async () => {
     await render(<Harness initialNames={['A_TOKEN']} registeredNames={undefined} />);
 

@@ -58,7 +58,6 @@ function renderPage(initialPath: string, children?: ReactNode) {
             <Routes>
               <Route path="/crawlers/:id" element={<CrawlerEditorPage />} />
               <Route path="/crawlers" element={<p>Crawlers List</p>} />
-              <Route path="/settings" element={<p>Settings Page</p>} />
             </Routes>
             {children}
           </MemoryRouter>
@@ -1242,9 +1241,11 @@ describe('CrawlerEditorPage — environment variables', () => {
     expect(declareInput().query()).toBeNull();
     expect(page.getByRole('button', { name: 'Remove OTHER_TOKEN' }).query()).toBeNull();
 
-    await page.getByRole('link', { name: 'Set OTHER_TOKEN in Settings' }).click();
-
-    await expect.element(page.getByText('Settings Page')).toBeVisible();
+    // The link leaves the page in a new tab, so that unsaved edits are not lost
+    const settingsLink = page.getByRole('link', { name: 'Set OTHER_TOKEN in Settings' });
+    await expect.element(settingsLink).toHaveAttribute('href', '/settings');
+    await expect.element(settingsLink).toHaveAttribute('target', '_blank');
+    await expect.element(settingsLink).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
   test('does not ask for the account list while no name is declared', async () => {

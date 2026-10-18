@@ -179,7 +179,8 @@ export function EnvironmentVariableNamesPanel({
                   ) : (
                     <>
                       Not set
-                      <Link to="/settings" aria-label={`Set ${name} in Settings`}>
+                      {/* A new tab keeps the editor's unsaved code and declarations; a router link would skip the discard guard */}
+                      <Link to="/settings" target="_blank" rel="noopener noreferrer" aria-label={`Set ${name} in Settings`}>
                         Settings
                       </Link>
                     </>
