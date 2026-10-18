@@ -93,3 +93,56 @@ describe('StageCard', () => {
     await expect.element(screen.getByText('00000000...')).toBeInTheDocument();
   });
 });
+
+interface EditableCardOptions {
+  onEdit?: (stage: SchedulerStageRow) => void;
+  latestTaskGroupVersion?: number;
+}
+
+function renderEditableCard(stage: SchedulerStageRow, { onEdit = vi.fn(), latestTaskGroupVersion }: EditableCardOptions = {}) {
+  return render(
+    <DndContext>
+      <SortableContext items={[stage.id]}>
+        <StageCard
+          stage={stage}
+          crawlerMap={new Map()}
+          onDelete={vi.fn()}
+          onEdit={onEdit}
+          latestTaskGroupVersion={latestTaskGroupVersion}
+        />
+      </SortableContext>
+    </DndContext>,
+  );
+}
+
+describe('StageCard editing', () => {
+  test('the edit button hands over the stage', async () => {
+    const onEdit = vi.fn();
+    const stage = createCrawlerStage();
+    const screen = await renderEditableCard(stage, { onEdit });
+
+    await screen.getByTitle('Edit stage').click();
+
+    expect(onEdit).toHaveBeenCalledWith(stage);
+  });
+
+  test('shows that a newer version of the task group is registered', async () => {
+    const screen = await renderEditableCard(createTaskGroupStage(), { latestTaskGroupVersion: 3 });
+
+    await expect.element(screen.getByText('v3 available')).toBeInTheDocument();
+  });
+
+  test('shows no newer version while the stage runs the latest one', async () => {
+    const screen = await renderEditableCard(createTaskGroupStage(), { latestTaskGroupVersion: 1 });
+
+    await expect.element(screen.getByText('Task group newscast v1')).toBeInTheDocument();
+    await expect.element(screen.getByText('available', { exact: false })).not.toBeInTheDocument();
+  });
+
+  test('shows no newer version on a crawler stage', async () => {
+    const screen = await renderEditableCard(createCrawlerStage(), { latestTaskGroupVersion: 3 });
+
+    await expect.element(screen.getByText('00000000...')).toBeInTheDocument();
+    await expect.element(screen.getByText('available', { exact: false })).not.toBeInTheDocument();
+  });
+});

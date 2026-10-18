@@ -1,78 +1,14 @@
 import { useMutation, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { loadAuthenticationData } from '@audio-underview/sign-provider';
-import type { SchedulerRow, SchedulerStageRow, SchedulerRunRow } from '@audio-underview/supabase-connector';
-
-const FETCH_TIMEOUT_MS = 30_000;
-
-// ─── Shared helpers ────────────────────────────────────────────
-
-function getAccessToken(): string {
-  const authenticationData = loadAuthenticationData();
-  if (!authenticationData) {
-    throw new Error('Authentication required. Please sign in.');
-  }
-  return authenticationData.credential;
-}
-
-function getBaseURL(): string {
-  const baseURL = import.meta.env.VITE_SCHEDULER_MANAGER_WORKER_URL;
-  if (!baseURL) {
-    throw new Error('Service is not available. Please try again later.');
-  }
-  return baseURL;
-}
-
-async function parseResponseJSON(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    throw new Error(`Request failed with status ${response.status}`);
-  }
-}
-
-function throwResponseError(body: unknown, status: number): never {
-  const record = body as Record<string, unknown> | null | undefined;
-  const errorMessage = record?.error_description ?? record?.error ?? `Request failed with status ${status}`;
-  throw new Error(String(errorMessage));
-}
-
-async function authenticatedFetch(path: string, options: RequestInit = {}): Promise<unknown> {
-  const baseURL = getBaseURL();
-  const accessToken = getAccessToken();
-
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${accessToken}`,
-    ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-  };
-
-  const response = await fetch(`${baseURL}${path}`, {
-    ...options,
-    headers: { ...headers, ...(options.headers as Record<string, string> | undefined) },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
-
-  const body = await parseResponseJSON(response);
-
-  if (!response.ok) {
-    throwResponseError(body, response.status);
-  }
-
-  return body;
-}
+import type { FanOutStrategy, SchedulerRow, SchedulerStageRow } from '@audio-underview/supabase-connector';
+import {
+  DEFAULT_PAGE_LIMIT,
+  requestSchedulerManagerJSON,
+  type PaginatedParameters,
+  type PaginatedResponse,
+} from './scheduler-manager-request.ts';
 
 // ─── Types ─────────────────────────────────────────────────────
-
-interface PaginatedParameters {
-  offset: number;
-  limit: number;
-}
-
-interface PaginatedResponse<T> {
-  data: T[];
-  total: number;
-  offset: number;
-  limit: number;
-}
 
 interface CreateSchedulerInput {
   name: string;
@@ -89,22 +25,40 @@ interface UpdateSchedulerInput {
   is_enabled?: boolean;
 }
 
-interface CreateStageInput {
+// A crawler stage is the default type, so its requests leave stage_type out
+interface CreateCrawlerStageInput {
   scheduler_id: string;
+  stage_type?: 'crawler';
   crawler_id: string;
   stage_order: number;
   input_schema: Record<string, unknown>;
   output_schema?: Record<string, unknown>;
   fan_out_field?: string;
+  fan_out_strategy?: FanOutStrategy;
 }
 
-interface UpdateStageInput {
+interface CreateTaskGroupStageInput {
+  scheduler_id: string;
+  stage_type: 'task_group';
+  task_group_id: string;
+  task_group_version: number;
+  settings: Record<string, unknown>;
+  stage_order: number;
+}
+
+export type CreateStageInput = CreateCrawlerStageInput | CreateTaskGroupStageInput;
+
+// The crawler fields apply to a crawler stage and the task group fields to a task group stage
+export interface UpdateStageInput {
   scheduler_id: string;
   stage_id: string;
   crawler_id?: string;
   input_schema?: Record<string, unknown>;
   output_schema?: Record<string, unknown>;
   fan_out_field?: string | null;
+  fan_out_strategy?: FanOutStrategy;
+  task_group_version?: number;
+  settings?: Record<string, unknown>;
 }
 
 interface DeleteStageInput {
@@ -119,32 +73,26 @@ interface ReorderStagesInput {
 
 // ─── Query keys ────────────────────────────────────────────────
 
-const SCHEDULERS_QUERY_KEY = ['schedulers'] as const;
+export const SCHEDULERS_QUERY_KEY = ['schedulers'] as const;
 
-function schedulerDetailKey(id: string) {
+export function schedulerDetailKey(id: string) {
   return ['schedulers', id] as const;
 }
 
-function stagesKey(schedulerID: string) {
+export function stagesKey(schedulerID: string) {
   return ['schedulers', schedulerID, 'stages'] as const;
 }
 
-function runsKey(schedulerID: string) {
-  return ['schedulers', schedulerID, 'runs'] as const;
-}
-
 // ─── Scheduler hooks ──────────────────────────────────────────
-
-const DEFAULT_PAGE_LIMIT = 20;
 
 export function useCreateScheduler() {
   const queryClient = useQueryClient();
 
   const mutation = useMutation<SchedulerRow, Error, CreateSchedulerInput>({
     mutationFn: async (input) => {
-      return await authenticatedFetch('/schedulers', {
+      return await requestSchedulerManagerJSON('/schedulers', {
         method: 'POST',
-        body: JSON.stringify(input),
+        body: input,
       }) as SchedulerRow;
     },
     onSuccess: () => {
@@ -177,7 +125,7 @@ export function useListSchedulers() {
         offset: String(pageParam.offset),
         limit: String(pageParam.limit),
       });
-      return await authenticatedFetch(`/schedulers?${searchParameters.toString()}`) as PaginatedResponse<SchedulerRow>;
+      return await requestSchedulerManagerJSON(`/schedulers?${searchParameters.toString()}`) as PaginatedResponse<SchedulerRow>;
     },
     initialPageParam: { offset: 0, limit: DEFAULT_PAGE_LIMIT },
     getNextPageParam: (lastPage) => {
@@ -209,7 +157,7 @@ export function useGetScheduler(id: string | undefined) {
   const query = useQuery<SchedulerRow, Error>({
     queryKey: schedulerDetailKey(id ?? ''),
     queryFn: async () => {
-      return await authenticatedFetch(`/schedulers/${id}`) as SchedulerRow;
+      return await requestSchedulerManagerJSON(`/schedulers/${id}`) as SchedulerRow;
     },
     enabled: !!accessToken && !!id,
   });
@@ -227,9 +175,9 @@ export function useUpdateScheduler() {
 
   const mutation = useMutation<SchedulerRow, Error, UpdateSchedulerInput>({
     mutationFn: async ({ id, ...payload }) => {
-      return await authenticatedFetch(`/schedulers/${id}`, {
+      return await requestSchedulerManagerJSON(`/schedulers/${id}`, {
         method: 'PUT',
-        body: JSON.stringify(payload),
+        body: payload,
       }) as SchedulerRow;
     },
     onSuccess: (data) => {
@@ -251,7 +199,7 @@ export function useDeleteScheduler() {
 
   const mutation = useMutation<void, Error, string>({
     mutationFn: async (id) => {
-      await authenticatedFetch(`/schedulers/${id}`, { method: 'DELETE' });
+      await requestSchedulerManagerJSON(`/schedulers/${id}`, { method: 'DELETE' });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SCHEDULERS_QUERY_KEY });
@@ -275,7 +223,7 @@ export function useListStages(schedulerID: string | undefined) {
   const query = useQuery<{ data: SchedulerStageRow[] }, Error>({
     queryKey: stagesKey(schedulerID ?? ''),
     queryFn: async () => {
-      return await authenticatedFetch(`/schedulers/${schedulerID}/stages`) as { data: SchedulerStageRow[] };
+      return await requestSchedulerManagerJSON(`/schedulers/${schedulerID}/stages`) as { data: SchedulerStageRow[] };
     },
     enabled: !!accessToken && !!schedulerID,
   });
@@ -293,9 +241,9 @@ export function useCreateStage() {
 
   const mutation = useMutation<SchedulerStageRow, Error, CreateStageInput>({
     mutationFn: async ({ scheduler_id, ...payload }) => {
-      return await authenticatedFetch(`/schedulers/${scheduler_id}/stages`, {
+      return await requestSchedulerManagerJSON(`/schedulers/${scheduler_id}/stages`, {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: payload,
       }) as SchedulerStageRow;
     },
     onSuccess: (_data, variables) => {
@@ -316,9 +264,9 @@ export function useUpdateStage() {
 
   const mutation = useMutation<SchedulerStageRow, Error, UpdateStageInput>({
     mutationFn: async ({ scheduler_id, stage_id, ...payload }) => {
-      return await authenticatedFetch(`/schedulers/${scheduler_id}/stages/${stage_id}`, {
+      return await requestSchedulerManagerJSON(`/schedulers/${scheduler_id}/stages/${stage_id}`, {
         method: 'PUT',
-        body: JSON.stringify(payload),
+        body: payload,
       }) as SchedulerStageRow;
     },
     onSuccess: (_data, variables) => {
@@ -339,7 +287,7 @@ export function useDeleteStage() {
 
   const mutation = useMutation<void, Error, DeleteStageInput>({
     mutationFn: async ({ scheduler_id, stage_id }) => {
-      await authenticatedFetch(`/schedulers/${scheduler_id}/stages/${stage_id}`, { method: 'DELETE' });
+      await requestSchedulerManagerJSON(`/schedulers/${scheduler_id}/stages/${stage_id}`, { method: 'DELETE' });
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: stagesKey(variables.scheduler_id) });
@@ -359,9 +307,9 @@ export function useReorderStages() {
 
   const mutation = useMutation<{ data: SchedulerStageRow[] }, Error, ReorderStagesInput>({
     mutationFn: async ({ scheduler_id, stage_ids }) => {
-      return await authenticatedFetch(`/schedulers/${scheduler_id}/stages/reorder`, {
+      return await requestSchedulerManagerJSON(`/schedulers/${scheduler_id}/stages/reorder`, {
         method: 'PUT',
-        body: JSON.stringify({ stage_ids }),
+        body: { stage_ids },
       }) as { data: SchedulerStageRow[] };
     },
     onSuccess: (_data, variables) => {
@@ -374,51 +322,5 @@ export function useReorderStages() {
     status: mutation.status,
     error: mutation.error ?? undefined,
     reset: mutation.reset,
-  };
-}
-
-// ─── Run hooks ────────────────────────────────────────────────
-
-export function useListRuns(schedulerID: string | undefined) {
-  const authenticationData = loadAuthenticationData();
-  const accessToken = authenticationData?.credential ?? undefined;
-
-  const query = useInfiniteQuery<
-    PaginatedResponse<SchedulerRunRow>,
-    Error,
-    { pages: PaginatedResponse<SchedulerRunRow>[] },
-    readonly string[],
-    PaginatedParameters
-  >({
-    queryKey: runsKey(schedulerID ?? ''),
-    queryFn: async ({ pageParam }) => {
-      const searchParameters = new URLSearchParams({
-        offset: String(pageParam.offset),
-        limit: String(pageParam.limit),
-      });
-      return await authenticatedFetch(
-        `/schedulers/${schedulerID}/runs?${searchParameters.toString()}`,
-      ) as PaginatedResponse<SchedulerRunRow>;
-    },
-    initialPageParam: { offset: 0, limit: DEFAULT_PAGE_LIMIT },
-    getNextPageParam: (lastPage) => {
-      if (lastPage.offset + lastPage.limit < lastPage.total) {
-        return { offset: lastPage.offset + lastPage.limit, limit: lastPage.limit };
-      }
-      return undefined;
-    },
-    enabled: !!accessToken && !!schedulerID,
-  });
-
-  const runs = query.data?.pages.flatMap((page) => page.data) ?? [];
-
-  return {
-    runs,
-    isLoading: query.isLoading,
-    error: query.error ?? undefined,
-    refetch: query.refetch,
-    hasNextPage: query.hasNextPage,
-    fetchNextPage: query.fetchNextPage,
-    isFetchingNextPage: query.isFetchingNextPage,
   };
 }

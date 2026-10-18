@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -12,6 +12,7 @@ import { Header, LogoutButton } from '../components/PageHeader.tsx';
 import { SchedulerInfoSection } from '../components/schedulers/SchedulerInfoSection.tsx';
 import { StageList } from '../components/schedulers/StageList.tsx';
 import { RunHistorySection } from '../components/schedulers/RunHistorySection.tsx';
+import { RunNowButton } from '../components/schedulers/RunNowButton.tsx';
 
 const fadeIn = keyframes`
   from { opacity: 0; }
@@ -111,6 +112,7 @@ export function SchedulerDetailPage() {
   const { scheduler, isLoading, error, refetch } = useGetScheduler(id);
   const { stages, isLoading: stagesLoading, error: stagesError, refetch: refetchStages } = useListStages(id);
   const { crawlers, isLoading: crawlersLoading, error: crawlersError, refetch: refetchCrawlers } = useListCrawlers();
+  const [expandedRunID, setExpandedRunID] = useState<string>();
 
   const crawlerMap = useMemo(() => {
     const map = new Map<string, (typeof crawlers)[number]>();
@@ -173,9 +175,26 @@ export function SchedulerDetailPage() {
                 </RetryButton>
               </ErrorState>
             ) : (
-              <StageList schedulerID={scheduler.id} stages={stages} crawlerMap={crawlerMap} />
+              <StageList
+                schedulerID={scheduler.id}
+                stages={stages}
+                crawlerMap={crawlerMap}
+                headerAction={
+                  <RunNowButton
+                    schedulerID={scheduler.id}
+                    disabled={stages.length === 0}
+                    onRunRecorded={setExpandedRunID}
+                  />
+                }
+              />
             )}
-            <RunHistorySection schedulerID={scheduler.id} />
+            <RunHistorySection
+              schedulerID={scheduler.id}
+              stages={stages}
+              crawlerMap={crawlerMap}
+              expandedRunID={expandedRunID}
+              onExpandedRunIDChange={setExpandedRunID}
+            />
           </>
         ) : null}
       </Main>
