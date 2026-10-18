@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -16,14 +16,17 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { useParams } from 'react-router';
 import { useAuthentication } from '../hooks/use-authentication.ts';
-import { useCrawlerCodeRunner, type LogEntry } from '../hooks/use-crawler-code-runner.ts';
 import { useCrawlerEditor, type EditorMode } from '../hooks/use-crawler-editor.ts';
+import { useCrawlerTestRunner } from '../hooks/use-crawler-test-runner.ts';
+import { useListEnvironmentVariables } from '../hooks/use-environment-variables.ts';
 import { NavigationLinks } from '../components/NavigationLinks.tsx';
 import { Header, LogoutButton } from '../components/PageHeader.tsx';
 import { CodeEditorPanel } from '../components/crawlers/CodeEditorPanel.tsx';
 import { URLInputPanel } from '../components/crawlers/URLInputPanel.tsx';
-import { JSONResultPanel } from '../components/crawlers/JSONResultPanel.tsx';
-import { LogOverlay } from '../components/crawlers/LogOverlay.tsx';
+import { DataInputPanel } from '../components/crawlers/DataInputPanel.tsx';
+import { RunOutputPanel } from '../components/crawlers/RunOutputPanel.tsx';
+import { RunHistoryPanel } from '../components/crawlers/RunHistoryPanel.tsx';
+import { EnvironmentVariableNamesPanel } from '../components/crawlers/EnvironmentVariableNamesPanel.tsx';
 import { DiscardDialog } from '../components/DiscardDialog.tsx';
 
 const TEST_PANEL_STORAGE_KEY = 'crawler-editor:test-panel-open';
@@ -317,6 +320,10 @@ const TextInput = styled.input`
   }
 `;
 
+const EnvironmentVariablesBlock = styled.div`
+  margin-top: 0.75rem;
+`;
+
 const TypeBadge = styled.span`
   display: inline-flex;
   width: fit-content;
@@ -372,10 +379,18 @@ const ResultSection = styled(Section)`
   flex-direction: column;
 `;
 
-const TestBar = styled.div`
+const TestBar = styled('div', {
+  shouldForwardProp: (prop) => prop !== 'alignBottom',
+})<{ alignBottom?: boolean }>`
   display: flex;
   gap: 0.5rem;
-  align-items: center;
+  align-items: ${({ alignBottom }) => (alignBottom ? 'flex-end' : 'center')};
+`;
+
+const TargetHint = styled.p`
+  margin: 0 0 0.75rem 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
 `;
 
 const LoadingContainer = styled.div`
@@ -480,9 +495,6 @@ function CrawlerEditorPageContent({ id }: { id: string | undefined }) {
   } = useCrawlerEditor(id);
 
   const nameInputRef = useRef<HTMLInputElement | null>(null);
-  const [testURL, setTestURL] = useState('');
-  const [executionLogs, setExecutionLogs] = useState<LogEntry[]>([]);
-  const [isLogOverlayOpen, setIsLogOverlayOpen] = useState(false);
 
   const [viewShowTest, setViewShowTest] = useState<boolean>(() => {
     try {
@@ -507,23 +519,25 @@ function CrawlerEditorPageContent({ id }: { id: string | undefined }) {
     });
   };
 
-  const handleLog = useCallback((entry: LogEntry) => {
-    setExecutionLogs((prev) => [...prev, entry]);
-  }, []);
+  const testRunner = useCrawlerTestRunner({
+    crawlerID: isCreateMode ? undefined : id,
+    crawlerType,
+    form,
+    isDirty,
+  });
 
-  const { runTest, status: runStatus, result: runResult, error: runError } = useCrawlerCodeRunner({ onLog: handleLog });
-  const isRunning = runStatus === 'running';
+  // The list is only needed to mark declared names that the account has no value for
+  const declaredNames = form?.environment_variable_names ?? [];
+  const environmentVariables = useListEnvironmentVariables({ enabled: declaredNames.length > 0 });
+  const registeredNames = environmentVariables.isLoaded
+    ? new Set(environmentVariables.environmentVariables.map(({ name }) => name))
+    : undefined;
 
   useEffect(() => {
     if (mode === 'edit' || mode === 'create') {
       nameInputRef.current?.focus();
     }
   }, [mode]);
-
-  const handleRunTest = useCallback(() => {
-    if (!form || !testURL || isRunning) return;
-    runTest(testURL, form.code);
-  }, [form, testURL, isRunning, runTest]);
 
   const onSaveShortcut = useEffectEvent(() => {
     if (!isEditable) return false;
@@ -538,9 +552,8 @@ function CrawlerEditorPageContent({ id }: { id: string | undefined }) {
   });
 
   const onRunShortcut = useEffectEvent(() => {
-    if (!showTest || !testURL || isRunning) return false;
-    handleRunTest();
-    return true;
+    if (!showTest) return false;
+    return testRunner.run();
   });
 
   useEffect(() => {
@@ -718,6 +731,15 @@ function CrawlerEditorPageContent({ id }: { id: string | undefined }) {
                   </>
                 )}
               </MetaGrid>
+              <EnvironmentVariablesBlock>
+                <EnvironmentVariableNamesPanel
+                  names={form.environment_variable_names}
+                  editable={isEditable}
+                  onChange={(names) => setForm({ ...form, environment_variable_names: names })}
+                  registeredNames={registeredNames}
+                  registrationError={environmentVariables.error?.message}
+                />
+              </EnvironmentVariablesBlock>
             </Section>
 
             <Section>
@@ -784,46 +806,48 @@ function CrawlerEditorPageContent({ id }: { id: string | undefined }) {
             <TestColumn>
               <Section>
                 <SectionHeader>
-                  <SectionTitle>
-                    Test Runner
-                    {isDirty && isEditable && <ShortcutHint>· running draft</ShortcutHint>}
-                  </SectionTitle>
-                  <GhostButton
-                    onClick={() => setIsLogOverlayOpen(true)}
-                    aria-label={`Open logs (${executionLogs.length})`}
-                  >
-                    Logs ({executionLogs.length})
-                  </GhostButton>
-                  <VisuallyHidden role="status" aria-live="polite" aria-atomic="true">
-                    {executionLogs.length} log {executionLogs.length === 1 ? 'entry' : 'entries'}
-                  </VisuallyHidden>
+                  <SectionTitle>Test Runner</SectionTitle>
                 </SectionHeader>
-                <TestBar>
-                  <URLInputPanel value={testURL} onChange={setTestURL} disabled={isRunning} />
-                  <PrimaryButton onClick={handleRunTest} disabled={!testURL || isRunning}>
+                <TargetHint>{testRunner.targetLabel}</TargetHint>
+                <TestBar alignBottom={crawlerType === 'data'}>
+                  {crawlerType === 'data' ? (
+                    <DataInputPanel
+                      value={testRunner.testInput}
+                      onChange={testRunner.setTestInput}
+                      error={testRunner.testInputError}
+                      disabled={testRunner.isRunning}
+                    />
+                  ) : (
+                    <URLInputPanel value={testRunner.testURL} onChange={testRunner.setTestURL} disabled={testRunner.isRunning} />
+                  )}
+                  <PrimaryButton onClick={() => testRunner.run()} disabled={!testRunner.canRun}>
                     <FontAwesomeIcon icon={faPlay} />
-                    {isRunning ? 'Running…' : 'Run'}
+                    {testRunner.isRunning ? 'Running…' : 'Run'}
                     <ShortcutHint>{MOD_LABEL}+↵</ShortcutHint>
                   </PrimaryButton>
                 </TestBar>
+                {testRunner.blockedReason && <SchemaHelper isError>{testRunner.blockedReason}</SchemaHelper>}
               </Section>
               <ResultSection>
                 <SectionHeader>
                   <SectionTitle>Result</SectionTitle>
                 </SectionHeader>
-                <JSONResultPanel result={runResult} status={runStatus} error={runError} />
+                <RunOutputPanel output={testRunner.output} caption={testRunner.caption} />
               </ResultSection>
+              <Section>
+                <SectionHeader>
+                  <SectionTitle>Run history</SectionTitle>
+                </SectionHeader>
+                <RunHistoryPanel
+                  crawlerID={testRunner.historyCrawlerID}
+                  selectedRunID={testRunner.selectedRunID}
+                  onSelect={testRunner.selectRun}
+                />
+              </Section>
             </TestColumn>
           )}
         </Grid>
       ) : null}
-
-      <LogOverlay
-        open={isLogOverlayOpen}
-        onOpenChange={setIsLogOverlayOpen}
-        entries={executionLogs}
-        onClear={() => setExecutionLogs([])}
-      />
 
       <DiscardDialog {...discardDialog} />
     </PageContainer>

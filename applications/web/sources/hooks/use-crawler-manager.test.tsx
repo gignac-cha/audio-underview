@@ -75,6 +75,34 @@ describe('useCreateCrawler', () => {
     expect(capturedAuthorization).toBe('Bearer test-access-token');
   });
 
+  test('sends the declared environment variable names', async () => {
+    let capturedBody: Record<string, unknown> | undefined;
+    worker.use(
+      http.post(`${MANAGER_URL}/crawlers`, async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: 'c1', name: 'test', url_pattern: '', code: '', user_id: 'u1', created_at: '' });
+      }),
+    );
+
+    const { result } = await renderHook(() => useCreateCrawler(), {
+      wrapper: createWrapper(),
+    });
+
+    await result.current.createCrawler({
+      name: 'test',
+      url_pattern: '^https://example\\.com',
+      code: 'return {}',
+      environment_variable_names: ['API_TOKEN', 'BLOG_A_TOKEN'],
+    });
+
+    expect(capturedBody).toEqual({
+      name: 'test',
+      url_pattern: '^https://example\\.com',
+      code: 'return {}',
+      environment_variable_names: ['API_TOKEN', 'BLOG_A_TOKEN'],
+    });
+  });
+
   test('throws on server error', async () => {
     worker.use(
       http.post(`${MANAGER_URL}/crawlers`, async () => {
@@ -380,6 +408,45 @@ describe('useUpdateCrawler', () => {
     expect(capturedBody).toBeDefined();
     expect(capturedBody && 'id' in capturedBody).toBe(false);
     expect(capturedBody?.name).toBe('X');
+  });
+
+  test('sends the declared environment variable names in the PUT body', async () => {
+    let capturedBody: Record<string, unknown> | undefined;
+    worker.use(
+      http.put(`${MANAGER_URL}/crawlers/c1`, async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({
+          id: 'c1',
+          user_uuid: 'u1',
+          name: 'X',
+          type: 'web',
+          url_pattern: '',
+          code: '',
+          input_schema: {},
+          output_schema: {},
+          environment_variable_names: ['API_TOKEN'],
+          created_at: '',
+          updated_at: '',
+        });
+      }),
+    );
+
+    const { result } = await renderHook(() => useUpdateCrawler(), {
+      wrapper: createWrapper(),
+    });
+
+    const response = await result.current.updateCrawler({
+      id: 'c1',
+      name: 'X',
+      type: 'web',
+      url_pattern: '',
+      code: '',
+      output_schema: {},
+      environment_variable_names: ['API_TOKEN'],
+    });
+
+    expect(capturedBody?.environment_variable_names).toEqual(['API_TOKEN']);
+    expect(response.environment_variable_names).toEqual(['API_TOKEN']);
   });
 
   test('throws on update error', async () => {

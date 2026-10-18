@@ -1,7 +1,7 @@
 import styled from '@emotion/styled';
 import { NavLink } from 'react-router';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faHouse, faSpider, faClock } from '@fortawesome/free-solid-svg-icons';
+import { faHouse, faSpider, faClock, faGear } from '@fortawesome/free-solid-svg-icons';
 
 const Container = styled.nav`
   display: flex;
@@ -59,6 +59,10 @@ export function NavigationLinks() {
       <Link to="/schedulers" aria-label="Schedulers">
         <FontAwesomeIcon icon={faClock} aria-hidden={true} />
         <span>Schedulers</span>
+      </Link>
+      <Link to="/settings" aria-label="Settings">
+        <FontAwesomeIcon icon={faGear} aria-hidden={true} />
+        <span>Settings</span>
       </Link>
     </Container>
   );
