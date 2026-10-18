@@ -91,6 +91,19 @@ describe('runCrawler', () => {
     expect(await vaultRequests(other)).toEqual([]);
   });
 
+  it('runs a crawler of the user from a database before migration 014, whose row has no environment_variable_names', async () => {
+    const author = uniqueUUID();
+    await vaultEnvironment(author, { KEY: 'key-value-0001' });
+    const { environment_variable_names: _, ...row } = crawlerRow({ user_uuid: author, code: '(input, context) => Object.keys(context.environment)' });
+    supabase.tables.crawlers ??= [];
+    supabase.tables.crawlers.push(row);
+
+    const outcome = await crawlerManager.runCrawler(row.id, {}, { userUUID: author, runID: uniqueUUID() });
+
+    expect(outcome).toMatchObject({ status: 'completed', result: [] });
+    expect(await vaultRequests(author)).toEqual([]);
+  });
+
   it('throws Crawler <id> not found for a crawler that does not exist', async () => {
     const crawlerID = uniqueUUID();
 

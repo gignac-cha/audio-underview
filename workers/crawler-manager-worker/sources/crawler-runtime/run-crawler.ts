@@ -25,7 +25,7 @@ import {
  * Runs the code of a crawler in a Dynamic Worker:
  * 1. the environment variables of the user the crawler declares, only when the user wrote the crawler
  * 2. for a web crawler, the page body fetched by the code runner Lambda as before
- * 3. the code in a Dynamic Worker per user, code and options, with the runner module
+ * 3. the code in a Dynamic Worker per user, code, options and environment, with the runner module
  * 4. the result, logs and errors, redacted
  * Failures of the code are a failed outcome, so its logs are kept; a missing crawler, a database
  * error, an invalid context and an unreadable vault throw.
@@ -114,23 +114,33 @@ function hexOf(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+async function sha256HexOf(text: string): Promise<string> {
+  return hexOf(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
+}
+
 /**
- * The ID of the Dynamic Worker: never shared between users, the same for the same user, code and
- * options. The options are part of the hash because get() requires the same code and options for an ID.
+ * The ID of the Dynamic Worker: never shared between users, the same for the same user, code, options
+ * and environment. The options are part of the hash because get() requires the same code and options
+ * for an ID. The environment is part of it because the global state of an isolate lasts between its
+ * runs: code can keep a value of one run at module scope, and a run given other variables, or none,
+ * would not hide it. Only a digest of the environment goes in, of its [name, value] pairs sorted by name.
  */
 export async function createIsolateID(
   userUUID: string | undefined,
   options: CrawlerWorkerOptions,
   runnerModuleSource: string,
   code: string,
+  environment: Record<string, string>,
 ): Promise<string> {
+  const environmentPairs = Object.entries(environment)
+    .sort(([leftName], [rightName]) => (leftName < rightName ? -1 : leftName > rightName ? 1 : 0));
+  const environmentDigest = await sha256HexOf(JSON.stringify(environmentPairs));
   const hashInput = JSON.stringify({
     compatibilityDate: options.compatibilityDate,
     compatibilityFlags: options.compatibilityFlags,
     limits: options.limits,
-  }) + '\0' + runnerModuleSource + '\0' + code;
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(hashInput));
-  return `crawler:${userUUID ?? 'none'}:${hexOf(digest)}`;
+  }) + '\0' + runnerModuleSource + '\0' + code + '\0' + environmentDigest;
+  return `crawler:${userUUID ?? 'none'}:${await sha256HexOf(hashInput)}`;
 }
 
 /**
@@ -429,7 +439,7 @@ async function runInDynamicWorker(
     runnerMilliseconds: RUNNER_TIMEOUT_MILLISECONDS,
     hostMilliseconds: HOST_TIMEOUT_MILLISECONDS,
   };
-  const isolateID = await createIsolateID(context?.userUUID, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, crawler.code);
+  const isolateID = await createIsolateID(context?.userUUID, CRAWLER_WORKER_OPTIONS, RUNNER_MODULE_SOURCE, crawler.code, environment);
   // Without a user there is nobody the files would belong to
   const files = context === undefined
     ? undefined
@@ -511,12 +521,16 @@ export async function runLoadedCrawler(
 ): Promise<CrawlerRunOutcome> {
   // A system crawler belongs to the system user, so it never gets the variables of a caller
   const ownsCrawler = context !== undefined && context.userUUID === crawler.user_uuid;
+  // A row of a database before migration 014 has no such column: it declares no name
+  const declaredNames: readonly string[] = crawler.environment_variable_names ?? [];
   // Without a declared name the vault is not called
-  const environment = ownsCrawler && crawler.environment_variable_names.length > 0
-    ? pickDeclared(await readEnvironment(dependencies, crawler.id, context.userUUID), crawler.environment_variable_names)
+  const variables = ownsCrawler && declaredNames.length > 0
+    ? await readEnvironment(dependencies, crawler.id, context.userUUID)
     : {};
-  // Only what the code was given can be in what it returns
-  const redactor = createRedactor(environment);
+  const environment = pickDeclared(variables, declaredNames);
+  // Every value the vault returned is hidden, the ones the code was not given too; without a vault
+  // call no value is known, and the run gets an isolate that was never given one
+  const redactor = createRedactor(variables);
 
   let outcome: CrawlerRunOutcome;
   let runInput = input;

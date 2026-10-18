@@ -19,7 +19,8 @@
 - 스케줄러별로 저장하면 편집기의 시험 실행과 직접 실행에 값이 없고, 구독한 남의 크롤러에 값이 넘어갈 수 있다.
 - 크롤러는 `environment_variable_names`에 쓰는 이름을 적는다. 자기 크롤러를 실행할 때 계정의 환경 변수 중 이 이름들만 `context.environment`에 들어간다. 선언했지만 등록하지 않은 이름은 빠진다(오류가 아니다).
 - 선언이 비어 있으면 vault를 부르지 않는다.
-- 결과와 로그의 가리기는 넘긴 값으로만 한다. 넘기지 않은 값은 크롤러 코드가 읽을 수 없다.
+- isolate는 넘기는 환경 변수가 다르면 따로 쓴다. 같은 isolate의 전역 상태는 다음 실행까지 남으므로, 이전 실행에서 받은 값을 코드가 모듈 범위에 저장해 두면 선언을 지운 뒤의 실행에서도 그 값을 낼 수 있기 때문이다. 그래서 isolate ID에 넘기는 이름과 값의 digest를 넣는다(4절).
+- 가리기는 vault를 불렀으면 vault가 돌려준 모든 값으로 하고, 부르지 않았으면 하지 않는다. vault를 부르지 않는 실행은 값을 받은 적 없는 isolate에서 돈다.
 - 남의 크롤러(구독)와 시스템 크롤러에는 지금처럼 넘기지 않는다. 남의 크롤러에 사용자가 허락해 넘기는 것은 마켓플레이스 단위에서 정한다.
 - 07 요구사항의 "그 사용자의 모든 크롤러가 쓸 수 있다"가 "크롤러가 선언한 이름만 쓸 수 있다"로 바뀐다. 운영에는 vault 시크릿이 없어(TES-143) 등록된 환경 변수가 없으므로, 기존 크롤러가 깨지지 않는다.
 
@@ -93,14 +94,17 @@ CREATE INDEX crawler_runs_user_uuid_unsaved_created_at_index
 
   ```ts
   const ownsCrawler = context !== undefined && context.userUUID === crawler.user_uuid;
+  // migration 014 전의 행에는 컬럼이 없다: 선언 없음으로 본다
+  const declaredNames = crawler.environment_variable_names ?? [];
   // 선언이 없으면 vault를 부르지 않는다
-  const environment = ownsCrawler && crawler.environment_variable_names.length > 0
-    ? pickDeclared(await readEnvironment(...), crawler.environment_variable_names)
-    : {};
-  const redactor = createRedactor(environment);
+  const variables = ownsCrawler && declaredNames.length > 0 ? await readEnvironment(...) : {};
+  const environment = pickDeclared(variables, declaredNames);
+  // vault가 돌려준 모든 값을 가린다
+  const redactor = createRedactor(variables);
   ```
 
   `pickDeclared`는 선언한 이름 중 vault 응답에 있는 것만 담는다.
+- isolate ID의 SHA-256 입력에 `environment`를 더한다. 이름순으로 정렬한 `[이름, 값]` 쌍의 JSON을 SHA-256한 hex를 코드 뒤에 `\0`으로 잇는다. 그래서 넘기는 이름이나 값이 하나라도 다르면 다른 isolate가 뜨고, 값을 받은 적 없는 실행(`{}`)은 값을 받은 적 없는 isolate에서만 돈다. 값 자체는 ID에 들어가지 않고 digest만 들어간다.
 - `id`가 `null`이면 URL이 없을 때의 문구는 `Crawler test run: no URL available. Provide url in input or set a default in input_schema.`다. 로그 metadata의 `crawlerID`는 `null`이 된다.
 - `CrawlerFileCapability`의 `crawlerID`가 `string | null`이 된다. `crawler_files.crawler_id`는 이미 `null`을 받는다.
 - Lambda는 지금처럼 web 크롤러의 페이지 가져오기에만 쓴다.
@@ -185,7 +189,7 @@ CREATE INDEX crawler_runs_user_uuid_unsaved_created_at_index
 - 코드 길이 표시의 한도를 1,048,576자로 바꾼다.
 - Details에 **Environment variables**를 더한다. 이 크롤러가 쓰는 이름 목록이다.
   - 편집 모드에서 추가하고 지운다. 이름 규칙, 중복, 100개를 미리 검사한다.
-  - 이름마다 계정에 등록됐는지(`GET /environment-variables`) 보여 주고, 없으면 "Not set"과 Settings 링크를 보인다.
+  - 이름마다 계정에 등록됐는지(`GET /environment-variables`) 보여 주고, 없으면 "Not set"과 Settings 링크를 보인다. 이 링크는 새 탭으로 열어, 저장하지 않은 편집이 사라지지 않게 한다.
   - form 상태, dirty 판정, 저장 payload에 들어간다.
 - Test Runner
   - 입력: web은 지금처럼 URL이고 `{ input: { url } }`로 보낸다. data는 JSON 입력란이고, 비우면 `input` 없이 보내 schema 기본값을 쓴다. JSON이 틀리면 요청하지 않고 입력란에 오류를 보인다.
@@ -219,7 +223,9 @@ crawler-manager (`@cloudflare/vitest-plugin`, MSW)
   - 선언이 비면 vault를 부르지 않는다.
   - 남의 크롤러와 시스템 크롤러에는 선언이 있어도 넘기지 않는다.
   - 선언했지만 등록하지 않은 이름은 빠진다.
-  - 가리기는 넘긴 값만 한다.
+  - vault를 불렀으면 돌려준 모든 값을 가린다(넘기지 않은 값 포함).
+  - 같은 코드라도 넘기는 이름이나 값이 다르면 다른 isolate에서 돈다. 모듈 범위에 값을 저장하는 코드를 `TOKEN`을 선언해 실행한 뒤, 선언을 지우고 다시 실행해도 그 값이 결과·오류·로그에 나오지 않는다.
+  - migration 014 전처럼 `environment_variable_names`가 없는 행은 선언 없음으로 실행된다.
 - `POST /crawlers/:id/test-runs`: 자기 크롤러만, 본문 덮어쓰기, 검사 문구, 기록(`kind`, `code`, `crawler_id`, `type`), 파일 기한, 응답 상태.
 - `POST /crawler-test-runs`: `type` 필수, 빠진 값의 기본값, `crawler_id`가 `null`인 기록과 파일.
 - 목록 둘: 자기 기록만, 크롤러로 거르기와 `null`로 거르기, 최신순, 요약 필드만(결과·로그·코드 없음), offset·limit 검사, 405.

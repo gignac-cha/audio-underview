@@ -50,8 +50,10 @@
 
 ```
 crawler:<실행 사용자 UUID 또는 none>:<SHA-256 hex>
-SHA-256 입력 = JSON.stringify({ compatibilityDate, compatibilityFlags, limits }) + "\0" + runner 모듈 + "\0" + 크롤러 코드
+SHA-256 입력 = JSON.stringify({ compatibilityDate, compatibilityFlags, limits }) + "\0" + runner 모듈 + "\0" + 크롤러 코드 + "\0" + 넘기는 환경 변수의 digest
 ```
+
+2026-10-17에 환경 변수의 digest를 더했다(`documents/2026-10-17-web-crawler-screen.md` 4절). 같은 isolate의 전역 상태는 다음 실행까지 남으므로, 넘기는 값이 다른 실행이 같은 isolate를 쓰면 이전 실행의 값이 새어 나올 수 있다.
 
 **실행마다 다른 값은 호출 인자로 넘긴다.** 환경 변수 값은 바뀔 수 있고 파일 저장 권한은 실행마다 다르므로 `WorkerCode.env`에 넣지 않는다. runner의 `run(input, capabilities)` 인자로 넘긴다. 파일 저장소는 `RpcTarget` 객체로 넘긴다. RPC로는 prototype의 메서드만 보이고 인스턴스 필드는 보이지 않는다(13절에서 로컬 확인). 그래도 필드는 `#private`으로 둔다.
 
