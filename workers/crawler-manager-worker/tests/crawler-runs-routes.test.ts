@@ -62,9 +62,12 @@ describe('POST /crawlers/:id/runs', () => {
     expect(supabase.requests).toEqual([]);
   });
 
-  it('runs a crawler of the owner with the environment variables, records the run and answers the result and logs', async () => {
-    const { crawler, owner } = ownCrawler('(input, context) => { console.log("got", input.value); return { value: input.value, key: context.environment.KEY }; }');
-    await vaultEnvironment(owner, { KEY: 'key-value-0001' });
+  it('runs a crawler of the owner with the declared environment variables, records the run and answers the result and logs', async () => {
+    const { crawler, owner } = ownCrawler(
+      '(input, context) => { console.log("got", input.value); return { value: input.value, key: context.environment.KEY, other: context.environment.OTHER ?? null }; }',
+      { environment_variable_names: ['KEY'] },
+    );
+    await vaultEnvironment(owner, { KEY: 'key-value-0001', OTHER: 'other-value-0001' });
 
     const { status, body } = await postRun(crawler.id, owner, JSON.stringify({ input: { value: 7 } }));
 
@@ -72,7 +75,7 @@ describe('POST /crawlers/:id/runs', () => {
     expect(body).toEqual({
       run_id: expect.any(String),
       status: 'completed',
-      result: { value: 7, key: '[REDACTED]' },
+      result: { value: 7, key: '[REDACTED]', other: null },
       logs: [{ level: 'log', message: 'got 7', timestamp: expect.any(String) }],
       logs_truncated: false,
     });
@@ -80,8 +83,11 @@ describe('POST /crawlers/:id/runs', () => {
       id: body.run_id,
       user_uuid: owner,
       crawler_id: crawler.id,
+      kind: 'direct',
+      type: 'data',
+      code: null,
       status: 'completed',
-      result: { value: 7, key: '[REDACTED]' },
+      result: { value: 7, key: '[REDACTED]', other: null },
       error_code: null,
       error: null,
       logs: body.logs,
@@ -92,8 +98,8 @@ describe('POST /crawlers/:id/runs', () => {
     expect(await vaultRequests(owner)).toHaveLength(1);
   });
 
-  it('runs a crawler for a subscriber without environment variables', async () => {
-    const { crawler, owner } = ownCrawler('(input, context) => Object.keys(context.environment)');
+  it('runs a crawler for a subscriber without environment variables, though the crawler declares them', async () => {
+    const { crawler, owner } = ownCrawler('(input, context) => Object.keys(context.environment)', { environment_variable_names: ['KEY'] });
     const subscriber = uniqueUUID();
     permit(crawler.id, subscriber, 'subscriber');
     await vaultEnvironment(owner, { KEY: 'key-value-0001' });
@@ -173,7 +179,10 @@ describe('POST /crawlers/:id/runs', () => {
   });
 
   it('answers 422 with the error code, the description and the logs when the code fails, and records the run', async () => {
-    const { crawler, owner } = ownCrawler('(input, context) => { console.log("start"); throw new Error("broke with " + context.environment.KEY); }');
+    const { crawler, owner } = ownCrawler(
+      '(input, context) => { console.log("start"); throw new Error("broke with " + context.environment.KEY); }',
+      { environment_variable_names: ['KEY'] },
+    );
     await vaultEnvironment(owner, { KEY: 'key-value-0002' });
 
     const { status, body } = await postRun(crawler.id, owner, '{"input":{}}');
@@ -248,7 +257,7 @@ describe('POST /crawlers/:id/runs', () => {
   });
 
   it('answers 503 service_unavailable without recording the run when the vault cannot be read', async () => {
-    const { crawler, owner } = ownCrawler('(input) => input');
+    const { crawler, owner } = ownCrawler('(input) => input', { environment_variable_names: ['KEY'] });
     await configureVault(owner, { resolve: { status: 500, body: { error: 'decrypt_failed' } } });
 
     const { status, body } = await postRun(crawler.id, owner);
@@ -275,7 +284,11 @@ describe('POST /crawlers/:id/runs', () => {
 
   it('runs a system crawler for a user with a permission, without environment variables', async () => {
     const user = uniqueUUID();
-    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: SYSTEM_USER_UUID, code: '(input, context) => Object.keys(context.environment).length' }));
+    const crawler = addCrawler(supabase, crawlerRow({
+      user_uuid: SYSTEM_USER_UUID,
+      code: '(input, context) => Object.keys(context.environment).length',
+      environment_variable_names: ['KEY'],
+    }));
     permit(crawler.id, user, 'subscriber');
     await vaultEnvironment(user, { KEY: 'key-value-0003' });
 
@@ -286,10 +299,20 @@ describe('POST /crawlers/:id/runs', () => {
   it('answers 405 for another method', async () => {
     const { crawler, owner } = ownCrawler('(input) => input');
 
-    const response = await SELF.fetch(await workerRequest(`/crawlers/${crawler.id}/runs`, { method: 'GET', userUUID: owner }));
+    const response = await SELF.fetch(await workerRequest(`/crawlers/${crawler.id}/runs`, { method: 'PUT', userUUID: owner }));
 
     expect(response.status).toBe(405);
-    expect(response.headers.get('Allow')).toBe('POST');
+    expect(response.headers.get('Allow')).toBe('GET, POST');
+  });
+
+  it('records the type of a web crawler with its direct run', async () => {
+    mockPageBody('<p>web</p>');
+    const { crawler, owner } = ownCrawler('(body) => body.length', { type: 'web', url_pattern: '.*', input_schema: { body: 'string' } });
+
+    const { status, body } = await postRun(crawler.id, owner, '{"input":{"url":"https://example.com/"}}');
+
+    expect(status).toBe(200);
+    expect(crawlerRuns()).toEqual([expect.objectContaining({ id: body.run_id, kind: 'direct', type: 'web', code: null, crawler_id: crawler.id })]);
   });
 
   it('answers the CORS preflight with 204', async () => {

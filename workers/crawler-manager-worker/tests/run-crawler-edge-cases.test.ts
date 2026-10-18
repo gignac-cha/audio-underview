@@ -364,6 +364,7 @@ describe('context', () => {
     await vaultEnvironment(author, { KEY: 'frozen-key-value-1' });
     const crawler = addCrawler(supabase, crawlerRow({
       user_uuid: author,
+      environment_variable_names: ['KEY'],
       code: `(input, context) => {
         const results = { frozen: Object.isFrozen(context.environment), contextFrozen: Object.isFrozen(context) };
         try { context.environment.KEY = 'changed'; context.environment.ADDED = 'added'; context.files = null; } catch (error) {}
@@ -384,6 +385,7 @@ describe('context', () => {
     await vaultEnvironment(author, { KEY: 'unused-key-value-1' });
     const crawler = addCrawler(supabase, crawlerRow({
       user_uuid: author,
+      environment_variable_names: ['KEY'],
       code: 'async (input, context) => { let files; try { await context.files.save("x"); files = "saved"; } catch (error) { files = error.message; } return { keys: Object.keys(context.environment), files }; }',
     }));
 
@@ -544,7 +546,7 @@ describe('the answers of the code runner Lambda', () => {
     const dependencies = createTestDependencies({ codeRunnerClient, userVaultClient: userVaultClient as never });
 
     await expect(
-      runLoadedCrawler(dependencies, crawlerRow({ ...webCrawler, user_uuid: author, code: '(body) => body' }), { url: 'https://www.example.com/' }, { userUUID: author }),
+      runLoadedCrawler(dependencies, crawlerRow({ ...webCrawler, user_uuid: author, code: '(body) => body', environment_variable_names: ['KEY'] }), { url: 'https://www.example.com/' }, { userUUID: author }),
     ).rejects.toThrow('vault responded 401 unauthorized');
 
     expect(codeRunnerClient.run).not.toHaveBeenCalled();

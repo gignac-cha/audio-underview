@@ -19,7 +19,9 @@ export type {
   CrawlerRunLogLevel,
   CrawlerRunLogEntry,
   CrawlerRunStatus,
+  CrawlerRunKind,
   CrawlerRunRow,
+  CrawlerRunSummary,
   CrawlerFileRow,
   CrawlerFileDeletionRow,
   UsersInsert,
@@ -211,9 +213,11 @@ export {
   getTaskGroup,
 } from './task-groups.ts';
 
-// Crawler run operations (direct runs)
+// Crawler run operations (direct runs and test runs)
+export type { PaginatedCrawlerRuns, ListCrawlerRunsOptions } from './crawler-runs.ts';
 export {
   createCrawlerRun,
+  listCrawlerRunsForUser,
   getCrawlerRunForUser,
 } from './crawler-runs.ts';
 

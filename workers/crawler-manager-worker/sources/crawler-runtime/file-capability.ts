@@ -44,9 +44,10 @@ export interface CrawlerFileContent {
 
 export interface CrawlerFileCapabilityOptions {
   userUUID: string;
-  /** The scheduler run; absent for a direct run, whose files expire after 24 hours */
+  /** The scheduler run; absent for a direct run or a test run, whose files expire after 24 hours */
   runID: string | undefined;
-  crawlerID: string;
+  /** Null for a test run of code without a crawler */
+  crawlerID: string | null;
   supabaseClient: SupabaseClient;
   bucket: R2Bucket;
   redactor: Redactor;
@@ -98,7 +99,7 @@ function readContentType(contentType: unknown): string {
 export class CrawlerFileCapability extends RpcTarget {
   #userUUID: string;
   #runID: string | undefined;
-  #crawlerID: string;
+  #crawlerID: string | null;
   #supabaseClient: SupabaseClient;
   #bucket: R2Bucket;
   #redactor: Redactor;

@@ -71,10 +71,14 @@ describe('runCrawler', () => {
     expect(await (await testEnvironment.CRAWLER_FILES.get(String(row.object_key)))?.text()).toBe('sound');
   });
 
-  it('gives the author the environment variables and nobody else, asking the vault for the author only', async () => {
+  it('gives the author the declared environment variables and nobody else, asking the vault for the author only', async () => {
     const author = uniqueUUID();
     const other = uniqueUUID();
-    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code: '(input, context) => Object.keys(context.environment)' }));
+    const crawler = addCrawler(supabase, crawlerRow({
+      user_uuid: author,
+      code: '(input, context) => Object.keys(context.environment)',
+      environment_variable_names: ['SPEECH_API_KEY', 'OTHER_KEY'],
+    }));
     await vaultEnvironment(author, { SPEECH_API_KEY: 'speech-secret-value-0001' });
     await vaultEnvironment(other, { OTHER_KEY: 'other-secret-value-0002' });
 
@@ -107,7 +111,7 @@ describe('runCrawler', () => {
 
   it('throws with the status and the code of the vault only when the environment variables cannot be read', async () => {
     const author = uniqueUUID();
-    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author }));
+    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, environment_variable_names: ['KEY'] }));
 
     await configureVault(author, { resolve: { status: 503, body: { error: 'vault_unavailable' } } });
     await expect(() => crawlerManager.runCrawler(crawler.id, {}, { userUUID: author })).rejects.toThrow(

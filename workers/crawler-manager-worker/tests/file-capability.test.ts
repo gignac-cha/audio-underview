@@ -281,6 +281,7 @@ describe('context.files', () => {
     await vaultEnvironment(author, { TOKEN: 'token-value-1234' });
     const crawler = addCrawler(supabase, crawlerRow({
       user_uuid: author,
+      environment_variable_names: ['TOKEN'],
       code: `(input, context) => context.files.save('content', { name: 'report-' + context.environment.TOKEN + '.txt' })`,
     }));
 

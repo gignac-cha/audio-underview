@@ -84,7 +84,7 @@ describe('redaction of a run', () => {
   async function runOwnCrawler(code: string, environment: Record<string, string>, input: unknown = {}): Promise<CrawlerRunOutcome> {
     const author = uniqueUUID();
     await vaultEnvironment(author, environment);
-    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code }));
+    const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, code, environment_variable_names: Object.keys(environment) }));
     return runCrawler(createTestDependencies(), crawler.id, input, { userUUID: author });
   }
 
@@ -222,7 +222,7 @@ describe('redaction of a run', () => {
     async function runAnswer(answer: unknown): Promise<CrawlerRunOutcome> {
       const author = uniqueUUID();
       await vaultEnvironment(author, { KEY: SECRET });
-      const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author }));
+      const crawler = addCrawler(supabase, crawlerRow({ user_uuid: author, environment_variable_names: ['KEY'] }));
       const loader = {
         get: () => ({ getEntrypoint: () => ({ run: async () => answer }) }),
       } as unknown as WorkerLoader;
@@ -292,6 +292,7 @@ describe('redaction of a run', () => {
     await vaultEnvironment(author, { KEY: SECRET });
     const crawler = addCrawler(supabase, crawlerRow({
       user_uuid: author,
+      environment_variable_names: ['KEY'],
       code: '(input, context) => { console.error(context.environment.KEY); throw new Error(context.environment.KEY); }',
     }));
     const worker = exports.default as unknown as Service<typeof CrawlerManagerWorker>;

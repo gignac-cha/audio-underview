@@ -4,8 +4,9 @@ import { network, requestMatching } from '@audio-underview/worker-tools/tests/ne
 
 /**
  * A small in-memory PostgREST behind MSW handlers, for tests that follow a run over several tables.
- * It understands the filters, orders and limits the connector sends, whether a request asks for one
- * object (.single()) or an array, and the two RPC functions of migration 013 with its deletion trigger.
+ * It understands the filters, orders, offsets and limits the connector sends, an exact count, whether a
+ * request asks for one object (.single()) or an array, the two RPC functions of migration 013 with its
+ * deletion trigger, and the checks migration 014 puts on crawler runs.
  */
 
 export type Row = Record<string, unknown>;
@@ -20,6 +21,7 @@ export interface InMemorySupabaseRequest {
 export interface InMemorySupabaseResponse {
   statusCode: number;
   data: unknown;
+  headers?: Record<string, string>;
 }
 
 export interface InMemorySupabase {
@@ -34,9 +36,42 @@ const NON_FILTER_PARAMETERS = new Set(['select', 'order', 'limit', 'offset', 'co
 
 // Column defaults of the tables rows are inserted into
 const TABLE_DEFAULTS: Record<string, () => Row> = {
-  crawler_runs: () => ({ result: null, error_code: null, error: null, logs: [], logs_truncated: false }),
+  crawlers: () => ({
+    type: 'web',
+    url_pattern: null,
+    input_schema: { body: 'string' },
+    output_schema: {},
+    environment_variable_names: [],
+    updated_at: new Date().toISOString(),
+  }),
+  crawler_runs: () => ({ kind: 'direct', type: null, code: null, result: null, error_code: null, error: null, logs: [], logs_truncated: false }),
   crawler_files: () => ({ run_id: null, crawler_id: null, name: null, expires_at: null }),
 };
+
+// The CHECK constraints a row must meet, by the name of each constraint
+const TABLE_CHECKS: Record<string, Record<string, (row: Row) => boolean>> = {
+  crawlers: {
+    crawlers_environment_variable_names_check: (row) =>
+      Array.isArray(row.environment_variable_names) && row.environment_variable_names.length <= 100,
+  },
+  crawler_runs: {
+    crawler_runs_test_code_check: (row) => (row.kind === 'test') === (row.code !== null && row.code !== undefined),
+    crawler_runs_direct_crawler_check: (row) => row.kind === 'test' || (row.crawler_id !== null && row.crawler_id !== undefined),
+    crawler_runs_test_type_check: (row) => row.kind === 'direct' || (row.type !== null && row.type !== undefined),
+  },
+};
+
+function checkViolation(table: string, row: Row): InMemorySupabaseResponse | undefined {
+  for (const [name, holds] of Object.entries(TABLE_CHECKS[table] ?? {})) {
+    if (!holds(row)) {
+      return {
+        statusCode: 400,
+        data: { code: '23514', details: null, hint: null, message: `new row for relation "${table}" violates check constraint "${name}"` },
+      };
+    }
+  }
+  return undefined;
+}
 
 function compareValues(left: unknown, right: unknown): number {
   if (typeof left === 'number' && typeof right === 'number') return left - right;
@@ -117,6 +152,15 @@ function asksForSingleObject(headers: unknown): boolean {
   return headerEntries(headers).some(([name, value]) => name.toLowerCase() === 'accept' && value.includes('vnd.pgrst.object'));
 }
 
+// { count: 'exact' } asks for the total in the Content-Range header
+function asksForExactCount(headers: unknown): boolean {
+  return headerEntries(headers).some(([name, value]) => name.toLowerCase() === 'prefer' && value.includes('count=exact'));
+}
+
+function contentRange(offset: number, length: number, total: number): string {
+  return length === 0 ? `*/${total}` : `${offset}-${offset + length - 1}/${total}`;
+}
+
 function projectRow(row: Row, select: string | null): Row {
   if (select === null || select === '*') return row;
   const columns = select.split(',');
@@ -190,7 +234,7 @@ export function useInMemorySupabase(origin: string): InMemorySupabase {
     throw new Error(`In-memory Supabase does not support the function ${name}`);
   }
 
-  function handle(method: string, path: string, rawBody: string, headers: unknown): InMemorySupabaseResponse {
+  function handle(method: string, path: string, rawBody: string, requestHeaders: unknown): InMemorySupabaseResponse {
     const url = new URL(path, origin);
     const tableName = url.pathname.replace('/rest/v1/', '');
     const body = rawBody === '' ? undefined : JSON.parse(rawBody) as unknown;
@@ -205,17 +249,19 @@ export function useInMemorySupabase(origin: string): InMemorySupabase {
     }
 
     const rows = table(tableName);
-    const single = asksForSingleObject(headers);
+    const single = asksForSingleObject(requestHeaders);
 
     if (method === 'GET') {
       const sorted = sortRows(rows.filter((row) => matchesFilters(row, url.searchParams)), url.searchParams.get('order'));
+      const offset = Number(url.searchParams.get('offset') ?? 0);
       const limit = url.searchParams.get('limit');
-      const matched = (limit === null ? sorted : sorted.slice(0, Number(limit)))
+      const matched = sorted.slice(offset, limit === null ? undefined : offset + Number(limit))
         .map((row) => projectRow(row, url.searchParams.get('select')));
       if (single) {
         return matched.length === 1 ? { statusCode: 200, data: matched[0] } : noSingleRowError(matched.length);
       }
-      return { statusCode: 200, data: matched };
+      const headers = asksForExactCount(requestHeaders) ? { 'content-range': contentRange(offset, matched.length, sorted.length) } : undefined;
+      return { statusCode: 200, data: matched, headers };
     }
 
     if (method === 'POST') {
@@ -225,6 +271,8 @@ export function useInMemorySupabase(origin: string): InMemorySupabase {
         created_at: new Date().toISOString(),
         ...(body as Row),
       };
+      const violation = checkViolation(tableName, row);
+      if (violation !== undefined) return violation;
       rows.push(row);
       return { statusCode: 201, data: single ? row : [row] };
     }
@@ -233,6 +281,10 @@ export function useInMemorySupabase(origin: string): InMemorySupabase {
       const matched = rows.filter((row) => matchesFilters(row, url.searchParams));
       if (single && matched.length !== 1) {
         return noSingleRowError(matched.length);
+      }
+      for (const row of matched) {
+        const violation = checkViolation(tableName, { ...row, ...(body as Row) });
+        if (violation !== undefined) return violation;
       }
       for (const row of matched) {
         Object.assign(row, body);
@@ -258,8 +310,8 @@ export function useInMemorySupabase(origin: string): InMemorySupabase {
       requestMatching(origin, { path: (path) => path.startsWith('/rest/v1/'), method }),
       async ({ request }) => {
         const url = new URL(request.url);
-        const { statusCode, data } = handle(method, `${url.pathname}${url.search}`, await request.text(), request.headers);
-        return new HttpResponse(JSON.stringify(data), { status: statusCode });
+        const { statusCode, data, headers } = handle(method, `${url.pathname}${url.search}`, await request.text(), request.headers);
+        return new HttpResponse(JSON.stringify(data), { status: statusCode, headers });
       },
     )));
   });

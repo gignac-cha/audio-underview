@@ -1,5 +1,4 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { isSafeURLPattern } from './safe-url-pattern.ts';
 import { createWorkerLogger } from '@audio-underview/logger';
 import {
   type ResponseContext,
@@ -26,7 +25,20 @@ import { authenticate } from './authentication.ts';
 import { type Environment, createCrawlerRuntimeDependencies, createSupabaseClientFrom } from './environment.ts';
 import { UUID_PATTERN } from './identifiers.ts';
 import { runCrawler, runLoadedCrawler, validateRunContext } from './crawler-runtime/run-crawler.ts';
-import { handleRunCrawler, handleGetCrawlerRun } from './handlers/crawler-runs.ts';
+import {
+  CRAWLER_NAME_MAXIMUM_LENGTH,
+  checkCodeLength,
+  checkEnvironmentVariableNames,
+  checkURLPattern,
+} from './crawler-fields.ts';
+import { readPagination } from './pagination.ts';
+import {
+  handleRunCrawler,
+  handleTestRunCrawler,
+  handleTestRunWithoutCrawler,
+  handleListCrawlerRuns,
+  handleGetCrawlerRun,
+} from './handlers/crawler-runs.ts';
 import { handleDownloadFile } from './handlers/crawler-files.ts';
 import {
   handleListEnvironmentVariables,
@@ -48,6 +60,7 @@ interface CreateCrawlerRequestBody {
   code: string;
   input_schema?: Record<string, unknown>;
   output_schema?: Record<string, unknown>;
+  environment_variable_names?: string[];
 }
 
 const logger = createWorkerLogger({
@@ -67,7 +80,12 @@ const HELP = {
     { method: 'PUT', path: '/crawlers/:id', description: 'Update a crawler by ID (full replacement)' },
     { method: 'DELETE', path: '/crawlers/:id', description: 'Delete a crawler by ID' },
     { method: 'POST', path: '/crawlers/:id/runs', description: 'Run a crawler and record the run' },
-    { method: 'GET', path: '/crawlers/:id/runs/:runID', description: 'Get a direct run of a crawler' },
+    { method: 'GET', path: '/crawlers/:id/runs', description: 'List your runs of a crawler, direct and test' },
+    { method: 'GET', path: '/crawlers/:id/runs/:runID', description: 'Get a run of a crawler, direct or test' },
+    { method: 'POST', path: '/crawlers/:id/test-runs', description: 'Test-run code as your crawler and record the run' },
+    { method: 'POST', path: '/crawler-test-runs', description: 'Test-run code without a saved crawler and record the run' },
+    { method: 'GET', path: '/crawler-test-runs', description: 'List your test runs without a saved crawler' },
+    { method: 'GET', path: '/crawler-test-runs/:runID', description: 'Get a test run without a saved crawler' },
     { method: 'GET', path: '/files/:id', description: 'Download a file a crawler saved' },
     { method: 'GET', path: '/environment-variables', description: 'List the names of your environment variables' },
     { method: 'PUT', path: '/environment-variables/:name', description: 'Set an environment variable' },
@@ -122,32 +140,28 @@ async function validateCrawlerBody(
     }
   }
 
-  const MAX_NAME_LENGTH = 255;
-  const MAX_URL_PATTERN_LENGTH = 2048;
-  const MAX_CODE_LENGTH = 1_048_576; // 1MB
+  // Validate environment_variable_names if provided
+  if (body.environment_variable_names !== undefined) {
+    const namesMessage = checkEnvironmentVariableNames(body.environment_variable_names);
+    if (namesMessage !== undefined) {
+      return errorResponse('invalid_request', namesMessage, 400, context);
+    }
+  }
 
-  if (body.name.length > MAX_NAME_LENGTH) {
-    return errorResponse('invalid_request', `Field 'name' must not exceed ${MAX_NAME_LENGTH} characters`, 400, context);
+  if (body.name.length > CRAWLER_NAME_MAXIMUM_LENGTH) {
+    return errorResponse('invalid_request', `Field 'name' must not exceed ${CRAWLER_NAME_MAXIMUM_LENGTH} characters`, 400, context);
   }
 
   if (typeof body.url_pattern === 'string') {
-    if (body.url_pattern.length > MAX_URL_PATTERN_LENGTH) {
-      return errorResponse('invalid_request', `Field 'url_pattern' must not exceed ${MAX_URL_PATTERN_LENGTH} characters`, 400, context);
-    }
-
-    if (!isSafeURLPattern(body.url_pattern)) {
-      return errorResponse('invalid_request', "Field 'url_pattern' contains potentially unsafe regex pattern", 400, context);
-    }
-
-    try {
-      new RegExp(body.url_pattern);
-    } catch {
-      return errorResponse('invalid_request', "Field 'url_pattern' must be a valid regex", 400, context);
+    const urlPatternMessage = checkURLPattern(body.url_pattern);
+    if (urlPatternMessage !== undefined) {
+      return errorResponse('invalid_request', urlPatternMessage, 400, context);
     }
   }
 
-  if (body.code.length > MAX_CODE_LENGTH) {
-    return errorResponse('invalid_request', `Field 'code' must not exceed ${MAX_CODE_LENGTH} characters`, 400, context);
+  const codeLengthMessage = checkCodeLength(body.code);
+  if (codeLengthMessage !== undefined) {
+    return errorResponse('invalid_request', codeLengthMessage, 400, context);
   }
 
   // Normalize body
@@ -184,6 +198,7 @@ async function handleCreateCrawler(
     code: body.code,
     input_schema: body.input_schema,
     output_schema: body.output_schema,
+    environment_variable_names: body.environment_variable_names ?? [],
   });
 
   await createCrawlerPermission(supabaseClient, {
@@ -201,25 +216,9 @@ async function handleListCrawlers(
   context: ResponseContext,
   userUUID: string,
 ): Promise<Response> {
-  const url = new URL(request.url);
-  const offsetParameter = url.searchParams.get('offset');
-  const limitParameter = url.searchParams.get('limit');
-
-  let offset: number | undefined;
-  let limit: number | undefined;
-
-  if (offsetParameter !== null) {
-    offset = Number(offsetParameter);
-    if (!Number.isInteger(offset) || offset < 0) {
-      return errorResponse('invalid_request', "Parameter 'offset' must be a non-negative integer", 400, context);
-    }
-  }
-
-  if (limitParameter !== null) {
-    limit = Number(limitParameter);
-    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
-      return errorResponse('invalid_request', "Parameter 'limit' must be an integer between 1 and 100", 400, context);
-    }
+  const pagination = readPagination(new URL(request.url), context);
+  if (pagination instanceof Response) {
+    return pagination;
   }
 
   const supabaseClient = createSupabaseClient({
@@ -227,12 +226,12 @@ async function handleListCrawlers(
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
   });
 
-  const result = await listCrawlersByUser(supabaseClient, userUUID, { offset, limit });
+  const result = await listCrawlersByUser(supabaseClient, userUUID, pagination);
   return jsonResponse({
     data: result.data,
     total: result.total,
-    offset: offset ?? 0,
-    limit: limit ?? 20,
+    offset: pagination.offset,
+    limit: pagination.limit,
   }, 200, context);
 }
 
@@ -280,6 +279,8 @@ async function handleUpdateCrawler(
     code: body.code,
     input_schema: body.input_schema,
     output_schema: body.output_schema,
+    // Left as it is when absent, as output_schema
+    environment_variable_names: body.environment_variable_names,
   });
 
   if (!crawler) {
@@ -312,6 +313,9 @@ const MAX_SYSTEM_CRAWLER_NAME_LENGTH = 255;
 
 const CRAWLER_RUNS_PATTERN = /^\/crawlers\/([^/]+)\/runs$/;
 const CRAWLER_RUN_PATTERN = /^\/crawlers\/([^/]+)\/runs\/([^/]+)$/;
+const SAVED_CRAWLER_TEST_RUNS_PATTERN = /^\/crawlers\/([^/]+)\/test-runs$/;
+const CRAWLER_TEST_RUNS_PATHNAME = '/crawler-test-runs';
+const CRAWLER_TEST_RUN_PATTERN = /^\/crawler-test-runs\/([^/]+)$/;
 const FILE_PATTERN = /^\/files\/([^/]+)$/;
 const ENVIRONMENT_VARIABLE_PATTERN = /^\/environment-variables\/([^/]*)$/;
 
@@ -322,7 +326,7 @@ function methodNotAllowed(context: ResponseContext, allow: string): Response {
 }
 
 /**
- * The routes added with the crawler runtime: direct runs, files and environment variables.
+ * The routes added with the crawler runtime: direct runs, test runs, files and environment variables.
  * Each authenticates with a user UUID. Undefined when the path is none of them.
  */
 async function routeCrawlerRuntime(
@@ -333,12 +337,18 @@ async function routeCrawlerRuntime(
 ): Promise<Response | undefined> {
   const crawlerRunsMatch = CRAWLER_RUNS_PATTERN.exec(url.pathname);
   const crawlerRunMatch = CRAWLER_RUN_PATTERN.exec(url.pathname);
+  const savedCrawlerTestRunsMatch = SAVED_CRAWLER_TEST_RUNS_PATTERN.exec(url.pathname);
+  const isCrawlerTestRuns = url.pathname === CRAWLER_TEST_RUNS_PATHNAME;
+  const crawlerTestRunMatch = CRAWLER_TEST_RUN_PATTERN.exec(url.pathname);
   const fileMatch = FILE_PATTERN.exec(url.pathname);
   const environmentVariableMatch = ENVIRONMENT_VARIABLE_PATTERN.exec(url.pathname);
   const isEnvironmentVariables = url.pathname === '/environment-variables';
   if (
     crawlerRunsMatch === null &&
     crawlerRunMatch === null &&
+    savedCrawlerTestRunsMatch === null &&
+    !isCrawlerTestRuns &&
+    crawlerTestRunMatch === null &&
     fileMatch === null &&
     environmentVariableMatch === null &&
     !isEnvironmentVariables
@@ -351,19 +361,22 @@ async function routeCrawlerRuntime(
     return errorResponse('unauthorized', 'Valid authentication is required', 401, context);
   }
 
-  // POST /crawlers/:id/runs — run a crawler
+  // GET /crawlers/:id/runs — the runs of a crawler; POST — run a crawler
   if (crawlerRunsMatch !== null) {
-    if (request.method !== 'POST') {
-      return methodNotAllowed(context, 'POST');
+    if (request.method !== 'GET' && request.method !== 'POST') {
+      return methodNotAllowed(context, 'GET, POST');
     }
     const crawlerID = crawlerRunsMatch[1];
     if (!UUID_PATTERN.test(crawlerID)) {
       return errorResponse('not_found', 'Crawler not found', 404, context);
     }
+    if (request.method === 'GET') {
+      return handleListCrawlerRuns(url, environment, context, crawlerID, userUUID);
+    }
     return handleRunCrawler(request, environment, context, logger, crawlerID, userUUID);
   }
 
-  // GET /crawlers/:id/runs/:runID — a direct run
+  // GET /crawlers/:id/runs/:runID — a direct run or a test run of a crawler
   if (crawlerRunMatch !== null) {
     if (request.method !== 'GET') {
       return methodNotAllowed(context, 'GET');
@@ -373,6 +386,41 @@ async function routeCrawlerRuntime(
       return errorResponse('not_found', 'Crawler run not found', 404, context);
     }
     return handleGetCrawlerRun(environment, context, crawlerID, runID, userUUID);
+  }
+
+  // POST /crawlers/:id/test-runs — test-run code as a crawler of the user
+  if (savedCrawlerTestRunsMatch !== null) {
+    if (request.method !== 'POST') {
+      return methodNotAllowed(context, 'POST');
+    }
+    const crawlerID = savedCrawlerTestRunsMatch[1];
+    if (!UUID_PATTERN.test(crawlerID)) {
+      return errorResponse('not_found', 'Crawler not found', 404, context);
+    }
+    return handleTestRunCrawler(request, environment, context, logger, crawlerID, userUUID);
+  }
+
+  // GET /crawler-test-runs — the test runs without a crawler; POST — test-run code without a crawler
+  if (isCrawlerTestRuns) {
+    if (request.method === 'GET') {
+      return handleListCrawlerRuns(url, environment, context, null, userUUID);
+    }
+    if (request.method === 'POST') {
+      return handleTestRunWithoutCrawler(request, environment, context, logger, userUUID);
+    }
+    return methodNotAllowed(context, 'GET, POST');
+  }
+
+  // GET /crawler-test-runs/:runID — a test run without a crawler
+  if (crawlerTestRunMatch !== null) {
+    if (request.method !== 'GET') {
+      return methodNotAllowed(context, 'GET');
+    }
+    const runID = crawlerTestRunMatch[1];
+    if (!UUID_PATTERN.test(runID)) {
+      return errorResponse('not_found', 'Crawler run not found', 404, context);
+    }
+    return handleGetCrawlerRun(environment, context, null, runID, userUUID);
   }
 
   // GET /files/:id — download a file

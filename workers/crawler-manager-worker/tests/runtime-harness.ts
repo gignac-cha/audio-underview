@@ -46,6 +46,7 @@ export function crawlerRow(overrides: Partial<CrawlerRow> = {}): CrawlerRow {
     code: '(input) => input',
     input_schema: {},
     output_schema: {},
+    environment_variable_names: [],
     created_at: '2026-10-13T00:00:00Z',
     updated_at: '2026-10-13T00:00:00Z',
     ...overrides,

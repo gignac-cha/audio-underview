@@ -23,7 +23,7 @@ import {
 
 /**
  * Runs the code of a crawler in a Dynamic Worker:
- * 1. the environment variables of the user, only when the user wrote the crawler
+ * 1. the environment variables of the user the crawler declares, only when the user wrote the crawler
  * 2. for a web crawler, the page body fetched by the code runner Lambda as before
  * 3. the code in a Dynamic Worker per user, code and options, with the runner module
  * 4. the result, logs and errors, redacted
@@ -38,6 +38,15 @@ export const CPU_LIMIT_MILLISECONDS = 30_000;
 
 /** What the code runner Lambda runs for a web crawler: the page body comes back as it is */
 export const WEB_PAGE_CODE = '(body) => body';
+
+/**
+ * What a run needs of a crawler. A saved crawler (CrawlerRow) is one; a test run of code without a
+ * crawler has no ID.
+ */
+export type RunnableCrawler = Pick<
+  CrawlerRow,
+  'user_uuid' | 'type' | 'code' | 'input_schema' | 'url_pattern' | 'environment_variable_names'
+> & { id: string | null };
 
 export interface CrawlerWorkerOptions {
   compatibilityDate: string;
@@ -199,7 +208,7 @@ function cutText(text: string, length: number): string {
 
 function resolveURL(
   input: unknown,
-  crawler: CrawlerRow,
+  crawler: RunnableCrawler,
 ): string | null {
   // 1. input.url if present
   if (input !== null && input !== undefined && typeof input === 'object' && 'url' in input) {
@@ -221,7 +230,7 @@ function resolveURL(
   return null;
 }
 
-function warnAboutURLPattern(crawler: CrawlerRow, url: string, logger: Logger): void {
+function warnAboutURLPattern(crawler: RunnableCrawler, url: string, logger: Logger): void {
   if (!crawler.url_pattern) {
     return;
   }
@@ -365,7 +374,7 @@ function toOutcome(
 
 async function readEnvironment(
   dependencies: CrawlerRuntimeDependencies,
-  crawlerID: string,
+  crawlerID: string | null,
   userUUID: string,
 ): Promise<Record<string, string>> {
   try {
@@ -381,7 +390,22 @@ async function readEnvironment(
   }
 }
 
-function readOutboundGateway(dependencies: CrawlerRuntimeDependencies, crawlerID: string): Fetcher {
+/**
+ * The variables among the declared names that the vault answered; a declared name without a variable
+ * is left out.
+ */
+export function pickDeclared(variables: Record<string, string>, names: readonly string[]): Record<string, string> {
+  const picked: Record<string, string> = {};
+  for (const name of names) {
+    if (Object.hasOwn(variables, name)) {
+      // The database does not check the name format, and assigning '__proto__' would set the prototype
+      Object.defineProperty(picked, name, { value: variables[name], enumerable: true, writable: true, configurable: true });
+    }
+  }
+  return picked;
+}
+
+function readOutboundGateway(dependencies: CrawlerRuntimeDependencies, crawlerID: string | null): Fetcher {
   try {
     return outboundGatewayOf(exports);
   } catch (error) {
@@ -395,7 +419,7 @@ const HOST_TIMED_OUT = Symbol('host timed out');
 
 async function runInDynamicWorker(
   dependencies: CrawlerRuntimeDependencies,
-  crawler: CrawlerRow,
+  crawler: RunnableCrawler,
   input: unknown,
   context: CrawlerRunContext | undefined,
   environment: Record<string, string>,
@@ -473,7 +497,7 @@ function redactOutcome(outcome: CrawlerRunOutcome, redactor: Redactor): CrawlerR
 }
 
 /**
- * Runs a crawler that is already read.
+ * Runs a crawler that is already read, or the code of a test run.
  *
  * @param context - the user the crawler runs for and, for a scheduled stage, the scheduler run;
  * undefined for a run without a user (executeCrawlerByName)
@@ -481,13 +505,17 @@ function redactOutcome(outcome: CrawlerRunOutcome, redactor: Redactor): CrawlerR
  */
 export async function runLoadedCrawler(
   dependencies: CrawlerRuntimeDependencies,
-  crawler: CrawlerRow,
+  crawler: RunnableCrawler,
   input: unknown,
   context: CrawlerRunContext | undefined,
 ): Promise<CrawlerRunOutcome> {
   // A system crawler belongs to the system user, so it never gets the variables of a caller
   const ownsCrawler = context !== undefined && context.userUUID === crawler.user_uuid;
-  const environment = ownsCrawler ? await readEnvironment(dependencies, crawler.id, context.userUUID) : {};
+  // Without a declared name the vault is not called
+  const environment = ownsCrawler && crawler.environment_variable_names.length > 0
+    ? pickDeclared(await readEnvironment(dependencies, crawler.id, context.userUUID), crawler.environment_variable_names)
+    : {};
+  // Only what the code was given can be in what it returns
   const redactor = createRedactor(environment);
 
   let outcome: CrawlerRunOutcome;
@@ -495,7 +523,7 @@ export async function runLoadedCrawler(
   if (crawler.type === 'web') {
     const url = resolveURL(input, crawler);
     if (url === null) {
-      const message = `Crawler ${crawler.id}: no URL available. Provide url in input or set a default in input_schema.`;
+      const message = `${crawler.id === null ? 'Crawler test run' : `Crawler ${crawler.id}`}: no URL available. Provide url in input or set a default in input_schema.`;
       return finishRun(dependencies, crawler, failedOutcome('web', 'invalid_input', message, message), redactor);
     }
     warnAboutURLPattern(crawler, url, dependencies.logger);
@@ -525,7 +553,7 @@ export async function runLoadedCrawler(
 
 function finishRun(
   dependencies: CrawlerRuntimeDependencies,
-  crawler: CrawlerRow,
+  crawler: RunnableCrawler,
   outcome: CrawlerRunOutcome,
   redactor: Redactor,
 ): CrawlerRunOutcome {
