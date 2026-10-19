@@ -2,10 +2,20 @@ import { useState, useMemo } from 'react';
 import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
 import * as Dialog from '@radix-ui/react-dialog';
+import type { SchedulerStageType } from '@audio-underview/supabase-connector';
 import { useToast } from '../../hooks/use-toast.ts';
-import { useCreateStage } from '../../hooks/use-scheduler-manager.ts';
+import { useCreateStage, type CreateStageInput } from '../../hooks/use-scheduler-manager.ts';
 import { useListCrawlers } from '../../hooks/use-crawler-manager.ts';
-import type { CrawlerRow } from '@audio-underview/supabase-connector';
+import { groupTaskGroupVersions, useListTaskGroups } from '../../hooks/use-task-groups.ts';
+import { CrawlerStageFields, EMPTY_CRAWLER_STAGE_VALUE, readInputSchema, type CrawlerStageValue } from './CrawlerStageFields.tsx';
+import { TaskGroupSettingsFields } from './TaskGroupSettingsFields.tsx';
+import {
+  buildSettingsFields,
+  changeSettingsFormat,
+  createNewSettingsEditorState,
+  readSettingsEditorState,
+  type SettingsEditorState,
+} from './task-group-settings.ts';
 
 const Overlay = styled(Dialog.Overlay)`
   position: fixed;
@@ -79,98 +89,14 @@ const Select = styled.select`
   }
 `;
 
-const TextInput = styled.input`
-  width: 100%;
-  padding: 0.625rem 0.875rem;
-  background: var(--bg-deep);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-size: 0.875rem;
-  outline: none;
-  transition: var(--transition-fast);
-
-  &::placeholder {
-    color: var(--text-muted);
-  }
-
-  &:focus {
-    border-color: var(--border-focus);
-  }
-`;
-
-const TextArea = styled.textarea`
-  width: 100%;
-  min-height: 120px;
-  padding: 0.625rem 0.875rem;
-  background: var(--bg-deep);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-size: 0.8125rem;
-  font-family: var(--font-mono);
-  outline: none;
-  resize: vertical;
-  transition: var(--transition-fast);
-
-  &::placeholder {
-    color: var(--text-muted);
-  }
-
-  &:focus {
-    border-color: var(--border-focus);
-  }
-`;
-
-const ToggleRow = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.5rem;
-`;
-
-const ToggleLink = styled.button`
+const FieldHint = styled.p`
   font-size: 0.75rem;
-  color: var(--accent-primary);
-  cursor: pointer;
-  background: none;
-  border: none;
-  padding: 0;
-
-  &:hover {
-    text-decoration: underline;
-  }
+  color: var(--text-muted);
+  margin: 0.375rem 0 0 0;
 `;
 
-const LoadMoreContainer = styled.div`
-  display: flex;
-  justify-content: center;
-  margin-top: 0.5rem;
-`;
-
-const LoadMoreButton = styled.button`
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.375rem 0.75rem;
-  border-radius: 8px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  background: var(--bg-deep);
-  border: 1px solid var(--border-subtle);
-  cursor: pointer;
-  transition: var(--transition-fast);
-
-  &:hover {
-    color: var(--text-primary);
-    border-color: var(--border-focus);
-  }
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
-  }
+const ErrorHint = styled(FieldHint)`
+  color: var(--color-error);
 `;
 
 const ButtonRow = styled.div`
@@ -240,89 +166,110 @@ interface StageCreateDialogProperties {
   nextOrder: number;
 }
 
-function buildDefaultSchema(crawler: CrawlerRow): Record<string, unknown> {
-  if (crawler.type === 'web') {
-    return { url: { type: 'string', default: '' } };
-  }
-  if (crawler.input_schema && Object.keys(crawler.input_schema).length > 0) {
-    return crawler.input_schema;
-  }
-  return {};
-}
+const EMPTY_SETTINGS_EDITOR_STATE: SettingsEditorState = createNewSettingsEditorState(undefined);
 
 export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }: StageCreateDialogProperties) {
   const { showToast } = useToast();
   const { createStage, status } = useCreateStage();
-  const { crawlers, hasNextPage, fetchNextPage, isFetchingNextPage } = useListCrawlers();
+  const { crawlers } = useListCrawlers();
+  const { taskGroups, isLoaded: taskGroupsLoaded, error: taskGroupsError } = useListTaskGroups();
 
-  const [selectedCrawlerID, setSelectedCrawlerID] = useState('');
-  const [fanOutField, setFanOutField] = useState('');
-  const [showJSON, setShowJSON] = useState(false);
-  const [schemaJSON, setSchemaJSON] = useState('{}');
-  const [defaultURL, setDefaultURL] = useState('');
+  const [stageType, setStageType] = useState<SchedulerStageType>('crawler');
+  const [crawlerValue, setCrawlerValue] = useState<CrawlerStageValue>(EMPTY_CRAWLER_STAGE_VALUE);
+  const [taskGroupID, setTaskGroupID] = useState('');
+  const [taskGroupVersion, setTaskGroupVersion] = useState<number | undefined>(undefined);
+  const [settingsState, setSettingsState] = useState<SettingsEditorState>(EMPTY_SETTINGS_EDITOR_STATE);
 
   const isSubmitting = status === 'pending';
 
-  const selectedCrawler = useMemo(
-    () => crawlers.find((crawler) => crawler.id === selectedCrawlerID),
-    [crawlers, selectedCrawlerID],
+  const versionsByTaskGroup = useMemo(() => groupTaskGroupVersions(taskGroups), [taskGroups]);
+  const taskGroupVersions = versionsByTaskGroup.get(taskGroupID) ?? [];
+  const selectedTaskGroup = taskGroupVersions.find((taskGroup) => taskGroup.version === taskGroupVersion);
+  const settingsFields = useMemo(
+    () => (selectedTaskGroup ? buildSettingsFields(selectedTaskGroup.settings_schema) : undefined),
+    [selectedTaskGroup],
   );
 
-  const handleCrawlerChange = (crawlerID: string) => {
-    setSelectedCrawlerID(crawlerID);
-    const crawler = crawlers.find((c) => c.id === crawlerID);
-    if (crawler) {
-      const schema = buildDefaultSchema(crawler);
-      setSchemaJSON(JSON.stringify(schema, null, 2));
-      setDefaultURL('');
-      setShowJSON(false);
-    }
+  const handleTaskGroupChange = (nextTaskGroupID: string) => {
+    // A new stage starts at the latest version with its defaults
+    const latestTaskGroup = versionsByTaskGroup.get(nextTaskGroupID)?.at(-1);
+    const fields = latestTaskGroup ? buildSettingsFields(latestTaskGroup.settings_schema) : undefined;
+    setTaskGroupID(nextTaskGroupID);
+    setTaskGroupVersion(latestTaskGroup?.version);
+    setSettingsState(createNewSettingsEditorState(fields));
+  };
+
+  const handleTaskGroupVersionChange = (nextVersion: number) => {
+    const nextTaskGroup = taskGroupVersions.find((taskGroup) => taskGroup.version === nextVersion);
+    const nextFields = nextTaskGroup ? buildSettingsFields(nextTaskGroup.settings_schema) : undefined;
+    setTaskGroupVersion(nextVersion);
+    setSettingsState(changeSettingsFormat(settingsFields, settingsState, nextFields));
   };
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen && isSubmitting) return;
     if (!nextOpen) {
-      setSelectedCrawlerID('');
-      setFanOutField('');
-      setShowJSON(false);
-      setSchemaJSON('{}');
-      setDefaultURL('');
+      setStageType('crawler');
+      setCrawlerValue(EMPTY_CRAWLER_STAGE_VALUE);
+      setTaskGroupID('');
+      setTaskGroupVersion(undefined);
+      setSettingsState(EMPTY_SETTINGS_EDITOR_STATE);
     }
     onOpenChange(nextOpen);
   };
 
-  const handleSubmit = async () => {
-    if (!selectedCrawlerID) {
+  const buildCrawlerStageInput = (): CreateStageInput | undefined => {
+    if (!crawlerValue.crawlerID) {
       showToast('Validation Error', 'Please select a crawler.', 'error');
-      return;
+      return undefined;
     }
 
-    const parseSchemaJSON = (): Record<string, unknown> | null => {
-      try {
-        return JSON.parse(schemaJSON);
-      } catch {
-        showToast('Validation Error', 'Invalid JSON in input schema.', 'error');
-        return null;
-      }
+    const selectedCrawler = crawlers.find((crawler) => crawler.id === crawlerValue.crawlerID);
+    const inputSchema = readInputSchema(crawlerValue, selectedCrawler);
+    if (!inputSchema.ok) {
+      showToast('Validation Error', inputSchema.error, 'error');
+      return undefined;
+    }
+
+    const fanOutField = crawlerValue.fanOutField.trim();
+    return {
+      scheduler_id: schedulerID,
+      crawler_id: crawlerValue.crawlerID,
+      stage_order: nextOrder,
+      input_schema: inputSchema.inputSchema,
+      fan_out_field: fanOutField.length > 0 ? fanOutField : undefined,
+      fan_out_strategy: fanOutField.length > 0 ? crawlerValue.fanOutStrategy : undefined,
     };
+  };
 
-    let inputSchema: Record<string, unknown>;
-    if (!showJSON && selectedCrawler?.type === 'web') {
-      inputSchema = { url: { type: 'string', default: defaultURL ?? '' } };
-    } else {
-      const parsed = parseSchemaJSON();
-      if (!parsed) return;
-      inputSchema = parsed;
+  const buildTaskGroupStageInput = (): CreateStageInput | undefined => {
+    if (!taskGroupID || taskGroupVersion === undefined) {
+      showToast('Validation Error', 'Please select a task group.', 'error');
+      return undefined;
     }
+
+    const settings = readSettingsEditorState(settingsFields, settingsState);
+    if (!settings.ok) {
+      showToast('Validation Error', settings.error, 'error');
+      return undefined;
+    }
+
+    return {
+      scheduler_id: schedulerID,
+      stage_type: 'task_group',
+      task_group_id: taskGroupID,
+      task_group_version: taskGroupVersion,
+      settings: settings.settings,
+      stage_order: nextOrder,
+    };
+  };
+
+  const handleSubmit = async () => {
+    const input = stageType === 'task_group' ? buildTaskGroupStageInput() : buildCrawlerStageInput();
+    if (!input) return;
 
     try {
-      await createStage({
-        scheduler_id: schedulerID,
-        crawler_id: selectedCrawlerID,
-        stage_order: nextOrder,
-        input_schema: inputSchema,
-        fan_out_field: (() => { const trimmed = fanOutField.trim(); return trimmed.length > 0 ? trimmed : undefined; })(),
-      });
+      await createStage(input);
       showToast('Success', 'Stage added to pipeline.', 'success');
       handleOpenChange(false);
     } catch (error) {
@@ -331,93 +278,86 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
     }
   };
 
+  const hasTaskGroups = taskGroups.length > 0;
+  const canSubmit = stageType === 'task_group' ? taskGroupID !== '' : crawlerValue.crawlerID !== '';
+
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Overlay />
         <Content>
           <Title>Add Stage</Title>
-          <Description>Add a crawler as a new stage in this pipeline.</Description>
+          <Description>Add a crawler or a task group as a new stage in this pipeline.</Description>
 
           <FieldGroup>
-            <FieldLabel htmlFor="stage-crawler">Crawler</FieldLabel>
+            <FieldLabel htmlFor="stage-type">Stage Type</FieldLabel>
             <Select
-              id="stage-crawler"
-              value={selectedCrawlerID}
-              onChange={(event) => handleCrawlerChange(event.target.value)}
+              id="stage-type"
+              value={stageType}
+              onChange={(event) => setStageType(event.target.value as SchedulerStageType)}
               disabled={isSubmitting}
             >
-              <option value="">Select a crawler...</option>
-              {crawlers.map((crawler) => (
-                <option key={crawler.id} value={crawler.id}>
-                  {crawler.name} ({crawler.type})
-                </option>
-              ))}
+              <option value="crawler">Crawler</option>
+              <option value="task_group" disabled={!hasTaskGroups}>Task group</option>
             </Select>
-            {hasNextPage && (
-              <LoadMoreContainer>
-                <LoadMoreButton onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
-                  {isFetchingNextPage ? 'Loading...' : 'Load more crawlers'}
-                </LoadMoreButton>
-              </LoadMoreContainer>
-            )}
+            {taskGroupsError ? (
+              <ErrorHint>{`Failed to load task groups: ${taskGroupsError.message}`}</ErrorHint>
+            ) : taskGroupsLoaded && !hasTaskGroups ? (
+              <FieldHint>No task groups are available yet.</FieldHint>
+            ) : null}
           </FieldGroup>
 
-          {selectedCrawler && (
+          {stageType === 'task_group' ? (
             <>
               <FieldGroup>
-                <ToggleRow>
-                  <FieldLabel htmlFor="stage-input-schema" style={{ marginBottom: 0 }}>Input Schema</FieldLabel>
-                  <ToggleLink onClick={() => setShowJSON(!showJSON)}>
-                    {showJSON ? 'Simple mode' : 'Edit JSON'}
-                  </ToggleLink>
-                </ToggleRow>
-                {showJSON ? (
-                  <TextArea
-                    id="stage-input-schema"
-                    value={schemaJSON}
-                    onChange={(event) => setSchemaJSON(event.target.value)}
-                    disabled={isSubmitting}
-                    spellCheck={false}
-                  />
-                ) : selectedCrawler.type === 'web' ? (
-                  <TextInput
-                    id="stage-input-schema"
-                    placeholder="https://example.com"
-                    value={defaultURL}
-                    onChange={(event) => setDefaultURL(event.target.value)}
-                    disabled={isSubmitting}
-                  />
-                ) : (
-                  <TextArea
-                    id="stage-input-schema"
-                    value={schemaJSON}
-                    onChange={(event) => setSchemaJSON(event.target.value)}
-                    disabled={isSubmitting}
-                    spellCheck={false}
-                    placeholder='{"key": {"type": "string", "default": "value"}}'
-                  />
-                )}
+                <FieldLabel htmlFor="stage-task-group">Task Group</FieldLabel>
+                <Select
+                  id="stage-task-group"
+                  value={taskGroupID}
+                  onChange={(event) => handleTaskGroupChange(event.target.value)}
+                  disabled={isSubmitting}
+                >
+                  <option value="">Select a task group...</option>
+                  {[...versionsByTaskGroup.keys()].map((groupID) => (
+                    <option key={groupID} value={groupID}>{groupID}</option>
+                  ))}
+                </Select>
               </FieldGroup>
 
-              <FieldGroup>
-                <FieldLabel htmlFor="stage-fan-out-field">Fan-out Field (optional)</FieldLabel>
-                <TextInput
-                  id="stage-fan-out-field"
-                  placeholder="items"
-                  value={fanOutField}
-                  onChange={(event) => setFanOutField(event.target.value)}
-                  disabled={isSubmitting}
-                />
-              </FieldGroup>
+              {taskGroupVersion !== undefined && (
+                <>
+                  <FieldGroup>
+                    <FieldLabel htmlFor="stage-task-group-version">Version</FieldLabel>
+                    <Select
+                      id="stage-task-group-version"
+                      value={String(taskGroupVersion)}
+                      onChange={(event) => handleTaskGroupVersionChange(Number(event.target.value))}
+                      disabled={isSubmitting}
+                    >
+                      {taskGroupVersions.map((taskGroup) => (
+                        <option key={taskGroup.version} value={String(taskGroup.version)}>v{taskGroup.version}</option>
+                      ))}
+                    </Select>
+                  </FieldGroup>
+
+                  <TaskGroupSettingsFields
+                    fields={settingsFields}
+                    state={settingsState}
+                    onChange={setSettingsState}
+                    disabled={isSubmitting}
+                  />
+                </>
+              )}
             </>
+          ) : (
+            <CrawlerStageFields value={crawlerValue} onChange={setCrawlerValue} disabled={isSubmitting} />
           )}
 
           <ButtonRow>
             <Dialog.Close asChild>
               <CancelButton disabled={isSubmitting}>Cancel</CancelButton>
             </Dialog.Close>
-            <SubmitButton onClick={handleSubmit} disabled={isSubmitting || !selectedCrawlerID} isSubmitting={isSubmitting}>
+            <SubmitButton onClick={handleSubmit} disabled={isSubmitting || !canSubmit} isSubmitting={isSubmitting}>
               {isSubmitting && <Spinner />}
               {isSubmitting ? 'Adding...' : 'Add Stage'}
             </SubmitButton>

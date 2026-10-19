@@ -2,8 +2,9 @@ import styled from '@emotion/styled';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faGripVertical, faTrash, faCodeBranch } from '@fortawesome/free-solid-svg-icons';
+import { faGripVertical, faTrash, faCodeBranch, faPen } from '@fortawesome/free-solid-svg-icons';
 import type { SchedulerStageRow, CrawlerRow } from '@audio-underview/supabase-connector';
+import { resolveStageDisplayName } from './stage-display-name.ts';
 
 const Card = styled.div`
   display: flex;
@@ -68,6 +69,35 @@ const FanOutBadge = styled.span`
   color: #60a5fa;
 `;
 
+const VersionBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.5rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  background: var(--accent-muted);
+  font-size: 0.6875rem;
+  color: var(--accent-primary);
+`;
+
+const EditButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  flex-shrink: 0;
+
+  &:hover {
+    color: var(--accent-primary);
+    background: var(--accent-muted);
+  }
+`;
+
 const DeleteButton = styled.button`
   display: flex;
   align-items: center;
@@ -90,23 +120,12 @@ interface StageCardProperties {
   stage: SchedulerStageRow;
   crawlerMap: Map<string, CrawlerRow>;
   onDelete: (stageID: string) => void;
+  onEdit?: (stage: SchedulerStageRow) => void;
+  // The highest registered version of the stage's task group
+  latestTaskGroupVersion?: number;
 }
 
-/**
- * What the stage runs: the task group and its version, or the crawler's name
- * (the start of its ID while the crawlers are loading).
- */
-function resolveStageDisplayName(stage: SchedulerStageRow, crawlerMap: Map<string, CrawlerRow>): string {
-  if (stage.stage_type === 'task_group') {
-    return `Task group ${stage.task_group_id} v${stage.task_group_version}`;
-  }
-  if (stage.crawler_id === null) {
-    return 'Unknown stage';
-  }
-  return crawlerMap.get(stage.crawler_id)?.name ?? stage.crawler_id.slice(0, 8) + '...';
-}
-
-export function StageCard({ stage, crawlerMap, onDelete }: StageCardProperties) {
+export function StageCard({ stage, crawlerMap, onDelete, onEdit, latestTaskGroupVersion }: StageCardProperties) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: stage.id,
   });
@@ -119,6 +138,10 @@ export function StageCard({ stage, crawlerMap, onDelete }: StageCardProperties) 
   };
 
   const crawlerDisplayName = resolveStageDisplayName(stage, crawlerMap);
+  const hasNewerVersion = stage.stage_type === 'task_group'
+    && stage.task_group_version !== null
+    && latestTaskGroupVersion !== undefined
+    && latestTaskGroupVersion > stage.task_group_version;
 
   return (
     <Card ref={setNodeRef} style={style}>
@@ -134,7 +157,13 @@ export function StageCard({ stage, crawlerMap, onDelete }: StageCardProperties) 
             {stage.fan_out_field}
           </FanOutBadge>
         )}
+        {hasNewerVersion && <VersionBadge>{`v${latestTaskGroupVersion} available`}</VersionBadge>}
       </StageInfo>
+      {onEdit && (
+        <EditButton onClick={() => onEdit(stage)} title="Edit stage">
+          <FontAwesomeIcon icon={faPen} />
+        </EditButton>
+      )}
       <DeleteButton onClick={() => onDelete(stage.id)} title="Remove stage">
         <FontAwesomeIcon icon={faTrash} />
       </DeleteButton>

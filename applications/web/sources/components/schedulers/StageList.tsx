@@ -1,4 +1,4 @@
-import { useReducer } from 'react';
+import { useMemo, useReducer, type ReactNode } from 'react';
 import styled from '@emotion/styled';
 import { DndContext, closestCenter, type DragEndEvent, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
@@ -7,8 +7,10 @@ import { faPlus, faArrowDown } from '@fortawesome/free-solid-svg-icons';
 import type { SchedulerStageRow, CrawlerRow } from '@audio-underview/supabase-connector';
 import { useReorderStages, useDeleteStage } from '../../hooks/use-scheduler-manager.ts';
 import { useToast } from '../../hooks/use-toast.ts';
+import { findLatestTaskGroupVersions, useListTaskGroups } from '../../hooks/use-task-groups.ts';
 import { StageCard } from './StageCard.tsx';
 import { StageCreateDialog } from './StageCreateDialog.tsx';
+import { StageEditDialog } from './StageEditDialog.tsx';
 
 const Container = styled.section`
   margin-bottom: 2rem;
@@ -26,6 +28,12 @@ const SectionTitle = styled.h2`
   font-weight: 700;
   color: var(--text-primary);
   margin: 0;
+`;
+
+const HeaderActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 `;
 
 const AddButton = styled.button`
@@ -70,12 +78,14 @@ interface OptimisticState {
   serverStages: SchedulerStageRow[];
   displayStages: SchedulerStageRow[];
   createDialogOpen: boolean;
+  editingStageID: string | undefined;
 }
 
 type OptimisticAction =
   | { type: 'reorder'; reordered: SchedulerStageRow[] }
   | { type: 'reset' }
-  | { type: 'set_dialog'; open: boolean };
+  | { type: 'set_dialog'; open: boolean }
+  | { type: 'set_editing'; stageID: string | undefined };
 
 function optimisticReducer(state: OptimisticState, action: OptimisticAction): OptimisticState {
   switch (action.type) {
@@ -85,27 +95,33 @@ function optimisticReducer(state: OptimisticState, action: OptimisticAction): Op
       return { ...state, displayStages: state.serverStages };
     case 'set_dialog':
       return { ...state, createDialogOpen: action.open };
+    case 'set_editing':
+      return { ...state, editingStageID: action.stageID };
   }
 }
 
 function initializeState(stages: SchedulerStageRow[]): OptimisticState {
-  return { serverStages: stages, displayStages: stages, createDialogOpen: false };
+  return { serverStages: stages, displayStages: stages, createDialogOpen: false, editingStageID: undefined };
 }
 
 interface StageListProperties {
   schedulerID: string;
   stages: SchedulerStageRow[];
   crawlerMap: Map<string, CrawlerRow>;
+  headerAction?: ReactNode;
 }
 
-export function StageList({ schedulerID, stages, crawlerMap }: StageListProperties) {
+export function StageList({ schedulerID, stages, crawlerMap, headerAction }: StageListProperties) {
   const { showToast } = useToast();
   const { reorderStages, status: reorderStatus } = useReorderStages();
   const isReordering = reorderStatus === 'pending';
   const { deleteStage } = useDeleteStage();
   const [state, dispatch] = useReducer(optimisticReducer, stages, initializeState);
+  const { taskGroups } = useListTaskGroups();
+  const latestTaskGroupVersions = useMemo(() => findLatestTaskGroupVersions(taskGroups), [taskGroups]);
 
   const displayStages = state.serverStages === stages ? state.displayStages : stages;
+  const editingStage = displayStages.find((stage) => stage.id === state.editingStageID);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -158,10 +174,13 @@ export function StageList({ schedulerID, stages, crawlerMap }: StageListProperti
     <Container>
       <SectionHeader>
         <SectionTitle>Pipeline Stages</SectionTitle>
-        <AddButton onClick={() => dispatch({ type: 'set_dialog', open: true })}>
-          <FontAwesomeIcon icon={faPlus} />
-          Add Stage
-        </AddButton>
+        <HeaderActions>
+          {headerAction}
+          <AddButton onClick={() => dispatch({ type: 'set_dialog', open: true })}>
+            <FontAwesomeIcon icon={faPlus} />
+            Add Stage
+          </AddButton>
+        </HeaderActions>
       </SectionHeader>
 
       {displayStages.length === 0 ? (
@@ -177,7 +196,13 @@ export function StageList({ schedulerID, stages, crawlerMap }: StageListProperti
                       <FontAwesomeIcon icon={faArrowDown} />
                     </ArrowConnector>
                   )}
-                  <StageCard stage={stage} crawlerMap={crawlerMap} onDelete={handleDeleteStage} />
+                  <StageCard
+                    stage={stage}
+                    crawlerMap={crawlerMap}
+                    onDelete={handleDeleteStage}
+                    onEdit={(editedStage) => dispatch({ type: 'set_editing', stageID: editedStage.id })}
+                    latestTaskGroupVersion={stage.task_group_id === null ? undefined : latestTaskGroupVersions.get(stage.task_group_id)}
+                  />
                 </div>
               ))}
             </StageListContainer>
@@ -191,6 +216,18 @@ export function StageList({ schedulerID, stages, crawlerMap }: StageListProperti
         schedulerID={schedulerID}
         nextOrder={displayStages.length}
       />
+
+      {editingStage && (
+        <StageEditDialog
+          key={editingStage.id}
+          schedulerID={schedulerID}
+          stage={editingStage}
+          crawlerMap={crawlerMap}
+          onOpenChange={(open: boolean) => {
+            if (!open) dispatch({ type: 'set_editing', stageID: undefined });
+          }}
+        />
+      )}
     </Container>
   );
 }
