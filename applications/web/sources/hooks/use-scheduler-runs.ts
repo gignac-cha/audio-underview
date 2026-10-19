@@ -138,10 +138,17 @@ export function useListRuns(schedulerID: string | undefined, options: RefreshOpt
   const runs = query.data?.pages.flatMap((page) => page.data) ?? [];
   useRefreshSchedulerWhenRunEnds(schedulerID, runs.some((run) => isInProgress(run.status)));
 
+  // A failed refresh keeps the earlier answer, so the runs stay and the error is only a notice
+  const hasLoaded = query.data !== undefined;
+  const error = query.error ?? undefined;
+
   return {
     runs,
     isLoading: query.isLoading,
-    error: query.error ?? undefined,
+    // The error of a list that was never read, which leaves nothing to show
+    error: hasLoaded ? undefined : error,
+    // The error of a refresh of a list that was read, which clears with the next refresh that works
+    refreshError: hasLoaded ? error : undefined,
     refetch: query.refetch,
     hasNextPage: query.hasNextPage,
     fetchNextPage: query.fetchNextPage,
@@ -150,7 +157,8 @@ export function useListRuns(schedulerID: string | undefined, options: RefreshOpt
 }
 
 /**
- * One run with its stage runs. Read again while the run is pending or running.
+ * One run with its stage runs. Read again every time the run is opened, whatever the staleness of
+ * the answer in the cache, and while the run is pending or running.
  */
 export function useGetRun(schedulerID: string | undefined, runID: string | undefined, options: RefreshOptions = {}) {
   const refreshIntervalMilliseconds = options.refreshIntervalMilliseconds ?? RUN_REFRESH_INTERVAL_MILLISECONDS;
@@ -161,12 +169,18 @@ export function useGetRun(schedulerID: string | undefined, runID: string | undef
       return await requestSchedulerManagerJSON(`/schedulers/${schedulerID}/runs/${runID}`) as SchedulerRunDetail;
     },
     enabled: hasAccessToken() && !!schedulerID && !!runID,
+    refetchOnMount: 'always',
     refetchInterval: (runQuery) => (isInProgress(runQuery.state.data?.status) ? refreshIntervalMilliseconds : false),
   });
+
+  // An answer already in the cache when the run is opened is the one of an earlier opening
+  const updatedAtWhenOpened = useRef(query.dataUpdatedAt);
 
   return {
     run: query.data ?? undefined,
     isLoading: query.isLoading,
+    // False while run is still the answer of an earlier opening, until the read that this opening starts arrives
+    hasReadSinceOpened: query.dataUpdatedAt > updatedAtWhenOpened.current,
     error: query.error ?? undefined,
   };
 }
@@ -192,10 +206,21 @@ export function useGetStageRun(
     placeholderData: keepPreviousData,
   });
 
+  // A failed read leaves no data in the query, not even the placeholder, so the last answer is held
+  // here to stay on screen
+  const heldStageRun = useRef<SchedulerStageRunRow | undefined>(undefined);
+  if (query.data !== undefined) {
+    heldStageRun.current = query.data;
+  }
+  const error = query.error ?? undefined;
+
   return {
-    stageRun: query.data ?? undefined,
+    stageRun: heldStageRun.current,
     isLoading: query.isLoading,
-    error: query.error ?? undefined,
+    // The error of a stage run that was never read, which leaves nothing to show
+    error: heldStageRun.current === undefined ? error : undefined,
+    // The error of a read of a stage run that was read, which clears with the next read that works
+    refreshError: heldStageRun.current === undefined ? undefined : error,
   };
 }
 

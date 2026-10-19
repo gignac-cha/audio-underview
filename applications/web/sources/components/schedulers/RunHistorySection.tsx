@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import styled from '@emotion/styled';
 import type { CrawlerRow, SchedulerRunRow, SchedulerStageRow } from '@audio-underview/supabase-connector';
-import { useGetRun, useListRuns } from '../../hooks/use-scheduler-runs.ts';
+import { isInProgress, useGetRun, useListRuns } from '../../hooks/use-scheduler-runs.ts';
 import { RunStatusBadge } from './RunStatusBadge.tsx';
 import { StageRunList, formatDateTime, formatDuration } from './StageRunList.tsx';
 
@@ -148,7 +149,7 @@ const TRIGGER_LABELS: Record<SchedulerRunRow['triggered_by'], string> = {
   schedule: 'Scheduled',
 };
 
-const StagesNotice = styled.p`
+const Notice = styled.p`
   margin: 0 0 0.75rem 0;
   font-size: 0.8125rem;
   color: var(--text-muted);
@@ -163,32 +164,52 @@ interface RunDetailsProperties {
 }
 
 function RunDetails({ schedulerID, run, stages, crawlerMap, refreshIntervalMilliseconds }: RunDetailsProperties) {
-  const { run: detail, isLoading, error: detailError } = useGetRun(schedulerID, run.id, { refreshIntervalMilliseconds });
+  const {
+    run: cachedDetail,
+    isLoading,
+    hasReadSinceOpened,
+    error: detailError,
+  } = useGetRun(schedulerID, run.id, { refreshIntervalMilliseconds });
+  // A detail from an earlier opening that still says the run goes on is older than the row of the
+  // list that says it ended, so the row is shown until the read of this opening arrives
+  const isListNewer =
+    cachedDetail !== undefined && !hasReadSinceOpened && isInProgress(cachedDetail.status) && !isInProgress(run.status);
+  // Whether it was so when the run was opened. Decided once: a poll of the list that lands before the
+  // read must not take the stages back from a detail that is already on screen with an open stage run
+  const [wasListNewerWhenOpened] = useState(isListNewer);
+  const detail = wasListNewerWhenOpened && !hasReadSinceOpened ? undefined : cachedDetail;
   // The detail is newer than the row of the list once it is read
-  const shown = detail ?? run;
+  const shown = isListNewer ? run : (cachedDetail ?? run);
   const stageRuns = detail?.stage_runs ?? [];
   const hasResult = shown.result !== undefined && shown.result !== null;
-  // A failed refresh keeps the earlier answer, which stays on screen until the next one
+  // A failed refresh keeps the earlier answer, which stays on screen with a notice until the next one
   const failedToLoad = detailError !== undefined && detail === undefined;
-  const hasStagesSection = isLoading || failedToLoad || stageRuns.length > 0;
+  const refreshError = detail === undefined ? undefined : detailError;
+  const isReading = isLoading || (wasListNewerWhenOpened && !hasReadSinceOpened && !failedToLoad);
+  const hasStagesSection = isReading || failedToLoad || refreshError !== undefined || stageRuns.length > 0;
 
   return (
     <ExpandedRow>
       {hasStagesSection && (
         <>
           <ExpandedLabel>Stages</ExpandedLabel>
-          {isLoading ? (
-            <StagesNotice>Loading stages...</StagesNotice>
+          {isReading ? (
+            <Notice>Loading stages...</Notice>
           ) : failedToLoad ? (
-            <StagesNotice>Failed to load stages: {detailError.message}</StagesNotice>
+            <Notice>Failed to load stages: {detailError.message}</Notice>
           ) : (
-            <StageRunList
-              schedulerID={schedulerID}
-              runID={run.id}
-              stageRuns={stageRuns}
-              stages={stages}
-              crawlerMap={crawlerMap}
-            />
+            <>
+              {refreshError && <Notice>Could not refresh stages: {refreshError.message}</Notice>}
+              {stageRuns.length > 0 && (
+                <StageRunList
+                  schedulerID={schedulerID}
+                  runID={run.id}
+                  stageRuns={stageRuns}
+                  stages={stages}
+                  crawlerMap={crawlerMap}
+                />
+              )}
+            </>
           )}
         </>
       )}
@@ -230,7 +251,7 @@ export function RunHistorySection({
   onExpandedRunIDChange,
   refreshIntervalMilliseconds,
 }: RunHistorySectionProperties) {
-  const { runs, isLoading, error, hasNextPage, fetchNextPage, isFetchingNextPage } = useListRuns(
+  const { runs, isLoading, error, refreshError, hasNextPage, fetchNextPage, isFetchingNextPage } = useListRuns(
     schedulerID,
     { refreshIntervalMilliseconds },
   );
@@ -244,6 +265,9 @@ export function RunHistorySection({
   return (
     <Container>
       <SectionTitle>Run History</SectionTitle>
+
+      {/* A failed refresh keeps the runs, the expanded run and its open stage run, and only says so */}
+      {refreshError && <Notice>Could not refresh run history: {refreshError.message}</Notice>}
 
       {error ? (
         <ErrorMessage>Failed to load run history: {error.message}</ErrorMessage>

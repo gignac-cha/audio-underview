@@ -62,7 +62,7 @@ interface StageRunDetailProperties {
 }
 
 export function StageRunDetail({ schedulerID, runID, stageRun }: StageRunDetailProperties) {
-  const { stageRun: detail, isLoading, error } = useGetStageRun(
+  const { stageRun: detail, isLoading, error, refreshError } = useGetStageRun(
     schedulerID,
     runID,
     stageRun.id,
@@ -83,6 +83,8 @@ export function StageRunDetail({ schedulerID, runID, stageRun }: StageRunDetailP
 
   return (
     <Container>
+      {/* A failed read keeps the input, output and logs that were read, and only says so */}
+      {refreshError && <Message>Could not refresh stage run: {refreshError.message}</Message>}
       <Label>Input</Label>
       <Content>{formatJSON(detail.input)}</Content>
       <Label>Output</Label>

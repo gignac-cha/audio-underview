@@ -597,6 +597,7 @@ describe('RunHistorySection refresh', () => {
     await vi.waitFor(() => expect(detailRequests).toBeGreaterThanOrEqual(requestsWhenFailing + 3));
 
     expect(document.body.innerText).not.toContain('Failed to load stages');
+    await expect.element(page.getByText('Could not refresh stages: Service unavailable')).toBeVisible();
     await expect.element(page.getByText('Headline Crawler')).toBeVisible();
     await expect.element(page.getByText(/"url": "https:\/\/example.com\/news"/)).toBeVisible();
 
@@ -604,7 +605,296 @@ describe('RunHistorySection refresh', () => {
     const requestsWhenRecovering = detailRequests;
     await vi.waitFor(() => expect(detailRequests).toBeGreaterThanOrEqual(requestsWhenRecovering + 2));
 
+    await expect.element(page.getByText(/Could not refresh stages/)).not.toBeInTheDocument();
     await expect.element(page.getByText(/"url": "https:\/\/example.com\/news"/)).toBeVisible();
+  });
+
+  test('keeps the stages and says so when the read of a second opening fails', async () => {
+    const run = createRun();
+    let failing = false;
+    worker.use(
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs`, () => {
+        return HttpResponse.json({ data: [run], total: 1, offset: 0, limit: 20 });
+      }),
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs/run-1`, () => {
+        if (failing) {
+          return HttpResponse.json({ error: 'unavailable', error_description: 'Service unavailable' }, { status: 503 });
+        }
+        return HttpResponse.json({ ...run, stage_runs: [createStageRun()] });
+      }),
+    );
+
+    await renderSection([createStage()], undefined, { queryClient: createQueryClient(5 * 60 * 1000) });
+    await page.getByRole('button', { name: /Manual/ }).click();
+    await expect.element(page.getByText('Headline Crawler')).toBeVisible();
+    await page.getByRole('button', { name: /Manual/ }).click();
+
+    failing = true;
+    await page.getByRole('button', { name: /Manual/ }).click();
+
+    await expect.element(page.getByText('Could not refresh stages: Service unavailable')).toBeVisible();
+    expect(document.body.innerText).not.toContain('Failed to load stages');
+    await expect.element(page.getByText('Headline Crawler')).toBeVisible();
+  });
+
+  test('keeps the input, output and logs of the open stage run and says so when the read made at the end of its stage fails', async () => {
+    const runningRun = createRun({ status: 'running', completed_at: null });
+    let hasEnded = false;
+    worker.use(
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs`, () => {
+        return HttpResponse.json({ data: [hasEnded ? createRun() : runningRun], total: 1, offset: 0, limit: 20 });
+      }),
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs/run-1`, () => {
+        return HttpResponse.json({
+          ...(hasEnded ? createRun() : runningRun),
+          stage_runs: [createStageRun(hasEnded ? {} : { status: 'running', completed_at: null })],
+        });
+      }),
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs/run-1/stage-runs/stage-run-1`, () => {
+        if (hasEnded) {
+          return HttpResponse.json({ error: 'unavailable', error_description: 'Service unavailable' }, { status: 503 });
+        }
+        return HttpResponse.json({
+          ...createStageRun({ status: 'running', completed_at: null }),
+          input: { url: 'https://example.com/news' },
+          output: null,
+          logs: null,
+        });
+      }),
+    );
+
+    await renderSection();
+    await page.getByRole('button', { name: /Manual/ }).click();
+    await page.getByRole('button', { name: /Headline Crawler/ }).click();
+    await expect.element(page.getByText(/"url": "https:\/\/example.com\/news"/)).toBeVisible();
+
+    hasEnded = true;
+
+    await expect.element(page.getByText('Could not refresh stage run: Service unavailable')).toBeVisible();
+    expect(document.body.innerText).not.toContain('Failed to load stage run');
+    await expect.element(page.getByText(/"url": "https:\/\/example.com\/news"/)).toBeVisible();
+  });
+
+  test('keeps the rows, the expanded run and the open stage run when a refresh of the list fails, and takes the notice back once a refresh works', async () => {
+    const runningRun = createRun({ status: 'running', completed_at: null });
+    const stageRun = createStageRun({ status: 'running', completed_at: null });
+    let failing = false;
+    worker.use(
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs`, () => {
+        if (failing) {
+          return HttpResponse.json({ error: 'unavailable', error_description: 'Service unavailable' }, { status: 503 });
+        }
+        return HttpResponse.json({ data: [runningRun], total: 1, offset: 0, limit: 20 });
+      }),
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs/run-1`, () => {
+        return HttpResponse.json({ ...runningRun, stage_runs: [stageRun] });
+      }),
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs/run-1/stage-runs/stage-run-1`, () => {
+        return HttpResponse.json({ ...stageRun, input: { url: 'https://example.com/news' }, output: null, logs: null });
+      }),
+    );
+
+    await renderSection();
+    await page.getByRole('button', { name: /Manual/ }).click();
+    await page.getByRole('button', { name: /Headline Crawler/ }).click();
+    await expect.element(page.getByText(/"url": "https:\/\/example.com\/news"/)).toBeVisible();
+    await expect.element(page.getByText(/Could not refresh run history/)).not.toBeInTheDocument();
+
+    failing = true;
+    await expect.element(page.getByText('Could not refresh run history: Service unavailable')).toBeVisible();
+
+    expect(document.body.innerText).not.toContain('Failed to load run history');
+    await expect.element(page.getByRole('button', { name: /Manual/ })).toHaveAttribute('aria-expanded', 'true');
+    await expect.element(page.getByText('Headline Crawler')).toBeVisible();
+    await expect.element(page.getByText(/"url": "https:\/\/example.com\/news"/)).toBeVisible();
+    // The notice is above the list
+    const text = document.body.innerText;
+    expect(text.indexOf('Could not refresh run history')).toBeLessThan(text.indexOf('Manual'));
+
+    failing = false;
+
+    await expect.element(page.getByText(/Could not refresh run history/)).not.toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: /Manual/ })).toHaveAttribute('aria-expanded', 'true');
+    await expect.element(page.getByText(/"url": "https:\/\/example.com\/news"/)).toBeVisible();
+  });
+
+  test('keeps an empty list and shows the notice when a refresh of it fails', async () => {
+    const queryClient = createQueryClient();
+    let failing = false;
+    worker.use(
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs`, () => {
+        if (failing) {
+          return HttpResponse.json({ error: 'unavailable', error_description: 'Service unavailable' }, { status: 503 });
+        }
+        return HttpResponse.json({ data: [], total: 0, offset: 0, limit: 20 });
+      }),
+    );
+
+    await renderSection([createStage()], undefined, { queryClient });
+    await expect.element(page.getByText('No runs yet.')).toBeVisible();
+
+    failing = true;
+    await queryClient.invalidateQueries({ queryKey: ['schedulers', 's1', 'runs'] });
+
+    await expect.element(page.getByText('Could not refresh run history: Service unavailable')).toBeVisible();
+    await expect.element(page.getByText('No runs yet.')).toBeVisible();
+    expect(document.body.innerText).not.toContain('Failed to load run history');
+  });
+
+  test('says the run history cannot be loaded when the first read fails', async () => {
+    worker.use(
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs`, () => {
+        return HttpResponse.json({ error: 'unavailable', error_description: 'Service unavailable' }, { status: 503 });
+      }),
+    );
+
+    await renderSection();
+
+    await expect.element(page.getByText('Failed to load run history: Service unavailable')).toBeVisible();
+    expect(document.body.innerText).not.toContain('Could not refresh run history');
+    await expect.element(page.getByText('Manual', { exact: true })).not.toBeInTheDocument();
+  });
+
+  test('reads a run again each time it is expanded, and shows the row of the list instead of a detail that is still in progress while the list says it ended', async () => {
+    const runningRun = createRun({ status: 'running', completed_at: null });
+    const endedRun = createRun({ status: 'completed', result: { count: 7 } });
+    let hasEnded = false;
+    let detailRequests = 0;
+    let holdDetail: Promise<void> | undefined;
+    worker.use(
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs`, () => {
+        return HttpResponse.json({ data: [hasEnded ? endedRun : runningRun], total: 1, offset: 0, limit: 20 });
+      }),
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs/run-1`, async () => {
+        detailRequests += 1;
+        await holdDetail;
+        return HttpResponse.json({
+          ...(hasEnded ? endedRun : runningRun),
+          stage_runs: [createStageRun(hasEnded ? {} : { status: 'running', completed_at: null })],
+        });
+      }),
+    );
+
+    // The staleness of the page: the detail that is cached stays fresh for five minutes
+    await renderSection([createStage()], undefined, { queryClient: createQueryClient(5 * 60 * 1000) });
+    await page.getByRole('button', { name: /Manual/ }).click();
+    await expect.element(page.getByText('Headline Crawler')).toBeVisible();
+    // The row of the list and the stage run
+    expect(page.getByText('Running', { exact: true }).elements()).toHaveLength(2);
+
+    await page.getByRole('button', { name: /Manual/ }).click();
+    await expect.element(page.getByText('Headline Crawler')).not.toBeInTheDocument();
+    await wait(REFRESH_INTERVAL_MILLISECONDS * 2);
+    hasEnded = true;
+    await expect.element(page.getByText('Completed', { exact: true })).toBeVisible();
+    const requestsBeforeExpanding = detailRequests;
+
+    let releaseDetail: () => void = () => undefined;
+    holdDetail = new Promise<void>((resolve) => {
+      releaseDetail = resolve;
+    });
+    try {
+      await page.getByRole('button', { name: /Completed/ }).click();
+
+      await vi.waitFor(() => expect(detailRequests).toBe(requestsBeforeExpanding + 1));
+      // The detail in the cache says Running, which the list has outdated
+      await expect.element(page.getByText('Loading stages...')).toBeVisible();
+      await expect.element(page.getByText(/"count": 7/)).toBeVisible();
+      expect(page.getByText('Running', { exact: true }).elements()).toHaveLength(0);
+      expect(page.getByText('Headline Crawler').elements()).toHaveLength(0);
+    } finally {
+      releaseDetail();
+    }
+
+    await expect.element(page.getByText('Headline Crawler')).toBeVisible();
+    await expect.element(page.getByText('Loading stages...')).not.toBeInTheDocument();
+    await expect.element(page.getByText(/"count": 7/)).toBeVisible();
+    expect(page.getByText('Running', { exact: true }).elements()).toHaveLength(0);
+    expect(detailRequests).toBe(requestsBeforeExpanding + 1);
+  });
+
+  test('keeps the stages and the open stage run when the list says the run ended before the read of a second opening arrives', async () => {
+    const runningRun = createRun({ status: 'running', completed_at: null });
+    const endedRun = createRun({ result: { count: 7 } });
+    let hasEnded = false;
+    let holdDetail: Promise<void> | undefined;
+    worker.use(
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs`, () => {
+        return HttpResponse.json({ data: [hasEnded ? endedRun : runningRun], total: 1, offset: 0, limit: 20 });
+      }),
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs/run-1`, async () => {
+        await holdDetail;
+        return HttpResponse.json({
+          ...(hasEnded ? endedRun : runningRun),
+          stage_runs: [createStageRun(hasEnded ? {} : { status: 'running', completed_at: null })],
+        });
+      }),
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs/run-1/stage-runs/stage-run-1`, () => {
+        return HttpResponse.json({
+          ...createStageRun(),
+          input: { url: 'https://example.com/news' },
+          output: hasEnded ? { headlines: ['First'] } : null,
+          logs: null,
+        });
+      }),
+    );
+
+    await renderSection([createStage()], undefined, { queryClient: createQueryClient(5 * 60 * 1000) });
+    await page.getByRole('button', { name: /Manual/ }).click();
+    await expect.element(page.getByText('Headline Crawler')).toBeVisible();
+    await page.getByRole('button', { name: /Manual/ }).click();
+    await expect.element(page.getByText('Headline Crawler')).not.toBeInTheDocument();
+
+    let releaseDetail: () => void = () => undefined;
+    holdDetail = new Promise<void>((resolve) => {
+      releaseDetail = resolve;
+    });
+    try {
+      // The list and the cached detail agree that the run goes on, so the stages show at once
+      await page.getByRole('button', { name: /Manual/ }).click();
+      await page.getByRole('button', { name: /Headline Crawler/ }).click();
+      await expect.element(page.getByText(/"url": "https:\/\/example.com\/news"/)).toBeVisible();
+
+      hasEnded = true;
+
+      // The list poll lands before the read of this opening
+      await expect.element(page.getByText(/"count": 7/)).toBeVisible();
+      expect(document.body.innerText).not.toContain('Loading stages...');
+      await expect.element(page.getByText('Headline Crawler')).toBeVisible();
+      await expect.element(page.getByText(/"url": "https:\/\/example.com\/news"/)).toBeVisible();
+    } finally {
+      releaseDetail();
+    }
+
+    await expect.element(page.getByText(/"headlines"/)).toBeVisible();
+    await expect.element(page.getByText(/"url": "https:\/\/example.com\/news"/)).toBeVisible();
+    expect(page.getByText('Completed', { exact: true }).elements()).toHaveLength(2);
+  });
+
+  test('reads a run again each time it is expanded even when the cached detail already says it ended', async () => {
+    const run = createRun();
+    let detailRequests = 0;
+    worker.use(
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs`, () => {
+        return HttpResponse.json({ data: [run], total: 1, offset: 0, limit: 20 });
+      }),
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs/run-1`, () => {
+        detailRequests += 1;
+        return HttpResponse.json({ ...run, stage_runs: [createStageRun()] });
+      }),
+    );
+
+    await renderSection([createStage()], undefined, { queryClient: createQueryClient(5 * 60 * 1000) });
+    await page.getByRole('button', { name: /Manual/ }).click();
+    await expect.element(page.getByText('Headline Crawler')).toBeVisible();
+    expect(detailRequests).toBe(1);
+
+    await page.getByRole('button', { name: /Manual/ }).click();
+    await page.getByRole('button', { name: /Manual/ }).click();
+
+    // The earlier answer is on screen at once, and the read goes on behind it
+    await expect.element(page.getByText('Headline Crawler')).toBeVisible();
+    await vi.waitFor(() => expect(detailRequests).toBe(2));
   });
 
   test('says the stages cannot be loaded when the run was never read', async () => {
