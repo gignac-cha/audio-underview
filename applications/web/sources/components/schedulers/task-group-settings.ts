@@ -30,9 +30,11 @@ export interface SettingsEditorState {
   settingsJSON: string;
   // Always true for a format without fields, whose settings are written as one JSON object
   isEditingJSON: boolean;
-  // Values the current fields do not show, such as those of a field another version has, kept so
-  // that a format with that field gets them back. They are never sent.
-  hiddenSettings: Record<string, unknown>;
+  // The settings the fields were last filled from. The fields edit the keys the format lists; every
+  // other key, such as one only another version lists or one added in Edit JSON, is kept and sent.
+  settings: Record<string, unknown>;
+  // What each field showed when it was filled, which tells the fields the user changed
+  filledInputValues: SettingsInputValues;
 }
 
 export type SettingsEditorStateResult =
@@ -212,38 +214,100 @@ function formatSettingsJSON(settings: Record<string, unknown>): string {
   return JSON.stringify(settings, null, 2);
 }
 
-function omitFieldSettings(settings: Record<string, unknown>, fields: SettingsField[]): Record<string, unknown> {
+/**
+ * The settings with what the fields hold: each field puts its value in its key, and the keys the
+ * fields do not list follow as they are. Only a field the user emptied removes its key; a field
+ * that cannot show the value of its key, such as a select that does not offer it, leaves the key
+ * as it is until the user changes the field.
+ *
+ * @param addsUnchangedValues whether a field the user did not change adds what it shows, such as its
+ * default or an unchecked box, for a key the settings do not hold: true when the settings are read
+ * to be sent, false when the fields give way to another format
+ * @returns the error of the first field whose number or JSON cannot be read
+ */
+function applyInputValues(
+  fields: SettingsField[],
+  state: SettingsEditorState,
+  addsUnchangedValues: boolean,
+): { settings: Record<string, unknown>; error: string | undefined } {
+  const entries: [string, unknown][] = [];
+  let error: string | undefined;
+  for (const field of fields) {
+    const inputValue = state.inputValues[field.name];
+    const isHeld = Object.hasOwn(state.settings, field.name);
+    const isChanged = inputValue !== state.filledInputValues[field.name];
+    // A default or an unchecked box the user left as it was
+    if (!isChanged && !isHeld && !addsUnchangedValues) {
+      continue;
+    }
+    const reading = readInputValue(field, inputValue);
+    if (reading.status === 'value') {
+      entries.push([field.name, reading.value]);
+      continue;
+    }
+    if (reading.status === 'invalid') {
+      error ??= reading.error;
+    }
+    // Only emptying a field removes its key
+    if (isHeld && (reading.status === 'invalid' || !isChanged)) {
+      entries.push([field.name, state.settings[field.name]]);
+    }
+  }
   const fieldNames = new Set(fields.map((field) => field.name));
-  return Object.fromEntries(Object.entries(settings).filter(([name]) => !fieldNames.has(name)));
+  for (const [name, value] of Object.entries(state.settings)) {
+    if (!fieldNames.has(name)) {
+      entries.push([name, value]);
+    }
+  }
+  return { settings: Object.fromEntries(entries), error };
+}
+
+/**
+ * @param shownSettings what the fields show, which may add defaults to the settings
+ */
+function fillSettingsEditorState(
+  fields: SettingsField[] | undefined,
+  settings: Record<string, unknown>,
+  shownSettings: Record<string, unknown>,
+): SettingsEditorState {
+  if (fields === undefined) {
+    return { inputValues: {}, settingsJSON: formatSettingsJSON(settings), isEditingJSON: true, settings, filledInputValues: {} };
+  }
+  const inputValues = settingsToInputValues(fields, shownSettings);
+  return { inputValues, settingsJSON: '', isEditingJSON: false, settings, filledInputValues: inputValues };
 }
 
 export function createSettingsEditorState(
   fields: SettingsField[] | undefined,
   settings: Record<string, unknown>,
 ): SettingsEditorState {
-  if (fields === undefined) {
-    return { inputValues: {}, settingsJSON: formatSettingsJSON(settings), isEditingJSON: true, hiddenSettings: {} };
-  }
-  return {
-    inputValues: settingsToInputValues(fields, settings),
-    settingsJSON: '',
-    isEditingJSON: false,
-    hiddenSettings: omitFieldSettings(settings, fields),
-  };
+  return fillSettingsEditorState(fields, settings, settings);
 }
 
+/**
+ * The editor of a new stage, whose fields start at their defaults. A default is sent with the
+ * stage, but a field left at it does not follow to another version.
+ */
+export function createNewSettingsEditorState(fields: SettingsField[] | undefined): SettingsEditorState {
+  return fillSettingsEditorState(fields, {}, fields === undefined ? {} : defaultSettings(fields));
+}
+
+/**
+ * The settings to send: what the fields hold, and every key the format does not list as it is.
+ */
 export function readSettingsEditorState(fields: SettingsField[] | undefined, state: SettingsEditorState): SettingsResult {
   if (fields === undefined || state.isEditingJSON) {
     return parseSettingsJSON(state.settingsJSON);
   }
-  return inputValuesToSettings(fields, state.inputValues);
+  const result = applyInputValues(fields, state, true);
+  return result.error === undefined ? { ok: true, settings: result.settings } : { ok: false, error: result.error };
 }
 
 /**
- * Edit JSON: the settings of the fields as one JSON object.
+ * Edit JSON: the settings to send as one JSON object, keys the format does not list included.
  */
 export function startEditingSettingsJSON(fields: SettingsField[], state: SettingsEditorState): SettingsEditorStateResult {
-  const result = inputValuesToSettings(fields, state.inputValues);
+  const result = readSettingsEditorState(fields, state);
   if (!result.ok) {
     return result;
   }
@@ -251,30 +315,25 @@ export function startEditingSettingsJSON(fields: SettingsField[], state: Setting
 }
 
 /**
- * Simple mode: the fields filled again from the JSON, which must be an object. A field the JSON
- * leaves out gets its hidden value, if it has one.
+ * Simple mode: the JSON, which must be an object, becomes the settings and fills the fields. A key
+ * the JSON leaves out is gone; one the format does not list is kept.
  */
 export function stopEditingSettingsJSON(fields: SettingsField[], state: SettingsEditorState): SettingsEditorStateResult {
   const result = parseSettingsJSON(state.settingsJSON);
   if (!result.ok) {
     return result;
   }
-  const knownSettings = { ...state.hiddenSettings, ...result.settings };
-  return {
-    ok: true,
-    state: {
-      ...state,
-      inputValues: settingsToInputValues(fields, knownSettings),
-      isEditingJSON: false,
-      hiddenSettings: omitFieldSettings(knownSettings, fields),
-    },
-  };
+  return { ok: true, state: createSettingsEditorState(fields, result.settings) };
 }
 
 /**
- * The editor for another version's format. A field keeps the value of the field with the same
- * name, or else the value it had when an earlier format showed it, and otherwise starts at its
- * default. JSON being written stays as it is; Simple mode fills the new fields from it.
+ * The editor for another version's format. Every key is kept, and a field of the new format shows
+ * the value of its key, or else starts at its default when the previous format did not list it. A
+ * field both formats list keeps what it showed, such as a default or text that cannot be read yet;
+ * a select keeps its option only when the new format offers it. A field the user did not change
+ * stays unchanged and adds nothing, so a default or an unchecked box it showed does not become a
+ * setting of the new version, however many versions it goes through. JSON being written stays as it
+ * is; Simple mode fills the new fields from it.
  */
 export function changeSettingsFormat(
   previousFields: SettingsField[] | undefined,
@@ -285,46 +344,34 @@ export function changeSettingsFormat(
     return { ...state, isEditingJSON: true };
   }
 
-  const previousFieldsByName = new Map(previousFields.map((field) => [field.name, field]));
-  // What each field holds now; an emptied field forgets its hidden value
-  const knownSettings = { ...state.hiddenSettings };
-  const previousSettings: Record<string, unknown> = {};
-  for (const field of previousFields) {
-    // A value that cannot be read is dropped rather than blocking the change
-    const reading = readInputValue(field, state.inputValues[field.name]);
-    if (reading.status === 'value') {
-      knownSettings[field.name] = reading.value;
-      previousSettings[field.name] = reading.value;
-    } else {
-      delete knownSettings[field.name];
-    }
-  }
-
+  // A value that cannot be read leaves its key as it was rather than blocking the change
+  const { settings } = applyInputValues(previousFields, state, false);
   if (nextFields === undefined) {
-    return {
-      inputValues: {},
-      settingsJSON: formatSettingsJSON(previousSettings),
-      isEditingJSON: true,
-      hiddenSettings: omitFieldSettings(knownSettings, previousFields),
-    };
+    return createSettingsEditorState(undefined, settings);
   }
 
-  const carriedSettings: Record<string, unknown> = {};
-  for (const field of nextFields) {
-    if (Object.hasOwn(knownSettings, field.name)) {
-      carriedSettings[field.name] = knownSettings[field.name];
-    } else if (!previousFieldsByName.has(field.name) && field.defaultValue !== undefined) {
-      carriedSettings[field.name] = field.defaultValue;
-    }
-  }
-
-  const inputValues = settingsToInputValues(nextFields, carriedSettings);
+  const previousFieldsByName = new Map(previousFields.map((field) => [field.name, field]));
+  const defaults = defaultSettings(nextFields.filter((field) => !previousFieldsByName.has(field.name)));
+  const nextState = fillSettingsEditorState(nextFields, settings, { ...defaults, ...settings });
+  const inputValues = { ...nextState.inputValues };
+  const filledInputValues = { ...nextState.filledInputValues };
   for (const field of nextFields) {
     const previousField = previousFieldsByName.get(field.name);
-    // Text of a field of the same kind stays exactly as typed, even when it cannot be read yet
-    if (previousField !== undefined && previousField.kind === field.kind && field.kind !== 'select') {
-      inputValues[field.name] = state.inputValues[field.name] ?? inputValues[field.name];
+    const inputValue = state.inputValues[field.name];
+    if (previousField === undefined || previousField.kind !== field.kind || inputValue === undefined) {
+      continue;
+    }
+    if (field.kind !== 'select') {
+      // Text of a field of the same kind stays exactly as typed, even when it cannot be read yet
+      inputValues[field.name] = inputValue;
+    } else if (!Object.hasOwn(settings, field.name) && field.options.some((option) => JSON.stringify(option) === inputValue)) {
+      // A select without a key, such as one left at its default, keeps the option it showed
+      inputValues[field.name] = inputValue;
+    }
+    // A field the user did not change stays so, and a default it still shows does not follow to another version
+    if (inputValue === state.filledInputValues[field.name]) {
+      filledInputValues[field.name] = inputValues[field.name];
     }
   }
-  return { ...state, inputValues, hiddenSettings: omitFieldSettings(knownSettings, nextFields) };
+  return { ...nextState, inputValues, filledInputValues };
 }

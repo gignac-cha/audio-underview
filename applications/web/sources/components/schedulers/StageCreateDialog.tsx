@@ -12,8 +12,7 @@ import { TaskGroupSettingsFields } from './TaskGroupSettingsFields.tsx';
 import {
   buildSettingsFields,
   changeSettingsFormat,
-  createSettingsEditorState,
-  defaultSettings,
+  createNewSettingsEditorState,
   readSettingsEditorState,
   type SettingsEditorState,
 } from './task-group-settings.ts';
@@ -167,7 +166,7 @@ interface StageCreateDialogProperties {
   nextOrder: number;
 }
 
-const EMPTY_SETTINGS_EDITOR_STATE: SettingsEditorState = createSettingsEditorState(undefined, {});
+const EMPTY_SETTINGS_EDITOR_STATE: SettingsEditorState = createNewSettingsEditorState(undefined);
 
 export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }: StageCreateDialogProperties) {
   const { showToast } = useToast();
@@ -197,7 +196,7 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
     const fields = latestTaskGroup ? buildSettingsFields(latestTaskGroup.settings_schema) : undefined;
     setTaskGroupID(nextTaskGroupID);
     setTaskGroupVersion(latestTaskGroup?.version);
-    setSettingsState(createSettingsEditorState(fields, fields ? defaultSettings(fields) : {}));
+    setSettingsState(createNewSettingsEditorState(fields));
   };
 
   const handleTaskGroupVersionChange = (nextVersion: number) => {

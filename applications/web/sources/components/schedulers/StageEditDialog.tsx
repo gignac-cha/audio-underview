@@ -316,7 +316,7 @@ function TaskGroupStageForm({ stage, versions, isSubmitting, onSave }: TaskGroup
 
     const changes: StageChanges = {};
     if (version !== currentVersion) {
-      // The settings belong to the format of the new version
+      // The server checks the settings against the new version's format, keys it does not list included
       changes.task_group_version = version;
       changes.settings = settings.settings;
     } else {

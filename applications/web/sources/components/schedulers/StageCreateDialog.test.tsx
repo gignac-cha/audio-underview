@@ -328,6 +328,116 @@ describe('StageCreateDialog task group stage', () => {
     ]);
   });
 
+  test('a key added in Edit JSON stays after Simple mode and is sent', async () => {
+    const server = startServer();
+    await renderDialog();
+
+    await chooseTaskGroup('newscast');
+    await page.getByRole('button', { name: 'Edit JSON' }).click();
+    await page.getByLabelText('Settings').fill('{"title": "Morning", "voice": "bright", "added": 1}');
+    await page.getByRole('button', { name: 'Simple mode' }).click();
+    await expect.element(page.getByLabelText('Title (required)')).toHaveValue('Morning');
+    await page.getByRole('button', { name: 'Add Stage' }).click();
+
+    await expect.poll(() => server.createRequests).toEqual([
+      expect.objectContaining({ settings: { title: 'Morning', voice: 'bright', added: 1 } }),
+    ]);
+  });
+
+  test('emptying a field removes only its key', async () => {
+    const server = startServer();
+    await renderDialog();
+
+    await chooseTaskGroup('newscast');
+    await page.getByRole('button', { name: 'Edit JSON' }).click();
+    await page.getByLabelText('Settings').fill('{"title": "Morning", "added": 1}');
+    await page.getByRole('button', { name: 'Simple mode' }).click();
+    await page.getByLabelText('Title (required)').fill('');
+    await page.getByRole('button', { name: 'Add Stage' }).click();
+
+    await expect.poll(() => server.createRequests).toEqual([
+      expect.objectContaining({ settings: { added: 1 } }),
+    ]);
+  });
+
+  test('a version change keeps a key added in Edit JSON', async () => {
+    const server = startServer();
+    await renderDialog();
+
+    await chooseTaskGroup('newscast');
+    await page.getByRole('button', { name: 'Edit JSON' }).click();
+    await page.getByLabelText('Settings').fill('{"title": "Morning", "added": 1}');
+    await page.getByRole('button', { name: 'Simple mode' }).click();
+    await page.getByLabelText('Version').selectOptions('v1');
+    await expect.element(page.getByLabelText('Title')).toHaveValue('Morning');
+    await page.getByRole('button', { name: 'Add Stage' }).click();
+
+    await expect.poll(() => server.createRequests).toEqual([
+      {
+        stage_type: 'task_group',
+        task_group_id: 'newscast',
+        task_group_version: 1,
+        settings: { title: 'Morning', added: 1 },
+        stage_order: 2,
+      },
+    ]);
+  });
+
+  describe('through versions that list the same fields', () => {
+    const withDefaultsSchema = {
+      type: 'object',
+      properties: {
+        title: { type: 'string', title: 'Title' },
+        intro: { type: 'string', default: 'Hello' },
+        loud: { type: 'boolean', default: true },
+        voice: { enum: ['calm', 'bright'], default: 'calm' },
+      },
+    };
+    const threeVersions = [
+      NEWSCAST_GROUPS[1],
+      createTaskGroup('newscast', 2, withDefaultsSchema),
+      createTaskGroup('newscast', 3, withDefaultsSchema),
+    ];
+
+    test('the defaults stay and are sent', async () => {
+      const server = startServer({ taskGroups: threeVersions });
+      await renderDialog();
+
+      await chooseTaskGroup('newscast');
+      await page.getByLabelText('Title').fill('Morning');
+      await page.getByLabelText('Version').selectOptions('v2');
+
+      await expect.element(page.getByLabelText('intro')).toHaveValue('Hello');
+      await expect.element(page.getByLabelText('loud')).toBeChecked();
+      await expect.element(page.getByLabelText('voice')).toHaveValue('"calm"');
+      await page.getByRole('button', { name: 'Add Stage' }).click();
+
+      await expect.poll(() => server.createRequests).toEqual([
+        expect.objectContaining({
+          task_group_version: 2,
+          settings: { title: 'Morning', intro: 'Hello', loud: true, voice: 'calm' },
+        }),
+      ]);
+    });
+
+    test('defaults left as they were do not follow to a version without them', async () => {
+      const server = startServer({ taskGroups: threeVersions });
+      await renderDialog();
+
+      await chooseTaskGroup('newscast');
+      await page.getByLabelText('Title').fill('Morning');
+      await page.getByLabelText('Version').selectOptions('v2');
+      await expect.element(page.getByLabelText('intro')).toHaveValue('Hello');
+      await page.getByLabelText('Version').selectOptions('v1');
+      await expect.element(page.getByLabelText('intro')).not.toBeInTheDocument();
+      await page.getByRole('button', { name: 'Add Stage' }).click();
+
+      await expect.poll(() => server.createRequests).toEqual([
+        expect.objectContaining({ task_group_version: 1, settings: { title: 'Morning' } }),
+      ]);
+    });
+  });
+
   test('does not send a number field that is not a number', async () => {
     const server = startServer();
     await renderDialog();

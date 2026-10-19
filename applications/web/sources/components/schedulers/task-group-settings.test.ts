@@ -2,6 +2,7 @@ import { describe, test, expect } from 'vitest';
 import {
   buildSettingsFields,
   changeSettingsFormat,
+  createNewSettingsEditorState,
   createSettingsEditorState,
   defaultSettings,
   inputValuesToSettings,
@@ -294,7 +295,7 @@ describe('changeSettingsFormat', () => {
   });
 
   test('keeps the values of fields with the same name and starts new fields at their default', () => {
-    const state = createSettingsEditorState(versionOne, { title: 'Morning', voice: 'calm', speed: '2', dropped: 'gone' });
+    const state = createSettingsEditorState(versionOne, { title: 'Morning', voice: 'calm', speed: '2' });
 
     const next = changeSettingsFormat(versionOne, state, versionTwo);
 
@@ -304,10 +305,104 @@ describe('changeSettingsFormat', () => {
     });
   });
 
+  test('keeps and sends a key the new format does not list', () => {
+    const state = createSettingsEditorState(versionOne, { title: 'Morning', dropped: 'gone', extra: 1 });
+
+    const next = changeSettingsFormat(versionOne, state, versionTwo);
+
+    expect(readSettingsEditorState(versionTwo, next)).toEqual({
+      ok: true,
+      settings: { title: 'Morning', music: true, dropped: 'gone', extra: 1 },
+    });
+  });
+
+  test('a default or an unchecked box left as it was does not become a setting of another version', () => {
+    const withCheckbox = fieldsOf({ type: 'object', properties: { title: { type: 'string' }, loud: { type: 'boolean' } } });
+    const state = createSettingsEditorState(withCheckbox, { title: 'Morning', extra: 1 });
+
+    // music starts at its default in version two, and loud is shown unchecked without a key
+    const inVersionTwo = changeSettingsFormat(withCheckbox, state, versionTwo);
+    expect(inVersionTwo.inputValues.music).toBe(true);
+    const backInVersionOne = changeSettingsFormat(versionTwo, inVersionTwo, versionOne);
+
+    expect(readSettingsEditorState(versionOne, backInVersionOne)).toEqual({ ok: true, settings: { title: 'Morning', extra: 1 } });
+  });
+
+  test('a field changed before the change follows to another version', () => {
+    const state = createSettingsEditorState(versionTwo, { title: 'Morning', extra: 1 });
+
+    const changed = { ...state, inputValues: { ...state.inputValues, music: true } };
+    const inVersionOne = changeSettingsFormat(versionTwo, changed, versionOne);
+
+    expect(readSettingsEditorState(versionOne, inVersionOne)).toEqual({
+      ok: true,
+      settings: { title: 'Morning', music: true, extra: 1 },
+    });
+  });
+
   test('leaves a select empty when the new format does not offer its value', () => {
     const state = createSettingsEditorState(versionOne, { voice: 'bright' });
 
     expect(changeSettingsFormat(versionOne, state, versionTwo).inputValues.voice).toBe('');
+  });
+
+  describe('through versions that list the same field', () => {
+    const titleOnly = fieldsOf({ type: 'object', properties: { title: { type: 'string' } } });
+    const withDefaultsSchema = {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        intro: { type: 'string', default: 'Hello' },
+        loud: { type: 'boolean', default: true },
+        voice: { enum: ['calm', 'bright'], default: 'calm' },
+      },
+    };
+    const withDefaults = fieldsOf(withDefaultsSchema);
+    const withDefaultsAgain = fieldsOf(withDefaultsSchema);
+
+    test('a field keeps the default it shows, which is sent', () => {
+      const state = createNewSettingsEditorState(withDefaults);
+
+      const next = changeSettingsFormat(withDefaults, state, withDefaultsAgain);
+
+      expect(next.inputValues).toEqual({ title: '', intro: 'Hello', loud: true, voice: '"calm"' });
+      expect(readSettingsEditorState(withDefaultsAgain, next)).toEqual({
+        ok: true,
+        settings: { intro: 'Hello', loud: true, voice: 'calm' },
+      });
+    });
+
+    test('a default left as it was does not follow to a version without the field', () => {
+      const created = createNewSettingsEditorState(withDefaults);
+      const named = { ...created, inputValues: { ...created.inputValues, title: 'Morning' } };
+
+      const fromNew = changeSettingsFormat(withDefaultsAgain, changeSettingsFormat(withDefaults, named, withDefaultsAgain), titleOnly);
+      expect(readSettingsEditorState(titleOnly, fromNew)).toEqual({ ok: true, settings: { title: 'Morning' } });
+
+      // The defaults start in the first version that lists the fields
+      const stored = createSettingsEditorState(titleOnly, { title: 'Morning' });
+      const throughVersions = changeSettingsFormat(withDefaults, changeSettingsFormat(titleOnly, stored, withDefaults), withDefaultsAgain);
+      const back = changeSettingsFormat(withDefaultsAgain, throughVersions, titleOnly);
+      expect(readSettingsEditorState(titleOnly, back)).toEqual({ ok: true, settings: { title: 'Morning' } });
+    });
+
+    test('a value changed in one of them follows', () => {
+      const state = changeSettingsFormat(withDefaults, createNewSettingsEditorState(withDefaults), withDefaultsAgain);
+      const changed = { ...state, inputValues: { ...state.inputValues, intro: 'Hi', loud: false } };
+
+      const next = changeSettingsFormat(withDefaultsAgain, changed, titleOnly);
+
+      expect(readSettingsEditorState(titleOnly, next)).toEqual({ ok: true, settings: { intro: 'Hi', loud: false } });
+    });
+
+    test('a select left at a default the new format does not offer is empty', () => {
+      const offersOther = fieldsOf({ type: 'object', properties: { voice: { enum: ['loud'] } } });
+
+      const next = changeSettingsFormat(withDefaults, createNewSettingsEditorState(withDefaults), offersOther);
+
+      expect(next.inputValues.voice).toBe('');
+      expect(readSettingsEditorState(offersOther, next)).toEqual({ ok: true, settings: {} });
+    });
   });
 
   test('keeps text that cannot be read yet in a field of the same kind', () => {
@@ -332,11 +427,11 @@ describe('changeSettingsFormat', () => {
     expect(readSettingsEditorState(undefined, next)).toEqual({ ok: true, settings: { title: 'Morning' } });
   });
 
-  test('a value the other format does not have comes back with a format that has it', () => {
+  test('a value the other format does not have is kept and comes back with a format that has it', () => {
     const state = createSettingsEditorState(versionTwo, { title: 'Morning', music: false });
 
     const inVersionOne = changeSettingsFormat(versionTwo, state, versionOne);
-    expect(readSettingsEditorState(versionOne, inVersionOne)).toEqual({ ok: true, settings: { title: 'Morning' } });
+    expect(readSettingsEditorState(versionOne, inVersionOne)).toEqual({ ok: true, settings: { title: 'Morning', music: false } });
 
     const backInVersionTwo = changeSettingsFormat(versionOne, inVersionOne, versionTwo);
     expect(readSettingsEditorState(versionTwo, backInVersionTwo)).toEqual({
@@ -356,26 +451,102 @@ describe('changeSettingsFormat', () => {
     expect(next.inputValues.dropped).toBe('');
   });
 
-  test('Simple mode fills a field the JSON leaves out from a format left earlier', () => {
+  test('Edit JSON shows a key the format does not list, and removing it there removes it', () => {
     const state = createSettingsEditorState(versionTwo, { title: 'Morning', music: true });
     const editing = startEditingSettingsJSON(versionOne, changeSettingsFormat(versionTwo, state, versionOne));
     if (!editing.ok) throw new Error(editing.error);
-    expect(JSON.parse(editing.state.settingsJSON)).toEqual({ title: 'Morning' });
-    const backInVersionTwo = changeSettingsFormat(versionOne, editing.state, versionTwo);
+    expect(JSON.parse(editing.state.settingsJSON)).toEqual({ title: 'Morning', music: true });
 
-    const stopped = stopEditingSettingsJSON(versionTwo, backInVersionTwo);
+    const removed = changeSettingsFormat(versionOne, { ...editing.state, settingsJSON: '{"title": "Morning"}' }, versionTwo);
+    const stopped = stopEditingSettingsJSON(versionTwo, removed);
     if (!stopped.ok) throw new Error(stopped.error);
-    expect(readSettingsEditorState(versionTwo, stopped.state)).toEqual({
-      ok: true,
-      settings: { title: 'Morning', music: true },
-    });
 
-    // What the JSON says wins
-    const written = stopEditingSettingsJSON(versionTwo, { ...backInVersionTwo, settingsJSON: '{"title": "Morning", "music": false}' });
-    if (!written.ok) throw new Error(written.error);
-    expect(readSettingsEditorState(versionTwo, written.state)).toEqual({
+    expect(stopped.state.inputValues.music).toBe(false);
+    expect(readSettingsEditorState(versionTwo, stopped.state)).toEqual({
       ok: true,
       settings: { title: 'Morning', music: false },
     });
+  });
+});
+
+describe('keys the format does not list', () => {
+  const titleOnly = fieldsOf({ type: 'object', properties: { title: { type: 'string', title: 'Title' } } });
+
+  test('are kept when a field changes', () => {
+    const state = createSettingsEditorState(titleOnly, { title: 'x', extra: 1 });
+
+    const changed = { ...state, inputValues: { title: 'y' } };
+
+    expect(readSettingsEditorState(titleOnly, changed)).toEqual({ ok: true, settings: { title: 'y', extra: 1 } });
+  });
+
+  test('are shown in Edit JSON after the fields', () => {
+    const state = createSettingsEditorState(titleOnly, { extra: 1, title: 'x' });
+
+    const editing = startEditingSettingsJSON(titleOnly, state);
+    if (!editing.ok) throw new Error(editing.error);
+
+    expect(editing.state.settingsJSON).toBe(JSON.stringify({ title: 'x', extra: 1 }, null, 2));
+  });
+
+  test('stay when a field is emptied, which removes only its key', () => {
+    const state = createSettingsEditorState(titleOnly, { title: 'x', extra: 1 });
+
+    const emptied = { ...state, inputValues: { title: '' } };
+
+    expect(readSettingsEditorState(titleOnly, emptied)).toEqual({ ok: true, settings: { extra: 1 } });
+  });
+
+  test('added in Edit JSON stay after Simple mode', () => {
+    const editing = startEditingSettingsJSON(titleOnly, createSettingsEditorState(titleOnly, { title: 'x' }));
+    if (!editing.ok) throw new Error(editing.error);
+
+    const stopped = stopEditingSettingsJSON(titleOnly, { ...editing.state, settingsJSON: '{"title": "x", "added": [1]}' });
+    if (!stopped.ok) throw new Error(stopped.error);
+
+    expect(stopped.state.inputValues).toEqual({ title: 'x' });
+    expect(readSettingsEditorState(titleOnly, stopped.state)).toEqual({ ok: true, settings: { title: 'x', added: [1] } });
+  });
+
+  test('a select keeps a value it does not offer until it is changed', () => {
+    const voiceOnly = fieldsOf({ type: 'object', properties: { voice: { enum: ['calm', 'bright'] } } });
+    const state = createSettingsEditorState(voiceOnly, { voice: 'loud' });
+    expect(state.inputValues.voice).toBe('');
+
+    expect(readSettingsEditorState(voiceOnly, state)).toEqual({ ok: true, settings: { voice: 'loud' } });
+    const changed = { ...state, inputValues: { voice: '"calm"' } };
+    expect(readSettingsEditorState(voiceOnly, changed)).toEqual({ ok: true, settings: { voice: 'calm' } });
+  });
+});
+
+describe('createNewSettingsEditorState', () => {
+  const versionOne = fieldsOf({ type: 'object', properties: { title: { type: 'string' } } });
+  const versionTwo = fieldsOf({
+    type: 'object',
+    properties: { title: { type: 'string' }, voice: { enum: ['calm', 'bright'], default: 'calm' } },
+  });
+
+  test('starts the fields at their defaults, which are sent', () => {
+    const state = createNewSettingsEditorState(versionTwo);
+
+    expect(state.inputValues).toEqual({ title: '', voice: '"calm"' });
+    expect(readSettingsEditorState(versionTwo, state)).toEqual({ ok: true, settings: { voice: 'calm' } });
+  });
+
+  test('a field left at its default does not follow to another version, but a chosen value does', () => {
+    const state = createNewSettingsEditorState(versionTwo);
+
+    const leftAtDefault = changeSettingsFormat(versionTwo, state, versionOne);
+    expect(readSettingsEditorState(versionOne, leftAtDefault)).toEqual({ ok: true, settings: {} });
+
+    const chosen = changeSettingsFormat(versionTwo, { ...state, inputValues: { title: '', voice: '"bright"' } }, versionOne);
+    expect(readSettingsEditorState(versionOne, chosen)).toEqual({ ok: true, settings: { voice: 'bright' } });
+  });
+
+  test('a format without fields starts as an empty JSON object', () => {
+    const state = createNewSettingsEditorState(undefined);
+
+    expect(state.isEditingJSON).toBe(true);
+    expect(readSettingsEditorState(undefined, state)).toEqual({ ok: true, settings: {} });
   });
 });

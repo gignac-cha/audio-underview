@@ -313,8 +313,61 @@ describe('StageEditDialog task group stage', () => {
 
     await saveButton().click();
 
+    // music, which the new version does not list, is kept
     await expect.poll(() => server.updateRequests).toEqual([
-      { task_group_version: 2, settings: { title: 'Morning', length: 5, voice: 'calm' } },
+      { task_group_version: 2, settings: { title: 'Morning', length: 5, voice: 'calm', music: true } },
+    ]);
+  });
+
+  test('an unchecked box left as it was does not follow to a new version', async () => {
+    const server = startServer();
+    await renderDialog(createTaskGroupStage({ title: 'Morning', extra: 1 }));
+
+    await expect.element(page.getByLabelText('music')).not.toBeChecked();
+    await page.getByLabelText('Version').selectOptions('v2');
+    await saveButton().click();
+
+    await expect.poll(() => server.updateRequests).toEqual([
+      { task_group_version: 2, settings: { title: 'Morning', voice: 'calm', extra: 1 } },
+    ]);
+  });
+
+  test('a key the new version refuses is removed in Edit JSON and the settings are sent again', async () => {
+    const server = startServer();
+    worker.use(
+      http.put(`${SCHEDULER_MANAGER_URL}/schedulers/scheduler-1/stages/:stageID`, async ({ request }) => {
+        const body = await request.json() as { settings?: Record<string, unknown> };
+        server.updateRequests.push(body);
+        if (body.settings !== undefined && Object.hasOwn(body.settings, 'music')) {
+          return HttpResponse.json(
+            {
+              error: 'invalid_request',
+              error_description: "Field 'settings' does not match the task group settings format: $.music is not allowed",
+            },
+            { status: 400 },
+          );
+        }
+        return HttpResponse.json({ id: 'stage-2' });
+      }),
+    );
+    await renderDialog(createTaskGroupStage({ title: 'Morning', music: true }));
+
+    await page.getByLabelText('Version').selectOptions('v2');
+    await saveButton().click();
+    await expect.element(
+      page.getByText("Field 'settings' does not match the task group settings format: $.music is not allowed"),
+    ).toBeVisible();
+
+    await page.getByRole('button', { name: 'Edit JSON' }).click();
+    const settingsJSON = page.getByLabelText('Settings');
+    await expect.element(settingsJSON).toHaveValue(JSON.stringify({ title: 'Morning', voice: 'calm', music: true }, null, 2));
+    await settingsJSON.fill('{"title": "Morning", "voice": "calm"}');
+    await saveButton().click();
+
+    await expect.element(page.getByText('Stage updated.')).toBeVisible();
+    expect(server.updateRequests).toEqual([
+      { task_group_version: 2, settings: { title: 'Morning', voice: 'calm', music: true } },
+      { task_group_version: 2, settings: { title: 'Morning', voice: 'calm' } },
     ]);
   });
 
@@ -336,6 +389,63 @@ describe('StageEditDialog task group stage', () => {
     expect(server.updateRequests).toEqual([]);
   });
 
+  describe('through versions that list the same fields', () => {
+    const withDefaultsSchema = {
+      type: 'object',
+      properties: {
+        title: { type: 'string', title: 'Title' },
+        intro: { type: 'string', default: 'Hello' },
+        loud: { type: 'boolean', default: true },
+        voice: { enum: ['calm', 'bright'], default: 'calm' },
+      },
+    };
+
+    function startServerWithThreeVersions(): ServerState {
+      const server = startServer();
+      worker.use(
+        http.get(`${SCHEDULER_MANAGER_URL}/task-groups`, () => {
+          return HttpResponse.json({
+            data: [TASK_GROUPS[0], createTaskGroup(2, withDefaultsSchema), createTaskGroup(3, withDefaultsSchema)],
+          });
+        }),
+      );
+      return server;
+    }
+
+    test('the defaults a new version shows stay and are sent', async () => {
+      const server = startServerWithThreeVersions();
+      await renderDialog(createTaskGroupStage({ title: 'Morning' }));
+
+      await page.getByLabelText('Version').selectOptions('v2');
+      await page.getByLabelText('Version').selectOptions('v3');
+
+      await expect.element(page.getByLabelText('intro')).toHaveValue('Hello');
+      await expect.element(page.getByLabelText('loud')).toBeChecked();
+      await expect.element(page.getByLabelText('voice')).toHaveValue('"calm"');
+      await saveButton().click();
+
+      await expect.poll(() => server.updateRequests).toEqual([
+        { task_group_version: 3, settings: { title: 'Morning', intro: 'Hello', loud: true, voice: 'calm' } },
+      ]);
+    });
+
+    test('defaults left as they were do not follow back to the stored version, which sends nothing', async () => {
+      const server = startServerWithThreeVersions();
+      const onOpenChange = vi.fn();
+      await renderDialog(createTaskGroupStage({ title: 'Morning' }), onOpenChange);
+
+      await page.getByLabelText('Version').selectOptions('v2');
+      await page.getByLabelText('Version').selectOptions('v3');
+      await expect.element(page.getByLabelText('intro')).toHaveValue('Hello');
+      await page.getByLabelText('Version').selectOptions('v1');
+      await expect.element(page.getByLabelText('intro')).not.toBeInTheDocument();
+      await saveButton().click();
+
+      await expect.poll(() => onOpenChange.mock.calls).toEqual([[false]]);
+      expect(server.updateRequests).toEqual([]);
+    });
+  });
+
   test('sends changed settings alone', async () => {
     const server = startServer();
     await renderDialog(createTaskGroupStage({ title: 'Morning', length: 5 }));
@@ -354,6 +464,74 @@ describe('StageEditDialog task group stage', () => {
     await renderDialog(createTaskGroupStage({ length: 5, title: 'Morning' }), onOpenChange);
 
     await expect.element(page.getByLabelText('Title')).toHaveValue('Morning');
+    await saveButton().click();
+
+    await expect.poll(() => onOpenChange.mock.calls).toEqual([[false]]);
+    expect(server.updateRequests).toEqual([]);
+  });
+
+  test('keeps a key the format does not list when a field changes', async () => {
+    const server = startServer();
+    await renderDialog(createTaskGroupStage({ title: 'Morning', extra: 1 }));
+
+    await page.getByLabelText('Title').fill('Evening');
+    await saveButton().click();
+
+    await expect.poll(() => server.updateRequests).toEqual([
+      { settings: { title: 'Evening', music: false, extra: 1 } },
+    ]);
+  });
+
+  test('Edit JSON shows a key the format does not list', async () => {
+    startServer();
+    await renderDialog(createTaskGroupStage({ title: 'Morning', extra: 1 }));
+
+    await page.getByRole('button', { name: 'Edit JSON' }).click();
+
+    await expect.element(page.getByLabelText('Settings')).toHaveValue(
+      JSON.stringify({ title: 'Morning', music: false, extra: 1 }, null, 2),
+    );
+  });
+
+  test('emptying a field removes only its key', async () => {
+    const server = startServer();
+    await renderDialog(createTaskGroupStage({ title: 'Morning', length: 5, extra: 1 }));
+
+    await page.getByLabelText('length').fill('');
+    await saveButton().click();
+
+    await expect.poll(() => server.updateRequests).toEqual([
+      { settings: { title: 'Morning', music: false, extra: 1 } },
+    ]);
+  });
+
+  test('a key added in Edit JSON stays after Simple mode and is sent', async () => {
+    const server = startServer();
+    await renderDialog(createTaskGroupStage({ title: 'Morning' }));
+
+    await page.getByRole('button', { name: 'Edit JSON' }).click();
+    await page.getByLabelText('Settings').fill('{"title": "Morning", "added": true}');
+    await page.getByRole('button', { name: 'Simple mode' }).click();
+    await expect.element(page.getByLabelText('Title')).toHaveValue('Morning');
+    await saveButton().click();
+
+    await expect.poll(() => server.updateRequests).toEqual([
+      { settings: { title: 'Morning', music: false, added: true } },
+    ]);
+  });
+
+  test('closes without a request when nothing changed, with a key the format does not list', async () => {
+    const server = startServer();
+    const onOpenChange = vi.fn();
+    await renderDialog(createTaskGroupStage({ title: 'Morning', extra: 1 }), onOpenChange);
+
+    await page.getByLabelText('Version').selectOptions('v2');
+    await expect.element(page.getByLabelText('music')).not.toBeInTheDocument();
+    await page.getByLabelText('Version').selectOptions('v1');
+    await page.getByRole('button', { name: 'Edit JSON' }).click();
+    await expect.element(page.getByLabelText('Settings')).toHaveValue(
+      JSON.stringify({ title: 'Morning', music: false, extra: 1 }, null, 2),
+    );
     await saveButton().click();
 
     await expect.poll(() => onOpenChange.mock.calls).toEqual([[false]]);
