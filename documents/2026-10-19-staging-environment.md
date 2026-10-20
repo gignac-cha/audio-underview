@@ -37,7 +37,8 @@ docker는 클라우드 없이 웹·워커·DB 전체를 compose 한 번으로 �
 | 웹 | `audio-underview.pages.dev` | `staging.audio-underview.pages.dev` | `development.audio-underview.pages.dev` |
 | 워커 | `audio-underview-<이름>-worker` | `…-staging-worker`(`--env staging`) | `…-development-worker`(`--env development`) |
 | Supabase | 같은 프로젝트, `public` | 같은 프로젝트, `staging` | 같은 프로젝트, `development` |
-| R2·D1·KV | 지금 것 | staging용 새 자원 | development용 새 자원 |
+| R2·KV | 지금 것 | staging용 새 자원 | development용 새 자원 |
+| user-vault 저장소 | Supabase `public`의 vault 테이블 | `staging`의 vault 테이블(복사하지 않음) | `development`의 vault 테이블 |
 | Workflow | `audio-underview-scheduler-run-workflow` | `…-staging-workflow` | `…-development-workflow` |
 | 코드 실행 Lambda | 지금 것 | 같이 씀(데이터를 저장하지 않음) | 같이 씀 |
 | `JWT_SECRET` | 지금 값 | 새 값 | 새 값 |
@@ -59,16 +60,18 @@ GitHub OAuth App은 2026-08-14부터 callback을 10개까지 둘 수 있다. Goo
 
 **`schema`는 생략할 수 없게 한다.** 기본값을 `public`으로 두면, 한 곳이라도 넘기기를 잊었을 때 staging·development 워커가 운영 테이블에 쓴다. 세 환경이 같은 Supabase 키를 쓰므로 막아 줄 것이 없다. 생략할 수 없게 하면 빠진 곳을 typecheck가 잡는다. 실행 때도 막는다. 어떤 환경 블록에서 `SUPABASE_SCHEMA`가 빠지면 값이 `undefined`로 들어오고, supabase-js는 header를 보내지 않아 PostgREST가 첫 노출 schema인 `public`을 쓴다. 그래서 `createSupabaseClient`는 schema가 SQL 이름 모양(`^[a-z_][a-z0-9_]*$`)이 아니면 요청 전에 오류를 낸다.
 
-**테스트로 붙잡아 둔다.** 다섯 워커에 `tests/wrangler-environments.test.ts`를 둔다. 운영과 각 환경의 이름, `SUPABASE_SCHEMA`, 허용 목록, cron, 그리고 어떤 환경도 운영 자원(워커·bucket·D1·KV·Workflow)을 다시 쓰지 않는지를 `wrangler.toml`에서 읽어 확인한다. crawler-manager와 scheduler-manager는 `createSupabaseClient` 호출을 모두 세어, 모든 호출이 환경의 `SUPABASE_SCHEMA`를 넘기는지 본다.
+**테스트로 붙잡아 둔다.** 다섯 워커에 `tests/wrangler-environments.test.ts`를 둔다. 운영과 각 환경의 이름, `SUPABASE_SCHEMA`, 허용 목록, cron, 그리고 어떤 환경도 운영 자원(워커·bucket·KV·Workflow)을 다시 쓰지 않는지를 `wrangler.toml`에서 읽어 확인한다. crawler-manager, scheduler-manager, user-vault는 `createSupabaseClient` 호출을 모두 세어, 모든 호출이 환경의 `SUPABASE_SCHEMA`를 넘기는지 본다.
 
-**워커는 `SUPABASE_SCHEMA` 변수를 읽는다.** `wrangler.toml`의 `[vars]`에 `SUPABASE_SCHEMA = "public"`을, `[env.staging.vars]`에 `"staging"`을, `[env.development.vars]`에 `"development"`를, `[env.docker.vars]`에 `"public"`(컨테이너 안 DB)을 둔다. user-vault는 Supabase를 쓰지 않는다. `createSupabaseClient`를 부르는 곳은 crawler-manager 7곳, scheduler-manager 20곳, 로그인 워커 15개에 하나씩 있다. 모두 `schema: environment.SUPABASE_SCHEMA`를 넘긴다. 배포하지 않는 로그인 워커 13개도 typecheck를 위해 같이 고친다.
+**워커는 `SUPABASE_SCHEMA` 변수를 읽는다.** `wrangler.toml`의 `[vars]`에 `SUPABASE_SCHEMA = "public"`을, `[env.staging.vars]`에 `"staging"`을, `[env.development.vars]`에 `"development"`를, `[env.docker.vars]`에 `"public"`(컨테이너 안 DB)을 둔다. `createSupabaseClient`를 부르는 곳은 crawler-manager 7곳, scheduler-manager 20곳, user-vault, 로그인 워커 15개에 있다.
 
-**`[env.staging]`, `[env.development]`, `[env.docker]`를 다섯 워커의 `wrangler.toml`에 더한다.** 이어지지 않는 설정(vars, KV·R2·D1, services, workflows, worker_loaders)은 환경마다 모두 다시 적는다. main, compatibility 설정, workers_dev, observability, cron은 이어진다(wrangler 4.151에서 확인). 운영 `wrangler deploy`는 `--env` 없이 돌므로, 환경이 생긴 뒤에는 경고만 하나 더 나오고 그대로 운영에 배포된다.
+**user-vault는 D1 대신 Supabase를 쓴다(2026-10-20 결정).** 사용자의 AI 제공자 키(`provider_keys`), 크롤러 환경 변수(`environment_variables`), 키 사용 기록(`key_audit_log`)을 migration 015로 `public`에 만든다. 값은 지금처럼 KEK로 감싼 키로 암호화하고, KEK는 user-vault에만 있다. 다른 워커가 같은 키로 테이블을 읽어도 풀 수 없다. 운영 D1에는 테이블 두 개가 있지만 행이 없어서 옮길 데이터가 없었다. 그래서 D1 binding, `schema.sql`, CI의 D1 단계, docker의 D1 적용을 없앴다. 환경마다 vault 값은 따로 등록한다. 모두 `schema: environment.SUPABASE_SCHEMA`를 넘긴다. 배포하지 않는 로그인 워커 13개도 typecheck를 위해 같이 고친다.
+
+**`[env.staging]`, `[env.development]`, `[env.docker]`를 다섯 워커의 `wrangler.toml`에 더한다.** 이어지지 않는 설정(vars, KV·R2, services, workflows, worker_loaders)은 환경마다 모두 다시 적는다. main, compatibility 설정, workers_dev, observability, cron은 이어진다(wrangler 4.151에서 확인). 운영 `wrangler deploy`는 `--env` 없이 돌므로, 환경이 생긴 뒤에는 경고만 하나 더 나오고 그대로 운영에 배포된다.
 - staging scheduler-manager는 `crons = []`로 cron을 끈다. 복사한 production 스케줄이 staging에서 한 번 더 돌면, 외부 크롤링과 나중의 뉴스캐스트 TTS 요금이 두 번 든다. staging에서는 Run now로만 돌린다.
 - development scheduler-manager는 cron을 그대로 둔다. development 스케줄은 development 데이터다.
 - crawler-manager의 cron(15분마다 R2 정리)은 세 환경 모두 그대로 둔다.
 
-워커 이름은 `audio-underview-<이름>-<env>-worker`다. wrangler는 이름을 적지 않으면 `<이름>-<env>`(`…-worker-staging`)로 배포하므로, 환경마다 `name`을 적는다. Workflow 이름도 같은 규칙(`…-staging-workflow`)이다. 이름에 종류가 없는 R2 bucket과 D1 database는 끝에 `-<env>`를 붙인다.
+워커 이름은 `audio-underview-<이름>-<env>-worker`다. wrangler는 이름을 적지 않으면 `<이름>-<env>`(`…-worker-staging`)로 배포하므로, 환경마다 `name`을 적는다. Workflow 이름도 같은 규칙(`…-staging-workflow`)이다. 이름에 종류가 없는 R2 bucket과 KV namespace는 끝에 `-<env>`를 붙인다.
 
 crawler-manager의 staging 예:
 
@@ -146,7 +149,7 @@ production 적용 기록이 파일과 맞지 않으면 staging이 production 행
 
 **`deploy-staging.yml`(새로).** `pull_request`(main 대상, opened·synchronize·reopened)에서 돈다. 문서만 바꾼 PR과 fork PR은 건너뛴다. concurrency group은 `deploy-staging` 하나다(fork PR은 따로 둬서 대기 중인 실행을 밀어내지 않게 한다). `cancel-in-progress: false`로 두어 배포가 반쯤 끝난 채 끊기지 않게 한다.
 1. schema: `build-environment-schema.ts staging`. `secrets.SUPABASE_ACCESS_TOKEN`, `vars.SUPABASE_PROJECT_ID`.
-2. user-vault D1: `wrangler d1 execute audio-underview-user-vault-staging --env staging --remote --file schema.sql`. `IF NOT EXISTS`라 매번 돌려도 된다.
+2. (없앰) 처음에는 user-vault D1에 `schema.sql`을 적용했지만, user-vault가 Supabase를 쓰게 되면서 이 단계가 없어졌다. vault 테이블은 1번 schema 단계에서 migration 015로 생긴다. CI의 Cloudflare token에는 D1 권한이 필요 없다.
 3. 워커 다섯 개: `wrangler deploy --env staging`.
    - service binding 대상이 먼저 있게 user-vault → crawler-manager → scheduler-manager 순서로, 로그인 워커 둘은 나란히 배포한다.
    - 로그인 워커는 지금 운영 job처럼 `secrets`로 client ID·secret과 `FRONTEND_URL`(그 환경의 웹 주소)을 올린다.
@@ -160,7 +163,7 @@ production 적용 기록이 파일과 맞지 않으면 staging이 production 행
 두 workflow는 한 파일의 재사용 workflow(`deploy-environment.yml`, `workflow_call`)로 묶고, 환경 이름만 넘긴다. 운영 배포 흐름은 바꾸지 않는다.
 
 `--env`를 빠뜨리면 운영 워커를 덮어쓰므로, 아래로 막는다.
-- wrangler 단계마다 `cloudflare/wrangler-action`의 `environment` 입력과 명령의 `--env`를 함께 적는다. action은 명령에 `--env`가 없을 때만 붙이고, secret 업로드에는 `environment` 입력만 쓴다(v3.15.0 source에서 확인). 그래서 배포, secret 업로드, `d1 execute`에 `--env`가 정확히 한 번씩 붙는다.
+- wrangler 단계마다 `cloudflare/wrangler-action`의 `environment` 입력과 명령의 `--env`를 함께 적는다. action은 명령에 `--env`가 없을 때만 붙이고, secret 업로드에는 `environment` 입력만 쓴다(v3.15.0 source에서 확인). 그래서 배포와 secret 업로드에 `--env`가 정확히 한 번씩 붙는다.
 - 첫 job(validate)이 배포 전에 확인한다: `<환경>_*` 변수가 비어 있지 않고 운영 변수와 다른지, 다섯 워커의 `wrangler.toml`에 `[env.<환경>]`과 `name = "audio-underview-<이름>-<환경>-worker"`가 있는지. wrangler는 설정에 없는 환경 이름을 받으면, 다른 환경이 하나도 없을 때 경고만 하고 운영 바인딩으로 배포하기 때문이다.
 - staging 웹 배포에는 `gitHubToken`을 넘기지 않는다. 넘기면 GitHub의 `preview` environment에 deployment가 생기는데, 이제 그것을 정리할 것이 없다. PR 댓글에는 고정 주소만 적는다. 배포마다 생기는 `<hash>.audio-underview.pages.dev`는 허용 목록에 없어 로그인이 안 된다.
 - 첫 배포 때 워커가 아직 없으면 `secret bulk`가 빈 워커를 먼저 만들고, 뒤의 배포가 그것을 바꾼다(wrangler 4.151 source에서 확인).
@@ -178,7 +181,7 @@ production 적용 기록이 파일과 맞지 않으면 staging이 production 행
 | 띄우기 | 루트 `pnpm dev` 하나로 웹(Vite)과 워커 다섯 개를 함께 띄운다. 지금 `pnpm dev`는 turbo로 모든 패키지의 `dev`를 띄우므로(로그인 워커 15개 포함), 이 여섯 개만 띄우게 `--filter`를 단다. 다섯 워커의 `dev` script는 `wrangler dev --env development --port <포트> --inspector-port <포트>`로 바꾼다. 다섯을 한꺼번에 띄우면 모두 inspector 기본 포트 9229를 고르다 `Address already in use`로 죽기 때문에, inspector 포트를 9330~9334로 고정한다 |
 | 포트 | Google 8787, GitHub 8788, crawler-manager 8789, scheduler-manager 8790, user-vault 8791로 고정한다. 로그인 callback이 `http://localhost:<포트>/callback`이라, 바뀌면 다시 등록해야 한다 |
 | Supabase | 클라우드의 `development` schema(클라우드 development 워커와 같은 데이터) |
-| R2·KV·D1·Workflow | `wrangler dev`의 로컬 저장소(`.wrangler/state`). 클라우드 자원은 건드리지 않는다. user-vault 로컬 D1에는 `wrangler d1 execute … --env development --local --file schema.sql`을 한 번 적용한다. 따로 띄운 워커끼리도 service binding이 이어지고, Dynamic Workers와 Workflow도 로컬에서 돈다(확인함). cron은 저절로 돌지 않아 wrangler가 알려 주는 주소로 직접 부른다 |
+| R2·KV·Workflow | `wrangler dev`의 로컬 저장소(`.wrangler/state`). 클라우드 자원은 건드리지 않는다. user-vault의 테이블은 클라우드 `development` schema에 있다. 따로 띄운 워커끼리도 service binding이 이어지고, Dynamic Workers와 Workflow도 로컬에서 돈다(확인함). cron은 저절로 돌지 않아 wrangler가 알려 주는 주소로 직접 부른다 |
 | secret | 워커마다 `.dev.vars.development`. `--env development`로 띄우면 이 파일만 읽는다 |
 | 웹 주소 설정 | 로컬 워커 주소는 비밀이 아니므로 `applications/web/.env.development`에 적어 commit한다. Vite가 개발 서버에서만 읽는다. `VITE_GOOGLE_CLIENT_ID`는 `.env.development.local`(gitignore됨)에 둔다 |
 
@@ -196,7 +199,7 @@ production 적용 기록이 파일과 맞지 않으면 staging이 production 행
 
 ## 7. docker 환경
 
-`docker/compose.yaml` 하나로 아래를 띄운다. 쓰는 법은 `docker/README.md`에 있다. 클라우드 자원(DB, R2, KV, D1, Workflow)은 쓰지 않는다. 워커가 밖으로 부르는 것은 Google·GitHub 로그인과 토큰 확인, 코드 실행 Lambda(데이터를 저장하지 않음), 크롤러 코드가 부르는 주소와 그 DNS 조회(`cloudflare-dns.com`), user-vault가 저장한 키를 확인할 때의 provider API다.
+`docker/compose.yaml` 하나로 아래를 띄운다. 쓰는 법은 `docker/README.md`에 있다. 클라우드 자원(DB, R2, KV, Workflow)은 쓰지 않는다. 워커가 밖으로 부르는 것은 Google·GitHub 로그인과 토큰 확인, 코드 실행 Lambda(데이터를 저장하지 않음), 크롤러 코드가 부르는 주소와 그 DNS 조회(`cloudflare-dns.com`), user-vault가 저장한 키를 확인할 때의 provider API다.
 
 ```
 export COMPOSE_ENV_FILES="$PWD/docker/.env.docker"
@@ -209,11 +212,11 @@ docker compose -f docker/compose.yaml up --build
 | migrate | 한 번 돌고 끝나는 컨테이너. migration 파일을 001부터 `public`에 파일마다 한 transaction으로 적용한다. 적용 기록은 `migration_history.applied_migrations`에 두어 PostgREST에 드러나지 않게 하고, 이미 적용한 파일은 건너뛴다 |
 | rest | PostgREST v14(Supabase와 같은 major). `authenticator`로 접속하고 `public`을 노출한다. 한 번에 1000행까지(Supabase Data API 기본값) |
 | gateway | nginx. supabase-js는 `<SUPABASE_URL>/rest/v1/…`로 부르므로, `/rest/v1/`을 PostgREST로 넘긴다 |
-| workers | 한 컨테이너에서 다섯 워커를 각자 `wrangler dev --env docker --ip 0.0.0.0 --port <포트>`로 띄운다(`docker/workers/start-workers.ts`). 컨테이너를 나누면 dev registry가 `127.0.0.1`을 적어서 service binding이 이어지지 않는다. R2·KV·D1·Workflow는 볼륨에 워커마다 따로 둔다(`--persist-to`). user-vault는 시작 전에 로컬 D1에 `schema.sql`을 적용한다 |
+| workers | 한 컨테이너에서 다섯 워커를 각자 `wrangler dev --env docker --ip 0.0.0.0 --port <포트>`로 띄운다(`docker/workers/start-workers.ts`). 컨테이너를 나누면 dev registry가 `127.0.0.1`을 적어서 service binding이 이어지지 않는다. R2·KV·Workflow는 볼륨에 워커마다 따로 둔다(`--persist-to`). user-vault의 테이블은 migrate가 015로 컨테이너 Postgres에 만든다 |
 | web | Vite 개발 서버(`--host 0.0.0.0 --port 5174`) |
 
 - **Supabase 연결:** 워커의 `SUPABASE_URL`은 gateway 주소(`http://gateway:8000`)다. `SUPABASE_SECRET_KEY`는 시작할 때 PostgREST의 JWT secret으로 서명해 만든 `role: service_role` JWT다. supabase-js는 이 값을 header로 보내기만 하므로 클라우드 키 형식이 아니어도 된다. DB가 따로라 schema를 나눌 필요가 없어 `SUPABASE_SCHEMA`는 `public`이다.
-- **wrangler 설정:** 다섯 워커에 `[env.docker]`를 더한다. 이름은 다른 환경처럼 `…-docker-worker`이고, 허용 목록은 docker 웹 주소다. 배포하지 않으므로 KV·D1 ID는 로컬 이름(`docker-oauth-state`, `docker-user-vault`)이다.
+- **wrangler 설정:** 다섯 워커에 `[env.docker]`를 더한다. 이름은 다른 환경처럼 `…-docker-worker`이고, 허용 목록은 docker 웹 주소다. 배포하지 않으므로 KV ID는 로컬 이름(`docker-oauth-state`)이다.
 - **소스:** 원격 Docker에서는 bind mount가 m6의 경로를 본다. 그래서 소스를 이미지에 넣어 build한다. 고칠 때는 `compose watch`가 source 폴더를 컨테이너로 옮기고, `package.json`이나 lockfile이 바뀌면 다시 build한다. m6 원격 엔진에서 `watch`가 시작되는 것까지 확인했다.
 - **접속과 로그인:** Google은 callback으로 https나 `localhost`만 받고 IP 주소는 받지 않는다. 그래서 브라우저는 `localhost`로 붙는다. 포트는 m6의 `127.0.0.1`에만 열고, `ssh -N -L …` 한 줄로 이 컴퓨터의 localhost에 넘겨받는다. 웹은 5174, 워커는 9787~9791이다. Vite는 https로 뜨므로 허용 목록은 `https://localhost:5174`다. 로그인 워커는 요청 주소로 callback을 만들므로 `http://localhost:9787/callback`, `http://localhost:9788/callback`이 나간다.
 - **secret:** `docker/.env.docker`(gitignore)를 셸마다 한 번 `COMPOSE_ENV_FILES`로 정해 두고(`--env-file`로 넘겨도 된다), 서비스마다 필요한 값만 받는다. rest는 PostgREST JWT secret만, web은 Google client ID만, workers는 나머지(docker 전용 `JWT_SECRET`·`VAULT_INTERNAL_TOKEN`·`PROVIDER_KEY_KEK`, 로그인 client ID·secret, `CODE_RUNNER_FUNCTION_URL`)를 받는다. `tools/environment-generator`가 1Password에서 만든다. PostgREST JWT secret이 없으면 compose 명령이 바로 멈추므로, `down`·`logs`도 이 파일을 읽어야 한다. `COMPOSE_ENV_FILES`를 정해 둔 셸에서는 따로 붙일 것이 없다.
@@ -225,7 +228,7 @@ docker compose -f docker/compose.yaml up --build
 ## 8. 한 번만 하는 준비
 
 외부 계정을 바꾸는 일이라 하나씩 사용자 확인을 받고 한다.
-1. Cloudflare(outlook 계정): staging·development용 R2 bucket(`audio-underview-crawler-files-<env>`), D1 database(`audio-underview-user-vault-<env>`), KV namespace(`audio-underview-oauth-state-<env>`)를 만들고 ID를 `wrangler.toml`에 적는다. **2026-10-20 완료.** KV·D1 ID는 비밀이 아니고 CI가 커밋된 `wrangler.toml`을 읽으므로, 운영 ID처럼 커밋한다.
+1. Cloudflare(outlook 계정): staging·development용 R2 bucket(`audio-underview-crawler-files-<env>`), KV namespace(`audio-underview-oauth-state-<env>`)를 만들고 ID를 `wrangler.toml`에 적는다. **2026-10-20 완료.** KV ID는 비밀이 아니고 CI가 커밋된 `wrangler.toml`을 읽으므로, 운영 ID처럼 커밋한다. 같이 만든 D1 database(`audio-underview-user-vault-<env>`)는 user-vault가 Supabase로 옮기면서 쓰지 않게 됐다. 운영 D1과 함께 지울 대상이다.
 2. 1Password `Audio Underview` vault에 `Staging Environment`·`Development Environment`·`Docker Environment` 항목을 만든다: JWT secret, vault internal token, provider key KEK. docker에는 PostgREST JWT secret도 둔다.
 3. 워커 secret(`wrangler secret bulk --env staging|development`). 새 값은 2번 항목이고, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `CODE_RUNNER_FUNCTION_URL`, `AXIOM_API_TOKEN`은 운영과 같은 값이다. 로그인 워커의 client ID·secret과 `FRONTEND_URL`은 CI가 배포 때마다 올린다. 2·3번은 사용자가 터미널에서 스크립트 하나로 한다(값이 화면·명령 인자·파일에 남지 않음).
 4. 로그인 callback(사용자 몫). 지금 Google OAuth client와 GitHub OAuth App에 더한다.
@@ -261,7 +264,8 @@ docker compose -f docker/compose.yaml up --build
 - staging에는 다른 사용자의 데이터도 복사된다. staging에서는 머지 전 코드가 돌므로, 권한 검사에 버그가 있으면 staging 주소로 남의 복사본이 보일 수 있다.
 - staging은 Supabase 데이터만 복사한다.
   - 복사된 실행 기록의 파일은 staging R2에 없어서 열리지 않는다.
-  - user-vault의 환경 변수는 production KEK로 암호화돼 있어 복사하지 않는다. staging에서 다시 등록한다.
+  - user-vault의 세 테이블(AI 제공자 키, 크롤러 환경 변수, 키 사용 기록)은 production KEK로 암호화돼 있어 복사하지 않는다. staging에서 다시 등록한다. 로그인은 user-vault와 상관없다(`users`·`accounts`는 복사된다).
+- 머지하면 운영 migration(015)과 user-vault 배포가 순서 없이 동시에 시작된다. 그사이 잠깐 user-vault가 없는 테이블을 찾을 수 있다. 운영 user-vault에는 머지 전에 `SUPABASE_URL`, `SUPABASE_SECRET_KEY` secret을 올려 둔다.
 - production 허용 목록에서 localhost를 빼면, 로컬 웹을 운영 워커에 붙여 쓰던 방식은 더 이상 안 된다.
 - SQL 실행 API는 문서상 beta·experimental이다. 바뀌면 같은 일을 DB 직접 연결(`psql`)로 한다.
 - 구현하며 확인한 것(2026-10-19~20):
@@ -277,6 +281,6 @@ docker compose -f docker/compose.yaml up --build
 - development에 새 migration 여러 개를 한 번에 적용하면 한 transaction이 된다. 한 파일이 enum 값을 더하고 다음 파일이 그 값을 쓰면 실패하므로, `--reset`하거나 나눠서 배포한다. 기록에는 checksum이 없어서, 이미 적용한 파일을 고치면 알아채지 못한다(`--reset`).
 - 이 컴퓨터에서는 8788 포트를 다른 서비스(account-usage-dashboard)가 쓰고 있다. `pnpm dev` 중에는 `localhost:8788`이 GitHub 로그인 워커로 간다.
 - 로컬 `wrangler dev`에서 Run now가 SchedulerRunWorkflow를 시작한 직후 scheduler-manager에 "code had hung" 오류가 한 번 찍힌다(docker에서 봄). 실행 기록은 제대로 남는다. 원인은 아직 모른다.
-- 로컬 워커와 클라우드 development 워커는 같은 `development` schema를 쓴다. 로컬 R2·D1은 내 컴퓨터에만 있으므로, 클라우드 development에서 만든 실행 기록의 파일은 로컬에서 열리지 않는다(반대도 같다).
+- 로컬 워커와 클라우드 development 워커는 같은 `development` schema를 쓴다. 로컬 R2는 내 컴퓨터에만 있으므로, 클라우드 development에서 만든 실행 기록의 파일은 로컬에서 열리지 않는다(반대도 같다).
 - staging과 development는 각각 한 번에 한 브랜치만 쓴다.
 - Supabase는 2026-10-30부터 기존 프로젝트도 새로 만드는 테이블에 Data API 권한을 저절로 주지 않는다. 015부터의 migration은 테이블마다 `GRANT … TO service_role`을 적어야 하고, 빠지면 schema 도구가 거절한다(4절). staging·development도 기본 권한을 두지 않아, GRANT가 빠진 migration이 staging에서만 되는 일이 없다. docker의 Postgres는 예전 Supabase처럼 기본 권한을 두어 이 차이를 잡지 못하므로, PR의 `test-tools.yml`이 실제 migration 폴더로 이 검사를 돌려 막는다.
