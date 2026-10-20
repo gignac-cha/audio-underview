@@ -1,6 +1,8 @@
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { migrationName, type MigrationFile } from './migration-files.ts';
-import { planDevelopment, planStaging } from './schema-statements.ts';
+import { collectCreatedTables } from './created-tables.ts';
+import { migrationName, readMigrationFiles, type MigrationFile } from './migration-files.ts';
+import { planDevelopment, planStaging, UNCOPIED_TABLES } from './schema-statements.ts';
 
 const file = (fileName: string, sql: string): MigrationFile => ({ fileName, name: migrationName(fileName), sql });
 
@@ -214,6 +216,87 @@ describe('planStaging', () => {
   it('fails before building SQL when a file would escape the schema', () => {
     expect(() => planStaging([...files, file('005_grant.sql', 'GRANT USAGE ON SCHEMA public TO anon;')], productionNames, production)).toThrow(
       /005_grant.sql cannot be applied to staging/,
+    );
+  });
+});
+
+describe('planStaging and the user vault tables', () => {
+  const vaultTables = ['environment_variables', 'key_audit_log', 'provider_keys'];
+
+  it('leaves out the tables the connector migrations create for the user vault', () => {
+    const created = collectCreatedTables(readMigrationFiles(fileURLToPath(new URL('../../../packages/supabase-connector/migrations', import.meta.url))));
+    for (const table of vaultTables) {
+      expect(created, `${table} is created by a migration`).toContain(table);
+      expect(UNCOPIED_TABLES.has(table), `${table} is not copied`).toBe(true);
+    }
+  });
+  const vaultFile = file(
+    '015_create_user_vault_tables.sql',
+    [
+      'CREATE TABLE provider_keys (user_id TEXT NOT NULL, provider TEXT NOT NULL, ciphertext TEXT NOT NULL, PRIMARY KEY (user_id, provider));',
+      'CREATE TABLE key_audit_log (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, user_id TEXT NOT NULL, provider TEXT NOT NULL);',
+      'CREATE TABLE environment_variables (user_id TEXT NOT NULL, name TEXT NOT NULL, ciphertext TEXT NOT NULL, PRIMARY KEY (user_id, name));',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE provider_keys TO service_role;',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE key_audit_log TO service_role;',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE environment_variables TO service_role;',
+      '',
+    ].join('\n'),
+  );
+  const withVault = [...files, vaultFile];
+  const namesWithVault = ['create_users', 'create_crawlers', 'create_deletions', 'add_cleanup', 'create_user_vault_tables'];
+  const productionWithVault = {
+    tables: ['crawler_file_deletions', 'crawlers', 'environment_variables', 'key_audit_log', 'provider_keys', 'users'],
+    foreignKeys: production.foreignKeys,
+  };
+
+  it('does not copy their rows, which production encrypted with its own key encryption key', () => {
+    const plan = planStaging(withVault, namesWithVault, productionWithVault);
+    expect(plan.copiedTables).toEqual(['users', 'crawlers']);
+    expect(plan.skippedTables).toEqual([]);
+    expect(plan.uncopiedTables).toEqual(['crawler_file_deletions', ...vaultTables]);
+    expect(plan.sql).toContain("copied_tables TEXT[] := ARRAY['users', 'crawlers']::TEXT[];");
+    for (const table of vaultTables) {
+      expect(plan.sql).not.toMatch(new RegExp(`\\b(?:INSERT\\s+INTO|FROM)\\s+(?:staging|public)\\.${table}\\b`));
+    }
+  });
+
+  it('still creates them in staging, empty, and fails the run if one is missing', () => {
+    const plan = planStaging(withVault, namesWithVault, productionWithVault);
+    expect(plan.sql).toContain('-- 015_create_user_vault_tables.sql\nSET LOCAL search_path TO staging;\nCREATE TABLE provider_keys');
+    const copy = plan.sql.slice(indexOf(plan.sql, "-- Copy production's rows"), indexOf(plan.sql, "-- Give staging production's privileges"));
+    expect(copy).toContain("unnest(ARRAY['users', 'crawlers', 'crawler_file_deletions', 'provider_keys', 'key_audit_log', 'environment_variables']::TEXT[])");
+    const check = plan.sql.slice(indexOf(plan.sql, '-- Check that staging does not reach production'));
+    expect(check).toContain(
+      "unnest(ARRAY['users', 'crawlers', 'crawler_file_deletions', 'provider_keys', 'key_audit_log', 'environment_variables']::TEXT[])",
+    );
+  });
+
+  it("gives them the privileges production's have, as any table shared with public", () => {
+    const plan = planStaging(withVault, namesWithVault, productionWithVault);
+    const privileges = plan.sql.slice(indexOf(plan.sql, "-- Give staging production's privileges"), indexOf(plan.sql, "NOTIFY pgrst, 'reload schema';"));
+    // The statement reads every relation staging shares with public from the catalog, so a table needs no entry of its own.
+    expect(privileges).toContain("WHERE staging_relation.relnamespace = 'staging'::regnamespace");
+    expect(privileges).toContain("AND public_relation.relnamespace = 'public'::regnamespace");
+    expect(privileges).toContain("EXECUTE format('REVOKE ALL ON %s staging.%I FROM %s'");
+    for (const table of vaultTables) {
+      expect(privileges).not.toContain(table);
+    }
+  });
+
+  it('creates them after the copy with only their own grants while production does not have them yet', () => {
+    const plan = planStaging(withVault, ['create_users', 'create_crawlers', 'create_deletions', 'add_cleanup'], production);
+    expect(plan.copiedTables).toEqual(['users', 'crawlers']);
+    expect(plan.uncopiedTables).toEqual(['crawler_file_deletions']);
+    expect(plan.afterCopy).toEqual(['015_create_user_vault_tables.sql']);
+    expect(indexOf(plan.sql, "-- Give staging production's privileges")).toBeLessThan(indexOf(plan.sql, '-- 015_create_user_vault_tables.sql'));
+    expect(plan.sql).toContain('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE provider_keys TO service_role;');
+    expect(plan.sql).not.toContain('-- Tables of the migrations up to 014');
+  });
+
+  it('refuses before building SQL when the migration does not grant one of them', () => {
+    const forgetful = file('015_create_user_vault_tables.sql', vaultFile.sql.replace('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE key_audit_log TO service_role;\n', ''));
+    expect(() => planStaging([...files, forgetful], namesWithVault, productionWithVault)).toThrow(
+      /^migrations after 014 create tables without a GRANT to service_role:\n {2}015_create_user_vault_tables\.sql: key_audit_log\n/,
     );
   });
 });

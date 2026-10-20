@@ -2,12 +2,13 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { collectCreatedTables } from './created-tables.ts';
 import { readMigrationFiles } from './migration-files.ts';
+import { reliesOnAutomaticGrants } from './table-grants.ts';
 
 const file = (sql: string) => ({ fileName: '001_x.sql', name: 'x', sql });
 
 describe('collectCreatedTables', () => {
-  it('lists the twelve tables of the migrations', () => {
-    const files = readMigrationFiles(fileURLToPath(new URL('../../../packages/supabase-connector/migrations', import.meta.url)));
+  it('lists the twelve tables of the migrations up to 014', () => {
+    const files = readMigrationFiles(fileURLToPath(new URL('../../../packages/supabase-connector/migrations', import.meta.url))).filter(reliesOnAutomaticGrants);
     expect(collectCreatedTables(files).sort()).toEqual([
       'accounts',
       'crawler_file_deletions',

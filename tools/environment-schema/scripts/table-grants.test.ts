@@ -75,7 +75,7 @@ describe('findTablesWithoutGrant', () => {
 });
 
 describe('assertTableGrants', () => {
-  it('passes the migrations, all numbered up to 014', () => {
+  it('passes the migrations, those after 014 granting the tables they create', () => {
     const files = readMigrationFiles(migrationsDirectory);
     expect(() => assertTableGrants(files)).not.toThrow();
     for (const each of files.filter((migration) => !reliesOnAutomaticGrants(migration))) {

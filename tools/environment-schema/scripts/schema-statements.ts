@@ -15,9 +15,18 @@ export interface ProductionMetadata {
 /**
  * Tables whose rows staging does not take from production. The R2 deletion
  * queue names objects of the production bucket, which staging's bucket does
- * not have.
+ * not have. The user vault's rows are encrypted with the key encryption key
+ * (KEK) of the environment that wrote them, and staging has its own, so
+ * production's provider keys and environment variables could not be read
+ * there; their audit log describes those keys and stays behind with them. The
+ * tables are still made and get production's privileges like any other.
  */
-export const UNCOPIED_TABLES: ReadonlySet<string> = new Set(['crawler_file_deletions']);
+export const UNCOPIED_TABLES: ReadonlySet<string> = new Set([
+  'crawler_file_deletions',
+  'provider_keys',
+  'key_audit_log',
+  'environment_variables',
+]);
 
 /** Where development records the migrations it has applied. */
 export const DEVELOPMENT_RECORDS_TABLE = 'development.schema_migrations';

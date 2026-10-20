@@ -94,6 +94,35 @@ describe('buildEnvironmentSchema', () => {
     ]);
   });
 
+  it("lists the user vault tables as not copied, since their rows are encrypted with production's key encryption key", async () => {
+    const vaultFiles = [
+      ...files,
+      file(
+        '003_create_user_vault_tables.sql',
+        'CREATE TABLE provider_keys (user_id TEXT);\nGRANT ALL ON TABLE provider_keys TO service_role;\nCREATE TABLE key_audit_log (id INT);\nGRANT ALL ON TABLE key_audit_log TO service_role;\nCREATE TABLE environment_variables (user_id TEXT);\nGRANT ALL ON TABLE environment_variables TO service_role;\n',
+      ),
+    ];
+    const { database, calls } = stubDatabase(
+      ['create_users', 'create_crawlers', 'create_user_vault_tables'],
+      production(
+        ['crawlers', 'environment_variables', 'key_audit_log', 'provider_keys', 'users'],
+        [{ table: 'crawlers', references: 'users' }],
+      ),
+      [
+        { table_name: 'users', row_count: 3 },
+        { table_name: 'crawlers', row_count: 5 },
+      ],
+    );
+    const summary = await buildEnvironmentSchema({ environment: 'staging', reset: false, files: vaultFiles, database });
+
+    expect(calls[1].sql).toContain("copied_tables TEXT[] := ARRAY['users', 'crawlers']::TEXT[];");
+    expect(formatSummary(summary).slice(2, 5)).toEqual([
+      '  rows copied from production: users 3, crawlers 5',
+      '  skipped, no migration production has creates them: none',
+      '  not copied: environment_variables, key_audit_log, provider_keys',
+    ]);
+  });
+
   it.each([
     ['no rows', []],
     ['the rows of an earlier statement', [{ set_config: '' }]],
