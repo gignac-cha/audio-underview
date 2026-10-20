@@ -2,7 +2,7 @@
 
 웹, 워커 다섯 개(Google·GitHub 로그인, crawler-manager, scheduler-manager, user-vault), 그리고 이 환경만의 DB를 compose 하나로 띄운다. 설계는 `documents/2026-10-19-staging-environment.md` 7절이다.
 
-데이터는 클라우드에 두지 않는다. Supabase, R2, KV, D1, Workflow, Axiom 모두 쓰지 않는다. 워커가 밖으로 보내는 요청은 아래뿐이다.
+데이터는 클라우드에 두지 않는다. Supabase, R2, KV, Workflow, Axiom 모두 쓰지 않는다. 워커가 밖으로 보내는 요청은 아래뿐이다.
 - 로그인: Google·GitHub의 OAuth 주소. crawler-manager와 scheduler-manager도 로그인 토큰을 확인하러 Google(`www.googleapis.com/oauth2/v3/userinfo`)과 GitHub(`api.github.com/user`)를 부른다.
 - 크롤러 코드 실행: 코드 실행 Lambda(`CODE_RUNNER_FUNCTION_URL`, 데이터를 저장하지 않음). 크롤러 코드가 가져오는 주소와, 그 주소를 찾는 DNS over HTTPS(`cloudflare-dns.com`).
 - user-vault: 사용자가 provider key를 저장할 때 그 key를 확인하러 provider API(OpenAI, Anthropic, Gemini, xAI 등)를 부른다.
@@ -26,9 +26,9 @@ Axiom에는 아무것도 보내지 않는다. 로그인 워커는 trace를 늘 A
 
 워커 컨테이너가 시작할 때 하는 일(`docker/workers/start-workers.ts`):
 - 워커마다 `.dev.vars.docker`를 컨테이너 안에 쓴다. 값은 `docker/.env.docker`에서 온다. 이미지에는 secret이 없다.
+- 워커 다섯 개가 모두 `SUPABASE_URL`과 `SUPABASE_SECRET_KEY`를 받는다. user-vault도 암호화한 provider key와 환경 변수를 이 환경의 DB에 둔다.
 - `SUPABASE_SECRET_KEY`는 `POSTGREST_JWT_SECRET`으로 서명한 `role: service_role` JWT다. `SUPABASE_URL`은 `http://gateway:8000`, 로그인 워커의 `FRONTEND_URL`은 `https://localhost:5174`다. 로그인 워커의 `AXIOM_API_TOKEN`은 Axiom이 받지 않는 고정값(`docker-environment-sends-no-traces`)이다.
-- user-vault의 로컬 D1에 `workers/user-vault-worker/schema.sql`을 적용한다.
-- R2·KV·D1·Workflow 데이터는 `worker-state` 볼륨의 워커별 디렉터리(`/worker-state/<워커 디렉터리>`)에 둔다. 그래서 Google과 GitHub 워커는 같은 KV id(`docker-oauth-state`)를 써도 로컬 데이터는 따로다.
+- R2·KV·Workflow 데이터는 `worker-state` 볼륨의 워커별 디렉터리(`/worker-state/<워커 디렉터리>`)에 둔다. 그래서 Google과 GitHub 워커는 같은 KV id(`docker-oauth-state`)를 써도 로컬 데이터는 따로다.
 
 ## 1. `docker/.env.docker` 만들기
 

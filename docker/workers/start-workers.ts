@@ -7,7 +7,7 @@
 // container each.
 //
 // Before starting them this writes each worker's .dev.vars.docker from the variables compose passes
-// from docker/.env.docker (so no secret is in the image), and applies the user vault's D1 schema.
+// from docker/.env.docker (so no secret is in the image).
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHmac } from 'node:crypto';
@@ -18,7 +18,7 @@ import { createInterface } from 'node:readline';
 const WORKSPACE_DIRECTORY = resolve(import.meta.dirname, '..', '..');
 const WRANGLER = join(WORKSPACE_DIRECTORY, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
 
-// The worker-state volume; each worker keeps its local R2, KV, D1 and Workflow data in its own directory
+// The worker-state volume; each worker keeps its local R2, KV and Workflow data in its own directory
 const STATE_DIRECTORY = '/worker-state';
 
 // A fresh registry on every start, so entries a killed process left behind do not block registration
@@ -145,27 +145,6 @@ function stateDirectory(worker: DockerWorker): string {
   return join(STATE_DIRECTORY, worker.directory);
 }
 
-async function applyUserVaultSchema(userVault: DockerWorker): Promise<void> {
-  const child = runWrangler(userVault, [
-    'd1',
-    'execute',
-    'audio-underview-user-vault-docker',
-    '--env',
-    'docker',
-    '--local',
-    '--persist-to',
-    stateDirectory(userVault),
-    '--file',
-    'schema.sql',
-    '--yes',
-  ]);
-  const code = await waitForExit(child);
-  if (code !== 0) {
-    console.error(`Error: applying workers/user-vault-worker/schema.sql to the local D1 failed (exit code ${code})`);
-    process.exit(1);
-  }
-}
-
 function startWorker(worker: DockerWorker): ChildProcess {
   return runWrangler(worker, [
     'dev',
@@ -257,6 +236,7 @@ async function main(): Promise<void> {
       port: 9791,
       inspectorPort: 9334,
       variables: {
+        ...supabase,
         PROVIDER_KEY_KEK: readVariable('PROVIDER_KEY_KEK'),
         VAULT_INTERNAL_TOKEN: vaultInternalToken,
       },
@@ -268,11 +248,6 @@ async function main(): Promise<void> {
     mkdirSync(stateDirectory(worker), { recursive: true });
   }
   rmSync(REGISTRY_DIRECTORY, { recursive: true, force: true });
-
-  const userVault = workers.find((worker) => worker.directory === 'user-vault-worker');
-  if (userVault !== undefined) {
-    await applyUserVaultSchema(userVault);
-  }
 
   const children = workers.map((worker) => ({ worker, child: startWorker(worker) }));
   let stopping = false;
