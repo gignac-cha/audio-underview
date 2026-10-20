@@ -29,10 +29,17 @@ const NAME = String.raw`(?:"[^"\n]*"|[\p{L}_][\p{L}\p{N}_$]*)`;
 // One element of a search_path list: a quoted name, a string, or a plain name.
 const PATH_ELEMENT = String.raw`(?:"[^"\n]*"|'[^'\n]*'|[\p{L}_][\p{L}\p{N}_$]*)`;
 const PUBLIC_PATH_ELEMENT = String.raw`(?:${NOT_WORD_BEFORE}"?public"?${NOT_WORD_AFTER}|'[^'\n]*${NOT_WORD_BEFORE}public${NOT_WORD_AFTER}[^'\n]*')`;
+// A search_path value whose elements can be read as they are: plain names,
+// strings without escapes and quoted names, separated by commas, then the end
+// of the statement or a word (the next clause of CREATE FUNCTION). Anything
+// else (`$$public$$`, `E'...'`, `U&'...'`, a string continued on the next
+// line) could spell public without the word.
+const PLAIN_PATH_ELEMENT = String.raw`(?:"[^"\n]*"|'[^'\\\n]*'|[\p{L}_][\p{L}\p{N}_$]*)`;
+const PLAIN_PATH = String.raw`${PLAIN_PATH_ELEMENT}(?:\s*,\s*${PLAIN_PATH_ELEMENT})*(?=\s*(?:;|$)|\s+[\p{L}_])`;
 
 // Where a statement can begin: a line start, a semicolon, or, in plpgsql, the
-// body quote or keyword that opens a statement list.
-const STATEMENT_START = String.raw`(?<=(?:^|;|\$(?:[\p{L}_][\p{L}\p{N}_]*)?\$|${NOT_WORD_BEFORE}(?:THEN|ELSE|LOOP|BEGIN))\s*)`;
+// body quote, the keyword that opens a statement list, or a <<label>>.
+const STATEMENT_START = String.raw`(?<=(?:^|;|\$(?:[\p{L}_][\p{L}\p{N}_]*)?\$|${NOT_WORD_BEFORE}(?:THEN|ELSE|LOOP|BEGIN)|<<\s*${NAME}\s*>>)\s*)`;
 const STATEMENT_END = String.raw`\s*(?:;|$(?![\s\S]))`;
 const TRANSACTION_WORD = String.raw`(?:\s+(?:WORK|TRANSACTION))?`;
 const CHAIN = String.raw`(?:\s+AND\s+(?:NO\s+)?CHAIN)?`;
@@ -51,6 +58,11 @@ const ESCAPES: { pattern: RegExp; reason: string }[] = [
   {
     pattern: new RegExp(String.raw`\bsearch_path\s*(?:=|\bTO\b)\s*(?:${PATH_ELEMENT}\s*,\s*)*${PUBLIC_PATH_ELEMENT}`, 'giu'),
     reason: 'sets a search_path that includes public',
+  },
+  {
+    // `(?!\s)` keeps the value from being read from inside the whitespace before it.
+    pattern: new RegExp(String.raw`\bsearch_path\s*(?:=|\bTO\b)\s*(?!\s)(?!${PLAIN_PATH})`, 'giu'),
+    reason: 'sets a search_path that is not only plain names, plain strings and quoted names, so it may include public',
   },
   {
     pattern: new RegExp(String.raw`\bset_config\s*\(\s*'search_path'\s*,\s*'[^'\n]*${NOT_WORD_BEFORE}public${NOT_WORD_AFTER}`, 'giu'),

@@ -3,8 +3,8 @@ import { stripComments } from './sql-text.ts';
 
 // A table name, optionally qualified with `public` (the files' own schema).
 // Names in other schemas (`pg_temp.x`) are not tables of the schema.
-const QUALIFIER = String.raw`(?:(?:"public"|public)\s*\.\s*)?`;
-const NAME = String.raw`("(?:[^"]|"")+"|[\p{L}_][\p{L}\p{N}_$]*)`;
+export const QUALIFIER = String.raw`(?:(?:"public"|public)\s*\.\s*)?`;
+export const NAME = String.raw`("(?:[^"]|"")+"|[\p{L}_][\p{L}\p{N}_$]*)`;
 const NAME_END = String.raw`(?![\p{L}\p{N}_$."])`;
 
 const CREATE_TABLE = new RegExp(
@@ -19,7 +19,7 @@ const RENAME_TABLE = new RegExp(
 const LISTED_NAME = new RegExp(String.raw`^\s*${QUALIFIER}${NAME}\s*$`, 'u');
 
 /** A name as PostgreSQL stores it: unquoted names fold to lower case. */
-function storedName(name: string): string {
+export function storedName(name: string): string {
   return name.startsWith('"') ? name.slice(1, -1).replaceAll('""', '"') : name.toLowerCase();
 }
 

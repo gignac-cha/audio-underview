@@ -2,6 +2,7 @@ import type { Environment } from './environments.ts';
 import type { ForeignKey } from './foreign-key-order.ts';
 import type { MigrationFile } from './migration-files.ts';
 import { DEVELOPMENT_RECORDS_TABLE, list, planDevelopment, planStaging, type DevelopmentPlan, type ProductionMetadata, type StagingPlan } from './schema-statements.ts';
+import { assertTableGrants } from './table-grants.ts';
 
 export type Row = Record<string, unknown>;
 
@@ -104,7 +105,11 @@ async function readDevelopmentRecords(database: SchemaDatabase): Promise<string[
   return rows.map((row) => String(row.name));
 }
 
-/** Builds the schema of `environment` and reports what it applied and copied. */
+/**
+ * Builds the schema of `environment` and reports what it applied and copied.
+ * A file that does not grant the tables it creates is refused before any
+ * query, the read-only ones included.
+ */
 export async function buildEnvironmentSchema({
   environment,
   reset,
@@ -116,6 +121,7 @@ export async function buildEnvironmentSchema({
   files: MigrationFile[];
   database: SchemaDatabase;
 }): Promise<BuildSummary> {
+  assertTableGrants(files);
   if (environment === 'staging') {
     const productionMigrationNames = await database.listProductionMigrationNames();
     const production = parseProductionMetadata(await database.query(PRODUCTION_METADATA_QUERY, { readOnly: true }));

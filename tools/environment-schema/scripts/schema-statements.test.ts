@@ -44,9 +44,6 @@ describe('planStaging', () => {
       'DROP SCHEMA IF EXISTS staging CASCADE;',
       'CREATE SCHEMA staging;',
       'GRANT USAGE ON SCHEMA staging TO service_role;',
-      'ALTER DEFAULT PRIVILEGES IN SCHEMA staging GRANT ALL ON TABLES TO service_role;',
-      'ALTER DEFAULT PRIVILEGES IN SCHEMA staging GRANT ALL ON SEQUENCES TO service_role;',
-      'ALTER DEFAULT PRIVILEGES IN SCHEMA staging GRANT EXECUTE ON FUNCTIONS TO service_role;',
       '-- 001_create_users.sql',
       '-- 002_create_crawlers.sql',
       '-- 003_create_deletions.sql',
@@ -54,6 +51,7 @@ describe('planStaging', () => {
       "RAISE EXCEPTION 'tables the migrations production has create are missing from staging before the copy: %'",
       'TRUNCATE',
       "copied_tables TEXT[] := ARRAY['users', 'crawlers']::TEXT[];",
+      "-- Give staging production's privileges",
       '-- 004_add_cleanup.sql',
       "NOTIFY pgrst, 'reload schema';",
       '-- Check that staging does not reach production',
@@ -61,6 +59,53 @@ describe('planStaging', () => {
       'COMMIT;',
     ].map((text) => indexOf(plan.sql, text));
     expect(order).toEqual([...order].sort((left, right) => left - right));
+  });
+
+  it('sets no default privileges, so a new table gets only what its migration grants', () => {
+    expect(plan.sql).not.toMatch(/ALTER\s+DEFAULT\s+PRIVILEGES/i);
+    expect(plan.sql).not.toMatch(/\bGRANT\s+ALL\s+ON\s+TABLE\b/);
+  });
+
+  it("gives staging's tables the privileges the Data API roles hold on production's, after the migrations production has", () => {
+    const privileges = plan.sql.slice(indexOf(plan.sql, "-- Give staging production's privileges"), indexOf(plan.sql, '-- 004_add_cleanup.sql'));
+    expect(privileges).toContain("WHERE rolname = ANY (ARRAY['anon', 'authenticated', 'service_role']::TEXT[]);");
+    expect(privileges).toContain("AND public_relation.relnamespace = 'public'::regnamespace");
+    expect(privileges).toContain("WHERE staging_relation.relnamespace = 'staging'::regnamespace");
+    expect(privileges).toContain('FROM pg_catalog.aclexplode(shared_relation.relacl) AS granted');
+    expect(privileges).toContain("WHERE grantee_role.rolname = ANY (ARRAY['anon', 'authenticated', 'service_role']::TEXT[])");
+    expect(indexOf(privileges, "EXECUTE format('REVOKE ALL ON %s staging.%I FROM %s'")).toBeLessThan(
+      indexOf(privileges, "'GRANT %s ON %s staging.%I TO %I%s'"),
+    );
+    expect(privileges).toContain("CASE WHEN production_privilege.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END");
+    expect(privileges).toContain("CASE WHEN staging_relation.relkind = 'S' THEN 'SEQUENCE' ELSE 'TABLE' END AS object_type");
+  });
+
+  it('grants a new migration nothing it does not grant itself', () => {
+    const notes = file('015_add_notes.sql', 'CREATE TABLE notes (id INT);\nGRANT SELECT, INSERT ON TABLE notes TO service_role;\n');
+    const withNotes = planStaging([...files, notes], productionNames, production);
+    const pendingPart = withNotes.sql.slice(indexOf(withNotes.sql, "-- Give staging production's privileges"));
+    expect(pendingPart).toContain('-- 015_add_notes.sql\nSET LOCAL search_path TO staging;\nCREATE TABLE notes (id INT);\nGRANT SELECT, INSERT ON TABLE notes TO service_role;');
+    expect(withNotes.sql).not.toContain('-- Tables of the migrations up to 014');
+  });
+
+  it('gives the tables of a migration up to 014 that production does not have yet ALL for service_role', () => {
+    const notes = file('015_add_notes.sql', 'CREATE TABLE notes (id INT);\nGRANT ALL ON TABLE notes TO service_role;\n');
+    const behind = planStaging([...files, notes], ['create_users'], { tables: ['users'], foreignKeys: [] });
+    const order = [
+      "-- Give staging production's privileges",
+      '-- 002_create_crawlers.sql',
+      '-- 004_add_cleanup.sql',
+      '-- Tables of the migrations up to 014, which Supabase granted in production\nGRANT ALL ON TABLE staging.crawlers, staging.crawler_file_deletions TO service_role;\n',
+      '-- 015_add_notes.sql',
+    ].map((text) => indexOf(behind.sql, text));
+    expect(order).toEqual([...order].sort((left, right) => left - right));
+    expect(behind.sql).not.toContain('staging.users TO service_role');
+  });
+
+  it('refuses before building SQL when a new migration does not grant a table it creates', () => {
+    expect(() =>
+      planStaging([...files, file('015_add_notes.sql', 'CREATE TABLE notes (id INT);\nGRANT ALL ON TABLE notes TO anon;\n')], productionNames, production),
+    ).toThrow(/^migrations after 014 create tables without a GRANT to service_role:\n {2}015_add_notes\.sql: notes\n/);
   });
 
   it('gives each file its search path and rewrites its qualifiers', () => {
@@ -232,5 +277,59 @@ describe('planDevelopment', () => {
 
   it('treats a missing schema as the first run, the same as --reset', () => {
     expect(planDevelopment(files, undefined, false)).toEqual(planDevelopment(files, undefined, true));
+  });
+
+  describe('privileges', () => {
+    const notes = file('015_add_notes.sql', 'CREATE TABLE notes (id INT);\nGRANT SELECT, INSERT, UPDATE, DELETE ON TABLE notes TO service_role;\n');
+    const automaticGrant =
+      '-- Tables of the migrations up to 014, which Supabase granted in production\nGRANT ALL ON TABLE development.users, development.crawlers, development.crawler_file_deletions TO service_role;\n';
+
+    it('gives the tables of the migrations up to 014 ALL for service_role on a rebuild, before any later migration', () => {
+      const sql = planDevelopment([...files, notes], undefined, true).sql ?? '';
+      const order = ['-- 004_add_cleanup.sql', "VALUES ('add_cleanup');", automaticGrant, '-- 015_add_notes.sql'].map((text) => indexOf(sql, text));
+      expect(order).toEqual([...order].sort((left, right) => left - right));
+      expect(sql.match(/GRANT ALL ON TABLE/g)).toHaveLength(1);
+      expect(sql).not.toMatch(/\b(?:anon|authenticated)\b/);
+      expect(sql).not.toMatch(/ALTER\s+DEFAULT\s+PRIVILEGES[^;]*\bGRANT\b/i);
+      expect(sql).not.toContain('development.schema_migrations TO');
+    });
+
+    it('grants a later migration nothing it does not grant itself on an incremental run', () => {
+      const sql = planDevelopment([...files, notes], files.map((each) => each.name), false).sql ?? '';
+      expect(sql).toContain('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE notes TO service_role;');
+      expect(sql).not.toContain('GRANT ALL ON TABLE');
+    });
+
+    it('gives only the tables of the migrations up to 014 it applies ALL on an incremental run', () => {
+      const sql = planDevelopment([...files, notes], ['create_users'], false).sql ?? '';
+      expect(sql).toContain('GRANT ALL ON TABLE development.crawlers, development.crawler_file_deletions TO service_role;');
+      expect(indexOf(sql, 'GRANT ALL ON TABLE development.crawlers')).toBeLessThan(indexOf(sql, '-- 015_add_notes.sql'));
+      expect(sql).not.toContain('development.users,');
+    });
+
+    it('removes default privileges an earlier build set, on an incremental run', () => {
+      const sql = planDevelopment([...files, notes], files.map((each) => each.name), false).sql ?? '';
+      const order = [
+        'GRANT USAGE ON SCHEMA development TO service_role;',
+        'ALTER DEFAULT PRIVILEGES IN SCHEMA development REVOKE ALL ON TABLES FROM service_role;',
+        'ALTER DEFAULT PRIVILEGES IN SCHEMA development REVOKE ALL ON SEQUENCES FROM service_role;',
+        'ALTER DEFAULT PRIVILEGES IN SCHEMA development REVOKE ALL ON FUNCTIONS FROM service_role;',
+        '-- 015_add_notes.sql',
+      ].map((text) => indexOf(sql, text));
+      expect(order).toEqual([...order].sort((left, right) => left - right));
+    });
+
+    it('quotes a table name that is not plain lower case', () => {
+      const sql = planDevelopment([file('001_create_notes.sql', 'CREATE TABLE "Mixed ""Notes""" (id INT);\nCREATE TABLE plain (id INT);\n')], undefined, true).sql ?? '';
+      expect(sql).toContain('GRANT ALL ON TABLE development."Mixed ""Notes""", development.plain TO service_role;');
+    });
+
+    it('refuses before building SQL when a later migration does not grant a table it creates', () => {
+      for (const recorded of [undefined, files.map((each) => each.name)]) {
+        expect(() => planDevelopment([...files, file('015_add_notes.sql', 'CREATE TABLE notes (id INT);\n')], recorded, false)).toThrow(
+          /^migrations after 014 create tables without a GRANT to service_role:\n {2}015_add_notes\.sql: notes\n/,
+        );
+      }
+    });
   });
 });

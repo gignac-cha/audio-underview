@@ -29,6 +29,12 @@ export function migrationName(fileName: string): string {
   return separator === -1 ? base : base.slice(separator + 1);
 }
 
+/** The number prefix of a file name (`11` for `011_add_scheduled_runs.sql`), or undefined when it has none. */
+export function migrationNumber(fileName: string): number | undefined {
+  const prefix = /^(\d+)(?=_|\.sql$)/.exec(fileName);
+  return prefix === null ? undefined : Number(prefix[1]);
+}
+
 /** Files in number order. Two files with the same name could not be told apart in a migration history, so that throws. */
 export function sortMigrationFiles(files: MigrationFile[]): MigrationFile[] {
   const sorted = [...files].sort((left, right) => left.fileName.localeCompare(right.fileName, 'en', { numeric: true }));

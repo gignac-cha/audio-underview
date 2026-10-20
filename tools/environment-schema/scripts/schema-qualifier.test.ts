@@ -131,6 +131,33 @@ describe('findSchemaEscapes', () => {
     ["PREPARE TRANSACTION 'staging';", 'controls the transaction itself'],
     ["COMMIT PREPARED 'staging';", 'controls the transaction itself'],
     ["ROLLBACK PREPARED 'staging';", 'controls the transaction itself'],
+    ['<<label>> COMMIT;', 'controls the transaction itself'],
+    ['<< "Quoted label" >> ROLLBACK AND CHAIN;', 'controls the transaction itself'],
+    ['CREATE PROCEDURE p() LANGUAGE plpgsql AS $$ BEGIN <<done>> COMMIT; END $$;', 'controls the transaction itself'],
+    ['SET search_path = $$public$$;', 'sets a search_path that is not only plain names, plain strings and quoted names, so it may include public'],
+    ['SET search_path TO staging, $path$public$path$;', 'sets a search_path that is not only plain names, plain strings and quoted names, so it may include public'],
+    ["SET search_path = E'public';", 'sets a search_path that is not only plain names, plain strings and quoted names, so it may include public'],
+    ["SET search_path = E'\\x70ublic';", 'sets a search_path that is not only plain names, plain strings and quoted names, so it may include public'],
+    ["SET search_path = U&'public';", 'sets a search_path that is not only plain names, plain strings and quoted names, so it may include public'],
+    ['SET search_path = U&"\\0070ublic";', 'sets a search_path that is not only plain names, plain strings and quoted names, so it may include public'],
+    ["SET search_path = 'pub'\n'lic';", 'sets a search_path that is not only plain names, plain strings and quoted names, so it may include public'],
+    ["SET search_path = 'staging', 'pub'\n  'lic';", 'sets a search_path that is not only plain names, plain strings and quoted names, so it may include public'],
+    ["SET search_path = 'pub''lic';", 'sets a search_path that is not only plain names, plain strings and quoted names, so it may include public'],
+    ["SET search_path = 'pub\\lic';", 'sets a search_path that is not only plain names, plain strings and quoted names, so it may include public'],
+    ['SET search_path = "pub""lic";', 'sets a search_path that is not only plain names, plain strings and quoted names, so it may include public'],
+    ['SET search_path = ;', 'sets a search_path that is not only plain names, plain strings and quoted names, so it may include public'],
+    [
+      "CREATE FUNCTION f() RETURNS INT LANGUAGE sql SET search_path = E'public' AS $$ SELECT 1 $$;",
+      'sets a search_path that is not only plain names, plain strings and quoted names, so it may include public',
+    ],
+    [
+      'ALTER FUNCTION f() SET search_path TO $$public$$;',
+      'sets a search_path that is not only plain names, plain strings and quoted names, so it may include public',
+    ],
+    [
+      'ALTER ROLE authenticator SET search_path = $$public$$;',
+      'sets a search_path that is not only plain names, plain strings and quoted names, so it may include public',
+    ],
   ])('finds %s', (sql, reason) => {
     expect(findSchemaEscapes(`SELECT 1;\n${sql}`)).toEqual([{ line: 2, reason }]);
   });
@@ -149,6 +176,17 @@ describe('findSchemaEscapes', () => {
     'DO $$\nBEGIN\n  IF true THEN\n    PERFORM 1;\n  END IF;\nEND;\n$$;',
     'CREATE SCHEMA IF NOT EXISTS extensions;',
     'CREATE TABLE crawlers (input_schema JSONB, settings_schema JSONB);',
+    "SET search_path = '';",
+    'SET search_path TO staging, "$user";',
+    "SET LOCAL search_path TO 'staging' , extensions ;",
+    'SET search_path = "Mixed Case"',
+    'ALTER FUNCTION f() SET search_path = staging, extensions;',
+    "ALTER FUNCTION f() SET search_path = '' RESTRICT;",
+    "CREATE FUNCTION f() RETURNS INT LANGUAGE sql SET search_path = '' AS $$ SELECT 1 $$;",
+    "CREATE FUNCTION f() RETURNS INT\nLANGUAGE plpgsql\nSET search_path = ''\nSECURITY DEFINER\nAS $$ BEGIN RETURN 1; END $$;",
+    'SET search_path FROM CURRENT;',
+    'DO $$\n<<outer_block>>\nBEGIN\n  PERFORM 1;\nEND outer_block;\n$$;',
+    'DO $$\nBEGIN\n  <<each_row>>\n  LOOP\n    EXIT each_row;\n  END LOOP;\nEND;\n$$;',
   ])('allows %s', (sql) => {
     expect(findSchemaEscapes(sql)).toEqual([]);
   });

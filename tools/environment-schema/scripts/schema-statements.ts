@@ -4,6 +4,7 @@ import { orderByForeignKeys, type ForeignKey } from './foreign-key-order.ts';
 import { partitionMigrations, type MigrationFile } from './migration-files.ts';
 import { migrationStatements } from './schema-qualifier.ts';
 import { quoteLiteral } from './sql-text.ts';
+import { assertTableGrants, LAST_MIGRATION_WITH_AUTOMATIC_GRANTS, reliesOnAutomaticGrants } from './table-grants.ts';
 
 /** Production's tables and the foreign keys between them, read from `pg_class` and `pg_constraint`. */
 export interface ProductionMetadata {
@@ -44,21 +45,128 @@ export interface DevelopmentPlan {
   applied: string[];
 }
 
+/** The roles the Data API uses, whose privileges staging takes from production. */
+const DATA_API_ROLES = ['anon', 'authenticated', 'service_role'];
+
 /**
- * Access for the workers' role: the schema itself, and every table, sequence
- * and function created in it from here on.
+ * Access for the workers' role to the schema itself. Nothing in it gets
+ * default privileges: production's new tables and sequences get none from
+ * Supabase from 2026-10-30, so a migration that forgets its GRANT has to fail
+ * here as it would there. Functions get none either, which leaves them
+ * PostgreSQL's EXECUTE for PUBLIC; a migration that revokes that grants
+ * service_role itself, as 011 and 013 do.
  */
-function grantStatements(schema: string): string {
+function schemaUsageStatement(schema: string): string {
+  return `GRANT USAGE ON SCHEMA ${schema} TO service_role;`;
+}
+
+/**
+ * Removes the default privileges an earlier version of this tool set, so a
+ * schema it built stops granting what is created in it from here on.
+ */
+function revokeDefaultPrivilegesStatement(schema: string): string {
   return [
-    `GRANT USAGE ON SCHEMA ${schema} TO service_role;`,
-    `ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} GRANT ALL ON TABLES TO service_role;`,
-    `ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} GRANT ALL ON SEQUENCES TO service_role;`,
-    `ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} GRANT EXECUTE ON FUNCTIONS TO service_role;`,
+    `ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} REVOKE ALL ON TABLES FROM service_role;`,
+    `ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} REVOKE ALL ON SEQUENCES FROM service_role;`,
+    `ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} REVOKE ALL ON FUNCTIONS FROM service_role;`,
   ].join('\n');
 }
 
 function textArray(values: string[]): string {
   return `ARRAY[${values.map(quoteLiteral).join(', ')}]::TEXT[]`;
+}
+
+/** `<schema>.<name>`, quoting the name unless it is a plain lower-case one. */
+function qualifiedName(schema: string, name: string): string {
+  return `${schema}.${/^[a-z_][a-z0-9_$]*$/.test(name) ? name : `"${name.replaceAll('"', '""')}"`}`;
+}
+
+/**
+ * ALL on `tables` for service_role. The migrations up to
+ * {@link LAST_MIGRATION_WITH_AUTOMATIC_GRANTS} grant nothing on their tables,
+ * which got their privileges from Supabase in production.
+ */
+function automaticGrantStatement(schema: string, tables: string[]): string {
+  const last = String(LAST_MIGRATION_WITH_AUTOMATIC_GRANTS).padStart(3, '0');
+  return `-- Tables of the migrations up to ${last}, which Supabase granted in production
+GRANT ALL ON TABLE ${tables.map((table) => qualifiedName(schema, table)).join(', ')} TO service_role;
+`;
+}
+
+/**
+ * `statementOf` for each of `files` (in number order). After the last one up
+ * to {@link LAST_MIGRATION_WITH_AUTOMATIC_GRANTS}, and before any later one
+ * could change them, the tables those files create get ALL for service_role.
+ * The later files' tables get only what their own GRANT statements give.
+ */
+function applyStatements(files: MigrationFile[], schema: string, statementOf: (file: MigrationFile) => string): string[] {
+  const statements = files.map(statementOf);
+  const automatic = files.filter(reliesOnAutomaticGrants);
+  const tables = collectCreatedTables(automatic);
+  if (tables.length > 0) {
+    statements.splice(files.indexOf(automatic[automatic.length - 1]) + 1, 0, automaticGrantStatement(schema, tables));
+  }
+  return statements;
+}
+
+/**
+ * Gives every staging table, view and sequence that public also has exactly
+ * the privileges the Data API roles hold on public's, read from the catalog
+ * inside the run: production's tables keep what Supabase granted them when
+ * they were made, which a table made now would not get. It runs after the
+ * migrations production has and before the ones it does not, so those change
+ * production's privileges as they would in production and their own tables
+ * get only what they grant. Column privileges are not copied.
+ */
+function productionPrivilegesStatement(): string {
+  return `-- Give staging production's privileges
+DO $privileges$
+DECLARE
+  data_api_roles TEXT;
+  shared_relation RECORD;
+  production_privilege RECORD;
+BEGIN
+  SELECT string_agg(quote_ident(rolname), ', ' ORDER BY rolname)
+  INTO data_api_roles
+  FROM pg_catalog.pg_roles
+  WHERE rolname = ANY (${textArray(DATA_API_ROLES)});
+
+  FOR shared_relation IN
+    SELECT
+      staging_relation.relname,
+      CASE WHEN staging_relation.relkind = 'S' THEN 'SEQUENCE' ELSE 'TABLE' END AS object_type,
+      public_relation.relacl
+    FROM pg_catalog.pg_class AS staging_relation
+    JOIN pg_catalog.pg_class AS public_relation
+      ON public_relation.relname = staging_relation.relname
+      AND public_relation.relnamespace = 'public'::regnamespace
+      AND (public_relation.relkind = 'S') = (staging_relation.relkind = 'S')
+    WHERE staging_relation.relnamespace = 'staging'::regnamespace
+      AND staging_relation.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
+      AND public_relation.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
+    ORDER BY staging_relation.relname
+  LOOP
+    EXECUTE format('REVOKE ALL ON %s staging.%I FROM %s', shared_relation.object_type, shared_relation.relname, data_api_roles);
+    FOR production_privilege IN
+      SELECT granted.privilege_type, grantee_role.rolname, granted.is_grantable
+      FROM pg_catalog.aclexplode(shared_relation.relacl) AS granted
+      JOIN pg_catalog.pg_roles AS grantee_role ON grantee_role.oid = granted.grantee
+      WHERE grantee_role.rolname = ANY (${textArray(DATA_API_ROLES)})
+      ORDER BY grantee_role.rolname, granted.privilege_type
+    LOOP
+      EXECUTE format(
+        'GRANT %s ON %s staging.%I TO %I%s',
+        production_privilege.privilege_type,
+        shared_relation.object_type,
+        shared_relation.relname,
+        production_privilege.rolname,
+        CASE WHEN production_privilege.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END
+      );
+    END LOOP;
+  END LOOP;
+END
+$privileges$;
+`;
 }
 
 /** A block that fails the run when a table of `tables` is not in `schema`. */
@@ -266,12 +374,14 @@ function assertProductionMatchesFiles({
 
 /**
  * The SQL that rebuilds staging from production in one transaction: the
- * migrations production has, production's rows, then the migrations this
- * checkout adds. It only reads `public`. Throws, before any SQL is sent, when
- * production's history does not match the files.
+ * migrations production has, production's rows and privileges, then the
+ * migrations this checkout adds. It only reads `public`. Throws, before any
+ * SQL is sent, when production's history does not match the files or a file
+ * does not grant the tables it creates.
  */
 export function planStaging(files: MigrationFile[], productionMigrationNames: string[], production: ProductionMetadata): StagingPlan {
   const schema = 'staging';
+  assertTableGrants(files);
   const { applied, pending, appliedWithoutFile } = partitionMigrations(files, productionMigrationNames);
   const createdBeforeCopy = collectCreatedTables(applied);
   const created = new Set(createdBeforeCopy);
@@ -293,10 +403,11 @@ export function planStaging(files: MigrationFile[], productionMigrationNames: st
 
   const sql = transaction([
     `DROP SCHEMA IF EXISTS ${schema} CASCADE;\nCREATE SCHEMA ${schema};`,
-    grantStatements(schema),
+    schemaUsageStatement(schema),
     ...applied.map((file) => migrationStatements(file, schema)),
     copyStatements(copiedTables, createdBeforeCopy),
-    ...pending.map((file) => migrationStatements(file, schema)),
+    productionPrivilegesStatement(),
+    ...applyStatements(pending, schema, (file) => migrationStatements(file, schema)),
     `NOTIFY pgrst, 'reload schema';`,
     checkStatements(schema, collectCreatedTables(files)),
     'SELECT table_name, row_count FROM pg_temp.environment_schema_copies ORDER BY copy_order;',
@@ -317,12 +428,16 @@ export function planStaging(files: MigrationFile[], productionMigrationNames: st
  * The SQL that brings development up to the files in one transaction. It
  * keeps the data and applies the files not recorded yet, or, when `reset` or
  * when the schema does not exist (`recordedNames` undefined), drops the
- * schema and applies every file. Throws when a recorded migration has no file
- * any more, since the schema no longer matches the files.
+ * schema and applies every file. There is no production to take privileges
+ * from: the tables of the files up to {@link LAST_MIGRATION_WITH_AUTOMATIC_GRANTS}
+ * get ALL for service_role, later ones what they grant. Throws when a
+ * recorded migration has no file any more, since the schema no longer
+ * matches the files, or when a file does not grant the tables it creates.
  */
 export function planDevelopment(files: MigrationFile[], recordedNames: string[] | undefined, reset: boolean): DevelopmentPlan {
   const schema = 'development';
   assertEnvironmentSchema(schema);
+  assertTableGrants(files);
   const rebuilt = reset || recordedNames === undefined;
 
   if (!rebuilt) {
@@ -345,11 +460,13 @@ export function planDevelopment(files: MigrationFile[], recordedNames: string[] 
     ...(rebuilt
       ? [
           `DROP SCHEMA IF EXISTS ${schema} CASCADE;\nCREATE SCHEMA ${schema};`,
-          grantStatements(schema),
+          schemaUsageStatement(schema),
           `CREATE TABLE ${DEVELOPMENT_RECORDS_TABLE} (\n  name TEXT PRIMARY KEY,\n  applied_at TIMESTAMPTZ NOT NULL DEFAULT now()\n);`,
         ]
-      : [grantStatements(schema)]),
-    ...toApply.map(
+      : [schemaUsageStatement(schema), revokeDefaultPrivilegesStatement(schema)]),
+    ...applyStatements(
+      toApply,
+      schema,
       (file) => `${migrationStatements(file, schema)}INSERT INTO ${DEVELOPMENT_RECORDS_TABLE} (name) VALUES (${quoteLiteral(file.name)});\n`,
     ),
     `NOTIFY pgrst, 'reload schema';`,

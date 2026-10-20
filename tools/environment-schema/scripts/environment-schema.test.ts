@@ -172,6 +172,16 @@ describe('buildEnvironmentSchema', () => {
     expect(formatSummary(summary)[0]).toBe('development: rebuilt from the first migration (--reset), data removed');
   });
 
+  it.each(['staging', 'development'] as const)('refuses %s before any query when a new migration does not grant its table', async (environment) => {
+    const { database, calls } = stubDatabase(['create_users', 'create_crawlers'], production(['crawlers', 'users']));
+    const ungranted = [...files, file('015_add_notes.sql', 'CREATE TABLE notes (id INT);\nGRANT SELECT ON notes TO anon;\n')];
+
+    await expect(buildEnvironmentSchema({ environment, reset: false, files: ungranted, database })).rejects.toThrow(
+      /^migrations after 014 create tables without a GRANT to service_role:\n {2}015_add_notes\.sql: notes\n/,
+    );
+    expect(calls).toEqual([]);
+  });
+
   it('fails without writing when development exists but has no records', async () => {
     const { database, calls } = stubDatabase([], new Map([[DEVELOPMENT_STATE_QUERY, [{ schema_exists: true, records_exist: false }]]]));
 

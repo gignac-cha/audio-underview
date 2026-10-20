@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { migrationName, partitionMigrations, readMigrationFiles, sortMigrationFiles, type MigrationFile } from './migration-files.ts';
+import { migrationName, migrationNumber, partitionMigrations, readMigrationFiles, sortMigrationFiles, type MigrationFile } from './migration-files.ts';
 
 const migrationsDirectory = fileURLToPath(new URL('../../../packages/supabase-connector/migrations', import.meta.url));
 
@@ -12,6 +12,20 @@ describe('migrationName', () => {
     expect(migrationName('001_create_users_and_accounts.sql')).toBe('create_users_and_accounts');
     expect(migrationName('20261019_add_x.sql')).toBe('add_x');
     expect(migrationName('nounderscore.sql')).toBe('nounderscore');
+  });
+});
+
+describe('migrationNumber', () => {
+  it('reads the number prefix', () => {
+    expect(migrationNumber('011_add_scheduled_runs.sql')).toBe(11);
+    expect(migrationNumber('20261019_add_x.sql')).toBe(20261019);
+    expect(migrationNumber('7.sql')).toBe(7);
+  });
+
+  it('is undefined without a number prefix', () => {
+    expect(migrationNumber('nounderscore.sql')).toBeUndefined();
+    expect(migrationNumber('v2_add_x.sql')).toBeUndefined();
+    expect(migrationNumber('12a_add_x.sql')).toBeUndefined();
   });
 });
 
