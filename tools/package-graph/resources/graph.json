@@ -238,6 +238,14 @@
       "depth": 0
     },
     {
+      "name": "@audio-underview/environment-schema",
+      "label": "environment-schema",
+      "path": "tools/environment-schema",
+      "kind": "developer-tool",
+      "category": "developer-tools",
+      "depth": 0
+    },
+    {
       "name": "@audio-underview/package-graph",
       "label": "package-graph",
       "path": "tools/package-graph",
@@ -395,7 +403,7 @@
       "path": "workers/user-vault-worker",
       "kind": "worker",
       "category": "platform-workers",
-      "depth": 1
+      "depth": 2
     },
     {
       "name": "@audio-underview/x-oauth-provider-worker",
@@ -965,6 +973,11 @@
     {
       "source": "@audio-underview/user-vault-worker",
       "target": "@audio-underview/logger",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/user-vault-worker",
+      "target": "@audio-underview/supabase-connector",
       "development": false
     },
     {
