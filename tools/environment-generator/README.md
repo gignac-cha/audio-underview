@@ -30,7 +30,7 @@ OP_SERVICE_ACCOUNT_TOKEN=$(pnpm run --silent environment:setup) pnpm run environ
 | development | `applications/web/.env.development.local` | 웹 앱 로컬 개발(`VITE_GOOGLE_CLIENT_ID`) |
 | docker | `docker/.env.docker` | docker compose가 읽는 env file(`COMPOSE_ENV_FILES`). 서비스마다 필요한 값만 받음(`docker/README.md`) |
 
-워커별 변수는 각 워커의 `Environment` 인터페이스와 `wrangler.toml`에 적힌 secret 목록에서 정했습니다(user-vault에는 Supabase 키가 없습니다). 로그인 워커 둘의 `FRONTEND_URL`은 secret이 아니라 `https://localhost:5173`으로 고정해 씁니다.
+워커별 변수는 각 워커의 `Environment` 인터페이스와 `wrangler.toml`에 적힌 secret 목록에서 정했습니다(user-vault도 provider key와 환경 변수를 Supabase에 두므로 `SUPABASE_URL`, `SUPABASE_SECRET_KEY`를 받습니다). 로그인 워커 둘의 `FRONTEND_URL`은 secret이 아니라 `https://localhost:5173`으로 고정해 씁니다.
 
 ## 1Password 항목
 

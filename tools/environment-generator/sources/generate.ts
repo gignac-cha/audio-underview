@@ -66,7 +66,7 @@ function defineDevelopmentFiles(): EnvironmentFileDefinition[] {
       vaultInternalToken,
     ]),
     createWorkerFile('scheduler-manager-worker', [supabaseURL, supabaseSecretKey, jwtSecret]),
-    createWorkerFile('user-vault-worker', [providerKeyKEK, vaultInternalToken]),
+    createWorkerFile('user-vault-worker', [supabaseURL, supabaseSecretKey, providerKeyKEK, vaultInternalToken]),
     createWorkerFile('google-oauth-provider-worker', [
       secretVariable('GOOGLE_CLIENT_ID', REFERENCES.googleClientID),
       secretVariable('GOOGLE_CLIENT_SECRET', REFERENCES.googleClientSecret),
