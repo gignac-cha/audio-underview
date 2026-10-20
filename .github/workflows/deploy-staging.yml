@@ -1,0 +1,35 @@
+name: "Deploy: Staging"
+
+on:
+  # Every push to a pull request deploys it to staging, unless the pull request
+  # changes documents only.
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths-ignore:
+      - '**/*.md'
+      - 'documents/**'
+
+# Staging is a single environment, so pull requests take turns and the last
+# deploy wins. A running deploy is never cancelled halfway.
+# A pull request from a fork never deploys, but its run still enters its
+# concurrency group before the job is skipped, where it could replace the
+# pending run of a pull request from this repository. It gets a group of its
+# own.
+concurrency:
+  group: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'deploy-staging' || format('deploy-staging-fork-{0}', github.event.pull_request.number) }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # A pull request from a fork has no secrets.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    name: Deploy to staging
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: staging
+      pull_request_number: ${{ github.event.pull_request.number }}
+    secrets: inherit
