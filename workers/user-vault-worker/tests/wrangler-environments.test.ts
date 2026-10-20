@@ -1,17 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import configurationText from '../wrangler.toml?raw';
 
-// What each environment of wrangler.toml has to say. wrangler does not inherit vars or bindings into an
-// [env.*] block, so a block that forgets one runs without it, and a binding that still names a resource of
-// production sends the data of staging or development there.
-// The vault never calls Supabase, so unlike the other workers it has no SUPABASE_SCHEMA.
-// The names follow documents/2026-10-19-staging-environment.md. The ids of KV namespaces and D1 databases
-// are not asserted, because they are filled in when the resource is created.
+// What each environment of wrangler.toml has to say. wrangler does not inherit vars into an [env.*] block,
+// so a block that forgets SUPABASE_SCHEMA runs without one, and a block that still names public sends the
+// data of staging or development to the tables of production.
+// The vault keeps its tables in Supabase like the other workers, so no environment binds a D1 database.
+// The names follow documents/2026-10-19-staging-environment.md.
 
 interface WorkerConfiguration {
   name?: string;
   vars?: Record<string, string>;
-  d1_databases?: Array<{ binding: string; database_name: string; database_id: string }>;
+  d1_databases?: unknown[];
   env?: Record<string, WorkerConfiguration>;
 }
 
@@ -60,31 +59,28 @@ function configurationOf(name: EnvironmentName): WorkerConfiguration {
   return found;
 }
 
-function bindingOf<T extends { binding: string }>(list: T[] | undefined, binding: string): T | undefined {
-  return list?.find((entry) => entry.binding === binding);
-}
-
-const EXPECTED: Record<EnvironmentName, { name: string; database: string }> = {
-  production: { name: 'audio-underview-user-vault-worker', database: 'audio-underview-user-vault' },
-  staging: { name: 'audio-underview-user-vault-staging-worker', database: 'audio-underview-user-vault-staging' },
-  development: { name: 'audio-underview-user-vault-development-worker', database: 'audio-underview-user-vault-development' },
-  docker: { name: 'audio-underview-user-vault-docker-worker', database: 'audio-underview-user-vault-docker' },
+const EXPECTED: Record<EnvironmentName, { name: string; schema: string }> = {
+  production: { name: 'audio-underview-user-vault-worker', schema: 'public' },
+  staging: { name: 'audio-underview-user-vault-staging-worker', schema: 'staging' },
+  development: { name: 'audio-underview-user-vault-development-worker', schema: 'development' },
+  docker: { name: 'audio-underview-user-vault-docker-worker', schema: 'public' },
 };
 
 // The resources an environment must not share with production (or with another environment)
 function resourcesOf(name: EnvironmentName): Record<string, string | undefined> {
-  const worker = configurationOf(name);
-  const database = bindingOf(worker.d1_databases, 'DB');
-  return {
-    'worker name': worker.name,
-    'database name': database?.database_name,
-    'database id': database?.database_id,
-  };
+  return { 'worker name': configurationOf(name).name };
 }
 
 describe('wrangler.toml environments', () => {
   it('defines staging, development and docker, and no other environment', () => {
     expect(Object.keys(configuration.env ?? {}).sort()).toEqual([...ENVIRONMENTS].sort());
+  });
+
+  it('binds no D1 database anywhere', () => {
+    expect(configurationText).not.toMatch(/d1_databases/);
+    for (const name of NAMES) {
+      expect(configurationOf(name).d1_databases, name).toBeUndefined();
+    }
   });
 
   describe.each(NAMES)('%s', (name) => {
@@ -94,11 +90,8 @@ describe('wrangler.toml environments', () => {
       expect(configurationOf(name).name).toBe(expected.name);
     });
 
-    it('has the database of its own, with an id', () => {
-      const database = bindingOf(configurationOf(name).d1_databases, 'DB');
-      expect(database?.database_name).toBe(expected.database);
-      expect(database?.database_id).toBeTypeOf('string');
-      expect(database?.database_id).not.toBe('');
+    it('sets SUPABASE_SCHEMA', () => {
+      expect(configurationOf(name).vars?.SUPABASE_SCHEMA).toBe(expected.schema);
     });
 
     it('sets PROVIDER_KEY_KEK_VERSION', () => {
@@ -108,10 +101,11 @@ describe('wrangler.toml environments', () => {
     it('repeats every variable of production and adds none', () => {
       expect(Object.keys(configurationOf(name).vars ?? {}).sort()).toEqual(Object.keys(configuration.vars ?? {}).sort());
     });
+  });
 
-    it('does not set SUPABASE_SCHEMA, because the vault never calls Supabase', () => {
-      expect(Object.keys(configurationOf(name).vars ?? {})).not.toContain('SUPABASE_SCHEMA');
-    });
+  it.each(['staging', 'development'] as const)('%s does not use the schema of production', (name) => {
+    expect(configurationOf(name).vars?.SUPABASE_SCHEMA).toBeTypeOf('string');
+    expect(configurationOf(name).vars?.SUPABASE_SCHEMA).not.toBe(configuration.vars?.SUPABASE_SCHEMA);
   });
 
   it.each(ENVIRONMENTS)('%s repeats no resource of production', (name) => {
@@ -122,7 +116,7 @@ describe('wrangler.toml environments', () => {
     }
   });
 
-  it('gives every environment a worker and a database of its own', () => {
+  it('gives every environment a worker of its own', () => {
     for (const kind of Object.keys(resourcesOf('production'))) {
       const values = NAMES.map((name) => resourcesOf(name)[kind]);
       expect(new Set(values).size, kind).toBe(values.length);

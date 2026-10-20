@@ -1109,6 +1109,9 @@ importers:
       '@audio-underview/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      '@audio-underview/supabase-connector':
+        specifier: workspace:*
+        version: link:../../packages/supabase-connector
     devDependencies:
       '@cloudflare/vitest-plugin':
         specifier: catalog:worker

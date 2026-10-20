@@ -38,7 +38,9 @@ export type { Environment } from './environment.ts';
 // This is the worker entry module: the Workers runtime registers every named value export
 // as an entrypoint and refuses to start on a number or string, so only default is exported.
 const INTERNAL_TOKEN_HEADER_NAME = 'x-user-vault-token';
-const USER_ID_MAXIMUM_LENGTH = 200;
+// A user is the uuid of a row of users, in the lowercase form Postgres returns and the crawler manager sends.
+// The id is bound into every envelope, so another spelling of the same uuid would find the rows and not open them.
+const USER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const DEFAULT_AUDIT_EVENT_LIMIT = 50;
 const PROXY_TIMEOUT_MILLISECONDS = 240_000;
 const PROXY_BODY_BASE64_MAXIMUM_LENGTH = 16_000_000;
@@ -399,7 +401,7 @@ async function handleRequest(request: Request, environment: Environment): Promis
   }
 
   const userID = body.userId;
-  if (typeof userID !== 'string' || userID.length < 1 || userID.length > USER_ID_MAXIMUM_LENGTH) {
+  if (typeof userID !== 'string' || !USER_ID_PATTERN.test(userID)) {
     return jsonResponse(400, { error: 'invalid_request' });
   }
 
@@ -408,7 +410,7 @@ async function handleRequest(request: Request, environment: Environment): Promis
     environment,
     body,
     userID,
-    storage: createUserVaultStorage(environment.DB, userID),
+    storage: createUserVaultStorage(environment, userID),
     keyEncryptionKeySecrets: readKeyEncryptionKeySecrets(environment),
     logger,
   });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { SUPABASE_ENVIRONMENT } from '../tests/in-memory-supabase.ts';
 import {
   readAuditHashSalt,
   readGatewayOptions,
@@ -9,7 +10,7 @@ import {
 } from './environment.ts';
 
 function environment(overrides: Partial<Environment> = {}): Environment {
-  return { DB: {} as D1Database, ...overrides };
+  return { ...SUPABASE_ENVIRONMENT, ...overrides };
 }
 
 describe('readKeyEncryptionKeySecrets', () => {

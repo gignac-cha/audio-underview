@@ -335,6 +335,60 @@ export interface CrawlerPermissionRow {
 }
 
 /**
+ * Provider key table row type
+ * A provider (AI API) key of a user, sealed by the user vault worker: ciphertext, iv, wrapped_dek and
+ * dek_iv are base64, never the key itself. The times are the ISO 8601 strings the vault wrote, kept as
+ * text because created_at is part of the authenticated data of the envelope.
+ */
+export interface ProviderKeyRow {
+  [key: string]: unknown;
+  user_id: string;
+  provider: string;
+  ciphertext: string;
+  iv: string;
+  wrapped_dek: string;
+  dek_iv: string;
+  key_version: number;
+  last4: string;
+  created_at: string;
+  validated_at: string | null;
+}
+
+/**
+ * Key audit log table row type
+ * One event of a provider key of a user. The vault only appends and reads these rows;
+ * ip_hash and ua_hash are salted SHA-256 hashes, null when the request had no value.
+ */
+export interface KeyAuditLogRow {
+  [key: string]: unknown;
+  id: number;
+  user_id: string;
+  provider: string;
+  action: string;
+  at: string;
+  ip_hash: string | null;
+  ua_hash: string | null;
+}
+
+/**
+ * Environment variable table row type
+ * An environment variable of a user, sealed by the user vault worker like a provider key.
+ * updated_at is the time the value was last sealed and part of the authenticated data of its envelope.
+ */
+export interface EnvironmentVariableRow {
+  [key: string]: unknown;
+  user_id: string;
+  name: string;
+  ciphertext: string;
+  iv: string;
+  wrapped_dek: string;
+  dek_iv: string;
+  key_version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
  * Supabase connector configuration
  */
 export interface SupabaseConnectorConfiguration {
@@ -662,6 +716,80 @@ export interface Database {
           },
         ];
       };
+      provider_keys: {
+        Row: ProviderKeyRow;
+        Insert: {
+          [key: string]: unknown;
+          user_id: string;
+          provider: string;
+          ciphertext: string;
+          iv: string;
+          wrapped_dek: string;
+          dek_iv: string;
+          key_version?: number;
+          last4: string;
+          created_at: string;
+          validated_at?: string | null;
+        };
+        Update: Partial<Omit<ProviderKeyRow, 'user_id' | 'provider'>>;
+        Relationships: [
+          {
+            foreignKeyName: 'provider_keys_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['uuid'];
+          },
+        ];
+      };
+      key_audit_log: {
+        Row: KeyAuditLogRow;
+        Insert: {
+          [key: string]: unknown;
+          user_id: string;
+          provider: string;
+          action: string;
+          at: string;
+          ip_hash?: string | null;
+          ua_hash?: string | null;
+        };
+        // The service role may only insert and read the audit log
+        Update: Record<string, never>;
+        Relationships: [
+          {
+            foreignKeyName: 'key_audit_log_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['uuid'];
+          },
+        ];
+      };
+      environment_variables: {
+        Row: EnvironmentVariableRow;
+        Insert: {
+          [key: string]: unknown;
+          user_id: string;
+          name: string;
+          ciphertext: string;
+          iv: string;
+          wrapped_dek: string;
+          dek_iv: string;
+          key_version?: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Update: Partial<Omit<EnvironmentVariableRow, 'user_id' | 'name' | 'created_at'>>;
+        Relationships: [
+          {
+            foreignKeyName: 'environment_variables_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['uuid'];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -702,6 +830,13 @@ export interface Database {
         };
         Returns: number;
       };
+      insert_environment_variable: {
+        Args: {
+          variable: Omit<EnvironmentVariableRow, 'key_version'> & { key_version?: number };
+          maximum_count: number;
+        };
+        Returns: boolean;
+      };
     };
     Enums: {
       provider_type: ProviderType;
@@ -730,3 +865,6 @@ export type SchedulerStageRunsInsert = Database['public']['Tables']['scheduler_s
 export type SchedulerStageRunsUpdate = Database['public']['Tables']['scheduler_stage_runs']['Update'];
 export type CrawlerRunsInsert = Database['public']['Tables']['crawler_runs']['Insert'];
 export type CrawlerFilesInsert = Database['public']['Tables']['crawler_files']['Insert'];
+export type ProviderKeysInsert = Database['public']['Tables']['provider_keys']['Insert'];
+export type KeyAuditLogInsert = Database['public']['Tables']['key_audit_log']['Insert'];
+export type EnvironmentVariablesInsert = Database['public']['Tables']['environment_variables']['Insert'];
