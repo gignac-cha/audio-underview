@@ -105,7 +105,11 @@ service = "audio-underview-user-vault-staging-worker"
 - 앞으로 migration은 테이블을 schema 없이 쓰거나 `public.`으로만 쓴다. 다른 schema는 쓰지 않는다.
 - 바꾸기로 다른 schema로 돌릴 수 없는 문장이 있으면 SQL을 보내기 전에 거절하고 파일과 줄을 알린다: `SCHEMA public`(GRANT·DROP 등), `public`이 든 search_path나 `set_config`, search_path를 기본값으로 되돌리는 문장(`RESET`, `DISCARD`, `TO DEFAULT`), `IN SCHEMA` 없는 `ALTER DEFAULT PRIVILEGES`, transaction을 끊는 문장(`BEGIN`, `COMMIT`, `ROLLBACK`, `AND CHAIN` 등). 지금 파일 14개에는 없다.
 
-**권한.** schema를 만들 때 `GRANT USAGE ON SCHEMA <이름> TO service_role;`와 tables·sequences·functions의 `ALTER DEFAULT PRIVILEGES IN SCHEMA <이름> … TO service_role`을 먼저 실행한다. 그러면 새 테이블에 권한이 저절로 붙는다(프로토타입 SQL과 같음).
+**권한.** Supabase는 2026-10-30부터 기존 프로젝트도 새로 만드는 테이블·sequence에 Data API 역할(anon, authenticated, service_role)의 권한을 저절로 주지 않는다. 그 전에 있던 테이블은 권한을 지킨다. 운영 `public`은 001~014로 만들었고 모두 그 전에 적용됐다(014는 2026-10-18). staging과 development가 운영과 같게 굴도록 아래처럼 한다.
+- schema에는 `GRANT USAGE ON SCHEMA <이름> TO service_role;`만 준다. 기본 권한(`ALTER DEFAULT PRIVILEGES`)은 두지 않는다. 그러면 새 테이블은 migration이 직접 준 권한만 가진다.
+- staging: 복사 뒤, production에도 있는 테이블·view·sequence마다 anon, authenticated, service_role이 `public`에서 가진 권한을 그대로 준다(`aclexplode(relacl)`로 읽음, grant option 포함). 그다음 PR의 새 migration을 적용한다. 열 단위 권한과 그 밖의 역할은 옮기지 않으므로, 차이가 나면 staging이 더 엄격하다.
+- development: 001~014가 만든 테이블에만 `GRANT ALL … TO service_role`을 준다. anon과 authenticated는 주지 않는다. 예전 도구가 남긴 기본 권한은 지운다.
+- 015부터의 migration은 만드는 테이블마다 같은 파일 안에 `GRANT … ON TABLE <테이블> TO service_role`이 있어야 한다. 없으면 SQL을 보내기 전에 거절하고 파일과 테이블을 알린다. 그 GRANT는 파일을 적용할 때 실행되는 자리(맨 바깥이나 DO 블록, 함수 본문은 안 됨)에 있고, 열 목록이 없고, 테이블을 만든 뒤에 와야 센다. `ON ALL TABLES IN SCHEMA public`은 `public`을 직접 적는 문장이라 거절된다. 이 검사는 테이블만 본다. view·sequence는 보지 않는다. 기준 번호는 도구의 `LAST_MIGRATION_WITH_AUTOMATIC_GRANTS`(14)다.
 
 **staging: 배포할 때마다 production에서 다시 만든다.**
 1. `DROP SCHEMA IF EXISTS staging CASCADE; CREATE SCHEMA staging;`와 권한.
@@ -185,7 +189,7 @@ production 적용 기록이 파일과 맞지 않으면 staging이 production 행
 - user-vault: `PROVIDER_KEY_KEK`, `VAULT_INTERNAL_TOKEN`
 
 이 파일들은 `tools/environment-generator`(`pnpm environment:generate [development|docker]`)가 1Password에서 만든다. 파일 권한은 600이다. 예전 출력(`applications/web/.env`, `.env.workers`, `.env.deploy`)은 읽는 곳이 없어서 없앴다. 1Password 참조:
-- 공유: `Supabase`(URL, secret key), `Google OAuth`·`GitHub OAuth`(client ID, client secret), `Axiom`(API token), `Crawler Code Runner Function`(URL)
+- 공유: `Supabase`(URL, secret key), `Google OAuth`·`GitHub OAuth`(client ID, client secret), `Axiom`(Log Ingest API token), `Crawler Code Runner Function`(URL)
 - 환경마다: `Development Environment`·`Docker Environment`(JWT secret, vault internal token, provider key KEK. docker는 PostgREST JWT secret도)
 
 `.gitignore`는 지금 `.dev.vars`만 막는다. `.dev.vars.*`를 더한다.
@@ -195,7 +199,8 @@ production 적용 기록이 파일과 맞지 않으면 staging이 production 행
 `docker/compose.yaml` 하나로 아래를 띄운다. 쓰는 법은 `docker/README.md`에 있다. 클라우드 자원(DB, R2, KV, D1, Workflow)은 쓰지 않는다. 워커가 밖으로 부르는 것은 Google·GitHub 로그인과 토큰 확인, 코드 실행 Lambda(데이터를 저장하지 않음), 크롤러 코드가 부르는 주소와 그 DNS 조회(`cloudflare-dns.com`), user-vault가 저장한 키를 확인할 때의 provider API다.
 
 ```
-docker compose -f docker/compose.yaml --env-file docker/.env.docker up --build
+export COMPOSE_ENV_FILES="$PWD/docker/.env.docker"
+docker compose -f docker/compose.yaml up --build
 ```
 
 | 서비스 | 하는 일 |
@@ -211,7 +216,7 @@ docker compose -f docker/compose.yaml --env-file docker/.env.docker up --build
 - **wrangler 설정:** 다섯 워커에 `[env.docker]`를 더한다. 이름은 다른 환경처럼 `…-docker-worker`이고, 허용 목록은 docker 웹 주소다. 배포하지 않으므로 KV·D1 ID는 로컬 이름(`docker-oauth-state`, `docker-user-vault`)이다.
 - **소스:** 원격 Docker에서는 bind mount가 m6의 경로를 본다. 그래서 소스를 이미지에 넣어 build한다. 고칠 때는 `compose watch`가 source 폴더를 컨테이너로 옮기고, `package.json`이나 lockfile이 바뀌면 다시 build한다. m6 원격 엔진에서 `watch`가 시작되는 것까지 확인했다.
 - **접속과 로그인:** Google은 callback으로 https나 `localhost`만 받고 IP 주소는 받지 않는다. 그래서 브라우저는 `localhost`로 붙는다. 포트는 m6의 `127.0.0.1`에만 열고, `ssh -N -L …` 한 줄로 이 컴퓨터의 localhost에 넘겨받는다. 웹은 5174, 워커는 9787~9791이다. Vite는 https로 뜨므로 허용 목록은 `https://localhost:5174`다. 로그인 워커는 요청 주소로 callback을 만들므로 `http://localhost:9787/callback`, `http://localhost:9788/callback`이 나간다.
-- **secret:** `docker/.env.docker`(gitignore)를 `--env-file`로 넘기고, 서비스마다 필요한 값만 받는다. rest는 PostgREST JWT secret만, web은 Google client ID만, workers는 나머지(docker 전용 `JWT_SECRET`·`VAULT_INTERNAL_TOKEN`·`PROVIDER_KEY_KEK`, 로그인 client ID·secret, `CODE_RUNNER_FUNCTION_URL`)를 받는다. `tools/environment-generator`가 1Password에서 만든다. PostgREST JWT secret이 없으면 compose 명령이 바로 멈추므로, `down`·`logs`에도 `--env-file`을 붙인다.
+- **secret:** `docker/.env.docker`(gitignore)를 셸마다 한 번 `COMPOSE_ENV_FILES`로 정해 두고(`--env-file`로 넘겨도 된다), 서비스마다 필요한 값만 받는다. rest는 PostgREST JWT secret만, web은 Google client ID만, workers는 나머지(docker 전용 `JWT_SECRET`·`VAULT_INTERNAL_TOKEN`·`PROVIDER_KEY_KEK`, 로그인 client ID·secret, `CODE_RUNNER_FUNCTION_URL`)를 받는다. `tools/environment-generator`가 1Password에서 만든다. PostgREST JWT secret이 없으면 compose 명령이 바로 멈추므로, `down`·`logs`도 이 파일을 읽어야 한다. `COMPOSE_ENV_FILES`를 정해 둔 셸에서는 따로 붙일 것이 없다.
 - **Axiom:** `packages/axiom-logger`는 끌 수 없어서 요청마다 `api.axiom.co`로 trace를 보낸다. docker에는 진짜 토큰을 넘기지 않고(고정 placeholder), workers 컨테이너에서 `api.axiom.co`를 `127.0.0.1`로 돌려 밖으로 나가지 않게 한다. 로그에 요청마다 "exporting spans failed" 한 줄이 남는다.
 - **이미지:** m6는 arm64이고 Docker VMM이라 Rosetta가 없다. 쓰는 이미지(`node:26-trixie-slim`, `postgres:17-trixie`, `postgrest/postgrest:v14.18`, `nginx:1.30-alpine`)는 모두 arm64 판이 있다. workerd는 운영체제 인증서를 쓰므로 node 이미지에 `ca-certificates`를 넣는다(없으면 밖으로 나가는 https가 모두 실패한다). 워커·웹 이미지는 1.5GB쯤이다.
 - **project 이름:** `audio-underview`로 고정한다. 한 엔진에서 두 checkout을 돌리려면 `-p`로 이름을 바꾸는데, 포트와 callback이 고정이라 동시에 띄울 수는 없다.
@@ -274,4 +279,4 @@ docker compose -f docker/compose.yaml --env-file docker/.env.docker up --build
 - 로컬 `wrangler dev`에서 Run now가 SchedulerRunWorkflow를 시작한 직후 scheduler-manager에 "code had hung" 오류가 한 번 찍힌다(docker에서 봄). 실행 기록은 제대로 남는다. 원인은 아직 모른다.
 - 로컬 워커와 클라우드 development 워커는 같은 `development` schema를 쓴다. 로컬 R2·D1은 내 컴퓨터에만 있으므로, 클라우드 development에서 만든 실행 기록의 파일은 로컬에서 열리지 않는다(반대도 같다).
 - staging과 development는 각각 한 번에 한 브랜치만 쓴다.
-- 이 작업과 별개로, Supabase는 2026-10-30부터 기존 프로젝트도 새로 만드는 테이블에 Data API 권한을 저절로 주지 않는다. 그날 뒤 운영에 테이블을 더하는 migration에는 `GRANT … TO service_role`을 적어야 한다. staging·development는 4절의 기본 권한으로 영향이 없다.
+- Supabase는 2026-10-30부터 기존 프로젝트도 새로 만드는 테이블에 Data API 권한을 저절로 주지 않는다. 015부터의 migration은 테이블마다 `GRANT … TO service_role`을 적어야 하고, 빠지면 schema 도구가 거절한다(4절). staging·development도 기본 권한을 두지 않아, GRANT가 빠진 migration이 staging에서만 되는 일이 없다. docker의 Postgres는 예전 Supabase처럼 기본 권한을 두어 이 차이를 잡지 못하므로, PR의 `test-tools.yml`이 실제 migration 폴더로 이 검사를 돌려 막는다.
