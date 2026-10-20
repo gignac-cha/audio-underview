@@ -8,6 +8,8 @@ on:
       - 'tools/deployment-planner/**'
       # environment-schema tests read the connector migrations.
       - 'packages/supabase-connector/migrations/**'
+      # A typescript or vitest bump can change only the lockfile, and the tools run on those versions.
+      - 'pnpm-lock.yaml'
       # deployment-planner tests read the workspace list and the deploy workflows.
       - 'pnpm-workspace.yaml'
       - 'workers/*/package.json'
