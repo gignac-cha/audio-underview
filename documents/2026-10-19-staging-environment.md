@@ -143,7 +143,10 @@ production 적용 기록이 파일과 맞지 않으면 staging이 production 행
 - 처음 배포하면 schema가 없으므로 `--reset`과 같다.
 - 5번의 확인은 development에도 한다.
 
-**노출 목록.** Data API가 두 schema를 받도록 노출 schema 목록에 한 번 더한다. 지금 값(`prototype` 포함)을 먼저 읽고 `staging`, `development`만 붙인다. 프로토타입은 `ALTER ROLE authenticator SET pgrst.db_schemas = …`로 노출했으므로, 그 설정이 남아 있으면 그것을 고친다(대시보드 설정보다 먼저 쓰인다). 없으면 대시보드의 Exposed schemas나 `PATCH /v1/projects/{ref}/postgrest`의 `db_schema`를 쓴다.
+**노출 목록.** Data API가 두 schema를 받도록 노출 schema 목록에 더한다. 노출은 `ALTER ROLE authenticator SET pgrst.db_schemas = …`로 한다. 프로토타입 때 이 role 설정을 썼고, 이 설정은 대시보드 설정보다 먼저 쓰인다. 지금 값을 먼저 읽고 붙인다.
+- 목록에는 **이미 있는 schema만** 넣는다. 2026-10-21에 아직 없던 `development`를 넣고 schema cache를 다시 읽게 했다. 그러자 PostgREST가 cache를 만들지 못해(`PGRST002`) 운영 `public`까지 Data API 전체가 1~2분 멈췄다. `development`를 빼자 바로 돌아왔다.
+- 그래서 `staging`은 2026-10-21에 더했다(`public, graphql_public, prototype, staging`). `development`는 머지 뒤 첫 development 배포로 schema가 생긴 다음에 더한다.
+- staging 재구성의 `DROP SCHEMA … CASCADE; CREATE SCHEMA …`는 한 transaction이라, 다른 연결에서는 schema가 사라진 순간이 보이지 않는다. 노출된 schema를 따로 지우면 같은 장애가 나므로, 지울 때는 먼저 목록에서 뺀다.
 
 ## 5. CI
 
