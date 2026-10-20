@@ -28,7 +28,7 @@ OP_SERVICE_ACCOUNT_TOKEN=$(pnpm run --silent environment:setup) pnpm run environ
 |------|------|------|
 | development | `workers/<워커>/.dev.vars.development` (워커 다섯 개) | `wrangler dev --env development`가 읽음. 이 파일이 있으면 `.dev.vars`는 읽지 않음 |
 | development | `applications/web/.env.development.local` | 웹 앱 로컬 개발(`VITE_GOOGLE_CLIENT_ID`) |
-| docker | `docker/.env.docker` | `docker compose --env-file`. 서비스마다 필요한 값만 받음(`docker/README.md`) |
+| docker | `docker/.env.docker` | docker compose가 읽는 env file(`COMPOSE_ENV_FILES`). 서비스마다 필요한 값만 받음(`docker/README.md`) |
 
 워커별 변수는 각 워커의 `Environment` 인터페이스와 `wrangler.toml`에 적힌 secret 목록에서 정했습니다(user-vault에는 Supabase 키가 없습니다). 로그인 워커 둘의 `FRONTEND_URL`은 secret이 아니라 `https://localhost:5173`으로 고정해 씁니다.
 
@@ -41,7 +41,7 @@ vault `Audio Underview`에서 읽습니다.
 | `Supabase` | `URL`, `secret key` | development 워커(`SUPABASE_URL`, `SUPABASE_SECRET_KEY`) |
 | `Google OAuth` | `client ID`, `client secret` | Google 로그인 워커, 웹, docker |
 | `GitHub OAuth` | `client ID`, `client secret` | GitHub 로그인 워커, docker |
-| `Axiom` | `API token` | development 로그인 워커(docker에는 넣지 않음) |
+| `Axiom` | `Log Ingest API token` | development 로그인 워커(`AXIOM_API_TOKEN`, docker에는 넣지 않음) |
 | `Crawler Code Runner Function` | `URL` | crawler-manager, docker |
 | `Development Environment` | `JWT secret`, `vault internal token`, `provider key KEK` | development 워커 |
 | `Docker Environment` | `JWT secret`, `vault internal token`, `provider key KEK`, `PostgREST JWT secret` | docker |

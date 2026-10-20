@@ -26,7 +26,7 @@ const REFERENCES = {
   googleClientSecret: 'op://Audio Underview/Google OAuth/client secret',
   githubClientID: 'op://Audio Underview/GitHub OAuth/client ID',
   githubClientSecret: 'op://Audio Underview/GitHub OAuth/client secret',
-  axiomAPIToken: 'op://Audio Underview/Axiom/API token',
+  axiomAPIToken: 'op://Audio Underview/Axiom/Log Ingest API token',
   codeRunnerFunctionURL: 'op://Audio Underview/Crawler Code Runner Function/URL',
 };
 
@@ -92,7 +92,7 @@ function defineDevelopmentFiles(): EnvironmentFileDefinition[] {
   ];
 }
 
-// docker compose reads this file as --env-file and hands each service only the values it lists
+// docker compose reads this file as an env file (COMPOSE_ENV_FILES or --env-file) and hands each service only the values it lists
 // (docker/compose.yaml). It derives the rest (the web's client ID, the service role key), and it
 // gives the workers no Axiom token, so the docker environment sends Axiom nothing.
 function defineDockerFiles(): EnvironmentFileDefinition[] {
