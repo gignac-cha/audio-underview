@@ -8,18 +8,66 @@ binding = "AUDIO_UNDERVIEW_OAUTH_STATE"
 id = "6a8c4022e9984b0fb81957ed410ad9b0"
 
 [vars]
-ALLOWED_ORIGINS = "http://localhost:5173,https://audio-underview.pages.dev"
+ALLOWED_ORIGINS = "https://audio-underview.pages.dev"
 AXIOM_DATASET = "audio-underview"
+SUPABASE_SCHEMA = "public"
 
-# Required secrets (set via wrangler secret put):
+# Required secrets (set via wrangler secret put; each environment keeps its own, add --env <environment>):
 # - GITHUB_CLIENT_ID
 # - GITHUB_CLIENT_SECRET
 # - FRONTEND_URL
 # - SUPABASE_URL
 # - SUPABASE_SECRET_KEY
 # - AXIOM_API_TOKEN
+# - JWT_SECRET (same value as the other workers of the environment)
 
 [observability.logs]
 enabled = true
 head_sampling_rate = 1
 invocation_logs = true
+
+# Environments. Everything above is production. vars and kv_namespaces are not inherited, so each
+# environment repeats them; main, compatibility_date, compatibility_flags and observability are inherited.
+# Each environment sets name, because wrangler would deploy it as <name>-<environment>.
+# The KV namespace of an environment is shared with the Google login worker of that environment.
+# docker never deploys, so its id is only a name for local storage.
+
+# staging: the code of a pull request on a copy of the production data
+[env.staging]
+name = "audio-underview-github-oauth-provider-staging-worker"
+
+[env.staging.vars]
+ALLOWED_ORIGINS = "https://staging.audio-underview.pages.dev"
+AXIOM_DATASET = "audio-underview"
+SUPABASE_SCHEMA = "staging"
+
+[[env.staging.kv_namespaces]]
+binding = "AUDIO_UNDERVIEW_OAUTH_STATE"
+id = "4569de83bcc14ffd822fccad189bf67b"
+
+# development: a branch chosen by hand, with its own data that stays between deploys.
+# `wrangler dev --env development` runs this environment locally against the same schema.
+[env.development]
+name = "audio-underview-github-oauth-provider-development-worker"
+
+[env.development.vars]
+ALLOWED_ORIGINS = "https://development.audio-underview.pages.dev,https://localhost:5173"
+AXIOM_DATASET = "audio-underview"
+SUPABASE_SCHEMA = "development"
+
+[[env.development.kv_namespaces]]
+binding = "AUDIO_UNDERVIEW_OAUTH_STATE"
+id = "d001654f898d42d3859ec8bc0add8051"
+
+# docker: runs only in the compose setup and is never deployed, so the id is a fixed local string
+[env.docker]
+name = "audio-underview-github-oauth-provider-docker-worker"
+
+[env.docker.vars]
+ALLOWED_ORIGINS = "https://localhost:5174"
+AXIOM_DATASET = "audio-underview"
+SUPABASE_SCHEMA = "public"
+
+[[env.docker.kv_namespaces]]
+binding = "AUDIO_UNDERVIEW_OAUTH_STATE"
+id = "docker-oauth-state"

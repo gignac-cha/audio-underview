@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
+    "dev": "turbo run dev --filter=@audio-underview/web --filter=@audio-underview/google-oauth-provider-worker --filter=@audio-underview/github-oauth-provider-worker --filter=@audio-underview/crawler-manager-worker --filter=@audio-underview/scheduler-manager-worker --filter=@audio-underview/user-vault-worker",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "format": "prettier --write .",

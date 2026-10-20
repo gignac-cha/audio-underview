@@ -19,6 +19,7 @@ export async function handleListTaskGroups(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const taskGroups = await listTaskGroups(supabaseClient);

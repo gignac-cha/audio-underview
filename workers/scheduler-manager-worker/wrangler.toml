@@ -3,9 +3,10 @@ main = "sources/index.ts"
 compatibility_date = "2026-10-12"
 
 [vars]
-ALLOWED_ORIGINS = "http://localhost:5173,https://audio-underview.pages.dev"
+ALLOWED_ORIGINS = "https://audio-underview.pages.dev"
+SUPABASE_SCHEMA = "public"
 
-# Secrets (set via wrangler secret put):
+# Secrets (set via wrangler secret put; each environment keeps its own, add --env <environment>):
 # SUPABASE_URL
 # SUPABASE_SECRET_KEY
 # JWT_SECRET
@@ -28,3 +29,66 @@ class_name = "SchedulerRunWorkflow"
 enabled = true
 head_sampling_rate = 1
 invocation_logs = true
+
+# Environments. Everything above is production. vars, services and workflows are not inherited, so
+# each environment repeats them; main, compatibility_date, triggers and observability are inherited.
+# Each environment sets name, because wrangler would deploy it as <name>-<environment>. The workflow
+# name is per account, so each environment has its own.
+
+# staging: the code of a pull request on a copy of the production data
+[env.staging]
+name = "audio-underview-scheduler-manager-staging-worker"
+
+# The tick is off here: the copied production schedules would run a second time, and every extra
+# run pays for crawling again (and later for newscast TTS). Start runs with Run now.
+[env.staging.triggers]
+crons = []
+
+[env.staging.vars]
+ALLOWED_ORIGINS = "https://staging.audio-underview.pages.dev"
+SUPABASE_SCHEMA = "staging"
+
+[[env.staging.services]]
+binding = "CRAWLER_MANAGER"
+service = "audio-underview-crawler-manager-staging-worker"
+
+[[env.staging.workflows]]
+name = "audio-underview-scheduler-run-staging-workflow"
+binding = "SCHEDULER_RUN_WORKFLOW"
+class_name = "SchedulerRunWorkflow"
+
+# development: a branch chosen by hand, with its own data that stays between deploys.
+# `wrangler dev --env development` runs this environment locally against the same schema.
+# The tick stays on (inherited): the schedules here are development data.
+[env.development]
+name = "audio-underview-scheduler-manager-development-worker"
+
+[env.development.vars]
+ALLOWED_ORIGINS = "https://development.audio-underview.pages.dev,https://localhost:5173"
+SUPABASE_SCHEMA = "development"
+
+[[env.development.services]]
+binding = "CRAWLER_MANAGER"
+service = "audio-underview-crawler-manager-development-worker"
+
+[[env.development.workflows]]
+name = "audio-underview-scheduler-run-development-workflow"
+binding = "SCHEDULER_RUN_WORKFLOW"
+class_name = "SchedulerRunWorkflow"
+
+# docker: runs only in the compose setup and is never deployed, so its data lives in the container
+[env.docker]
+name = "audio-underview-scheduler-manager-docker-worker"
+
+[env.docker.vars]
+ALLOWED_ORIGINS = "https://localhost:5174"
+SUPABASE_SCHEMA = "public"
+
+[[env.docker.services]]
+binding = "CRAWLER_MANAGER"
+service = "audio-underview-crawler-manager-docker-worker"
+
+[[env.docker.workflows]]
+name = "audio-underview-scheduler-run-docker-workflow"
+binding = "SCHEDULER_RUN_WORKFLOW"
+class_name = "SchedulerRunWorkflow"

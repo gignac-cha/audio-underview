@@ -340,6 +340,11 @@ export interface CrawlerPermissionRow {
 export interface SupabaseConnectorConfiguration {
   supabaseURL: string;
   supabaseSecretKey: string;
+  /**
+   * Postgres schema the client reads and writes (`public`, `staging` or `development`).
+   * Required on purpose: a default would let a call site that forgets it reach production tables.
+   */
+  schema: string;
 }
 
 /**

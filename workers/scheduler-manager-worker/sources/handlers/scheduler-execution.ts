@@ -49,6 +49,7 @@ export async function handleExecuteScheduler(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const ownershipError = await verifySchedulerOwnership(supabaseClient, schedulerID, userUUID, context);

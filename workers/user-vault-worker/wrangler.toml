@@ -11,7 +11,7 @@ database_id = "f52de732-d798-4165-8ee8-76153afba0d2"
 [vars]
 PROVIDER_KEY_KEK_VERSION = "1"
 
-# Secrets (set via wrangler secret put):
+# Secrets (set via wrangler secret put; each environment keeps its own, add --env <environment>):
 # PROVIDER_KEY_KEK           required; key encryption key (KEK) that wraps every data encryption key
 # PROVIDER_KEY_KEK_PREVIOUS  optional; previous KEK, tried after PROVIDER_KEY_KEK when unwrapping
 # VAULT_INTERNAL_TOKEN       optional; value callers must send in the x-user-vault-token header
@@ -22,3 +22,45 @@ PROVIDER_KEY_KEK_VERSION = "1"
 [observability.logs]
 enabled = true
 head_sampling_rate = 1
+
+# Environments. Everything above is production. vars and d1_databases are not inherited, so each
+# environment repeats them; main, compatibility_date, workers_dev and observability are inherited.
+# Each environment sets name, because wrangler would deploy it as <name>-<environment>.
+# docker never deploys, so its database_id is only a name for local storage.
+
+# staging: the code of a pull request, with a database of its own
+[env.staging]
+name = "audio-underview-user-vault-staging-worker"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "audio-underview-user-vault-staging"
+database_id = "24738385-5034-4c8d-ab65-c87f2fa73d7a"
+
+[env.staging.vars]
+PROVIDER_KEY_KEK_VERSION = "1"
+
+# development: a branch chosen by hand, with its own data that stays between deploys.
+# `wrangler dev --env development` runs this environment locally on a local D1 database.
+[env.development]
+name = "audio-underview-user-vault-development-worker"
+
+[[env.development.d1_databases]]
+binding = "DB"
+database_name = "audio-underview-user-vault-development"
+database_id = "c54b48c6-7062-4dfd-9606-4e4fba031c92"
+
+[env.development.vars]
+PROVIDER_KEY_KEK_VERSION = "1"
+
+# docker: runs only in the compose setup and is never deployed, so the id is a fixed local string
+[env.docker]
+name = "audio-underview-user-vault-docker-worker"
+
+[[env.docker.d1_databases]]
+binding = "DB"
+database_name = "audio-underview-user-vault-docker"
+database_id = "docker-user-vault"
+
+[env.docker.vars]
+PROVIDER_KEY_KEK_VERSION = "1"

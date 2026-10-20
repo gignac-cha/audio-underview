@@ -22,6 +22,7 @@ function createDependencies(environment: Environment): TaskGroupReportDependenci
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
   return { supabaseClient, workflow: environment.SCHEDULER_RUN_WORKFLOW, logger };
 }

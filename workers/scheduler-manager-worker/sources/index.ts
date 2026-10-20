@@ -41,6 +41,7 @@ export { TaskGroupReports } from './task-group-reports-entrypoint.ts';
 export interface Environment {
   ALLOWED_ORIGINS: string;
   SUPABASE_URL: string;
+  SUPABASE_SCHEMA: string;
   SUPABASE_SECRET_KEY: string;
   JWT_SECRET: string;
   CRAWLER_MANAGER: Service;
@@ -225,6 +226,7 @@ export default {
         const supabaseClient = createSupabaseClient({
           supabaseURL: environment.SUPABASE_URL,
           supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+          schema: environment.SUPABASE_SCHEMA,
         });
         return await handleTokenExchange(request, supabaseClient, environment.JWT_SECRET, context);
       }
@@ -375,6 +377,7 @@ export default {
       const supabaseClient = createSupabaseClient({
         supabaseURL: environment.SUPABASE_URL,
         supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+        schema: environment.SUPABASE_SCHEMA,
       });
       const result = await runScheduleTick(
         { supabaseClient, workflow: environment.SCHEDULER_RUN_WORKFLOW, logger },

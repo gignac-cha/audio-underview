@@ -188,6 +188,7 @@ async function handleCreateCrawler(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const crawler = await createCrawler(supabaseClient, {
@@ -224,6 +225,7 @@ async function handleListCrawlers(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const result = await listCrawlersByUser(supabaseClient, userUUID, pagination);
@@ -244,6 +246,7 @@ async function handleGetCrawler(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const crawler = await getCrawler(supabaseClient, crawlerID, userUUID);
@@ -270,6 +273,7 @@ async function handleUpdateCrawler(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const crawler = await updateCrawler(supabaseClient, crawlerID, userUUID, {
@@ -299,6 +303,7 @@ async function handleDeleteCrawler(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const deleted = await deleteCrawler(supabaseClient, crawlerID, userUUID);
@@ -510,6 +515,7 @@ export default class CrawlerManagerWorker extends WorkerEntrypoint<Environment> 
         const supabaseClient = createSupabaseClient({
           supabaseURL: environment.SUPABASE_URL,
           supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+          schema: environment.SUPABASE_SCHEMA,
         });
         return await handleTokenExchange(request, supabaseClient, environment.JWT_SECRET, context);
       }

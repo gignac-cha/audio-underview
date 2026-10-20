@@ -57,6 +57,7 @@ interface Environment extends BaseEnvironment {
   NAVER_CLIENT_SECRET: string;
   // Supabase
   SUPABASE_URL: string;
+  SUPABASE_SCHEMA: string;
   SUPABASE_SECRET_KEY: string;
   // Axiom
   AXIOM_API_TOKEN: string;
@@ -114,6 +115,7 @@ function createConnectorClient(environment: Environment) {
   return createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 }
 

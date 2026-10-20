@@ -7,6 +7,7 @@ import { UserVaultClient } from './user-vault-client.ts';
 export interface Environment {
   ALLOWED_ORIGINS: string;
   SUPABASE_URL: string;
+  SUPABASE_SCHEMA: string;
   SUPABASE_SECRET_KEY: string;
   JWT_SECRET: string;
   /** Web crawlers still fetch their page through the code runner Lambda */
@@ -22,6 +23,7 @@ export function createSupabaseClientFrom(environment: Environment): SupabaseClie
   return createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 }
 

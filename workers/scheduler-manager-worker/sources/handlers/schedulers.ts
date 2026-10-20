@@ -189,6 +189,7 @@ export async function handleCreateScheduler(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const timezone = body.timezone ?? DEFAULT_TIMEZONE;
@@ -238,6 +239,7 @@ export async function handleListSchedulers(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const result = await listSchedulersByUser(supabaseClient, userUUID, { offset, limit });
@@ -258,6 +260,7 @@ export async function handleGetScheduler(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const scheduler = await getScheduler(supabaseClient, schedulerID, userUUID);
@@ -284,6 +287,7 @@ export async function handleUpdateScheduler(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const updatePayload: Record<string, unknown> = {};
@@ -332,6 +336,7 @@ export async function handleDeleteScheduler(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const deleted = await deleteScheduler(supabaseClient, schedulerID, userUUID);

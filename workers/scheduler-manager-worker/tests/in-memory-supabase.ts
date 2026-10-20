@@ -1,11 +1,13 @@
 import { beforeEach } from 'vitest';
+import { env } from 'cloudflare:test';
 import { http, HttpResponse } from 'msw';
 import { network, requestMatching } from '@audio-underview/worker-tools/tests/network.ts';
 
 /**
  * A small in-memory PostgREST behind MSW handlers, for tests that follow a flow over several
  * tables. It understands the filters, orders and limits the connector sends, and whether a
- * request asks for one object (.single()) or an array.
+ * request asks for one object (.single()) or an array. It serves only the schema the test
+ * environment names (SUPABASE_SCHEMA); a request for another one gets the error PostgREST gives.
  */
 
 export type Row = Record<string, unknown>;
@@ -15,6 +17,7 @@ export interface InMemorySupabaseRequest {
   table: string;
   query: URLSearchParams;
   body: Row | undefined;
+  schema: string;
 }
 
 export interface InMemorySupabaseResponse {
@@ -98,20 +101,36 @@ function sortRows(rows: Row[], order: string | null): Row[] {
   });
 }
 
-// .single() asks PostgREST for one object; a list, or a maybeSingle on a GET, asks for an array
-function asksForSingleObject(headers: unknown): boolean {
-  let entries: [string, string][];
-  if (headers instanceof Headers) {
-    entries = [...headers.entries()];
-  } else if (Array.isArray(headers)) {
-    entries = [];
+function headerEntries(headers: unknown): [string, string][] {
+  if (headers instanceof Headers) return [...headers.entries()];
+  if (Array.isArray(headers)) {
+    const entries: [string, string][] = [];
     for (let index = 0; index + 1 < headers.length; index += 2) {
       entries.push([String(headers[index]), String(headers[index + 1])]);
     }
-  } else {
-    entries = Object.entries((headers ?? {}) as Record<string, string>);
+    return entries;
   }
-  return entries.some(([name, value]) => name.toLowerCase() === 'accept' && value.includes('vnd.pgrst.object'));
+  return Object.entries((headers ?? {}) as Record<string, string>);
+}
+
+// supabase-js names the schema in Accept-Profile on GET and HEAD, and in Content-Profile on the other
+// methods. Without the header PostgREST uses its first schema, taken to be public here.
+function requestedSchema(method: string, headers: unknown): string {
+  const name = method === 'GET' || method === 'HEAD' ? 'accept-profile' : 'content-profile';
+  return headerEntries(headers).find(([header]) => header.toLowerCase() === name)?.[1] ?? 'public';
+}
+
+// What PostgREST answers for a schema it does not serve
+function schemaNotServedError(served: string): InMemorySupabaseResponse {
+  return {
+    statusCode: 406,
+    data: { code: 'PGRST106', details: null, hint: null, message: `The schema must be one of the following: ${served}` },
+  };
+}
+
+// .single() asks PostgREST for one object; a list, or a maybeSingle on a GET, asks for an array
+function asksForSingleObject(headers: unknown): boolean {
+  return headerEntries(headers).some(([name, value]) => name.toLowerCase() === 'accept' && value.includes('vnd.pgrst.object'));
 }
 
 // Keeps only the requested columns, like PostgREST does for select=a,b
@@ -152,8 +171,9 @@ export function useInMemorySupabase(origin: string): InMemorySupabase {
     const url = new URL(path, origin);
     const table = url.pathname.replace('/rest/v1/', '');
     const body = rawBody === '' ? undefined : JSON.parse(rawBody) as Row;
-    const request: InMemorySupabaseRequest = { method, table, query: url.searchParams, body };
+    const request: InMemorySupabaseRequest = { method, table, query: url.searchParams, body, schema: requestedSchema(method, headers) };
     supabase.requests.push(request);
+    if (request.schema !== env.SUPABASE_SCHEMA) return schemaNotServedError(env.SUPABASE_SCHEMA);
 
     const intercepted = supabase.intercept?.(request);
     if (intercepted !== undefined) return intercepted;

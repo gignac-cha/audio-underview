@@ -33,6 +33,7 @@ export class SchedulerRunWorkflow extends WorkflowEntrypoint<Environment, Schedu
     const supabaseClient = createSupabaseClient({
       supabaseURL: this.env.SUPABASE_URL,
       supabaseSecretKey: this.env.SUPABASE_SECRET_KEY,
+      schema: this.env.SUPABASE_SCHEMA,
     });
     const crawlerExecutionClient = new ServiceBindingCrawlerExecutionClient(this.env.CRAWLER_MANAGER);
 

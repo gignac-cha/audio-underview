@@ -11,7 +11,8 @@ export default defineConfig({
     }),
   ],
   test: {
-    include: ['sources/**/*.test.ts'],
+    // tests/ holds the checks of wrangler.toml, which need ?raw and so stay out of the typechecked sources
+    include: ['sources/**/*.test.ts', 'tests/**/*.test.ts'],
     setupFiles: ['./tests/setup.ts'],
     // The Workers runtime cannot read the module cache Vitest writes to disk
     fsModuleCache: false,

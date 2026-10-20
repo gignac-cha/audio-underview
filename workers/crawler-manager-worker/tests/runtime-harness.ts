@@ -107,7 +107,7 @@ export function createTestDependencies(overrides: Partial<CrawlerRuntimeDependen
   logger: MockLogger;
 } {
   return {
-    supabaseClient: createSupabaseClient({ supabaseURL: SUPABASE_ORIGIN, supabaseSecretKey: 'test-secret-key' }),
+    supabaseClient: createSupabaseClient({ supabaseURL: SUPABASE_ORIGIN, supabaseSecretKey: 'test-secret-key', schema: testEnvironment.SUPABASE_SCHEMA }),
     loader: testEnvironment.LOADER,
     bucket: testEnvironment.CRAWLER_FILES,
     userVaultClient: new UserVaultClient(testEnvironment.USER_VAULT, VAULT_TOKEN),

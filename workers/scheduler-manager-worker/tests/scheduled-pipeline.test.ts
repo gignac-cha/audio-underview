@@ -398,6 +398,7 @@ function createDependencies(taskGroupWorkers: Record<string, TaskGroupWorker> = 
   const supabaseClient = createSupabaseClient({
     supabaseURL: env.SUPABASE_URL,
     supabaseSecretKey: env.SUPABASE_SECRET_KEY,
+    schema: env.SUPABASE_SCHEMA,
   });
   return {
     dependencies: {
