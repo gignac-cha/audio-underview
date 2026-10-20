@@ -6,8 +6,11 @@
 # Axiom (see the workers service).
 #
 # Secrets come only from docker/.env.docker (pnpm environment:generate docker), at run time. Compose
-# reads it as --env-file, and each service lists the values it takes from it:
-#   docker compose -f docker/compose.yaml --env-file docker/.env.docker up --build
+# reads it as an env file, and each service lists the values it takes from it. Every compose command
+# needs it, down included, because the file also fills the required POSTGREST_JWT_SECRET below. Name it
+# once per shell, with an absolute path so it holds from any directory (docker/README.md):
+#   export COMPOSE_ENV_FILES="$PWD/docker/.env.docker"
+#   docker compose -f docker/compose.yaml up --build
 #
 # Ports are published on 127.0.0.1 of the Docker host; the browser reaches them as localhost.
 
@@ -62,7 +65,7 @@ services:
       PGRST_DB_ANON_ROLE: anon
       # The default row limit of the Supabase Data API
       PGRST_DB_MAX_ROWS: '1000'
-      PGRST_JWT_SECRET: ${POSTGREST_JWT_SECRET:?run compose with --env-file docker/.env.docker}
+      PGRST_JWT_SECRET: ${POSTGREST_JWT_SECRET:?put it in docker/.env.docker and name that file with COMPOSE_ENV_FILES or --env-file (docker/README.md)}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -94,7 +97,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-}
       VAULT_INTERNAL_TOKEN: ${VAULT_INTERNAL_TOKEN:-}
       PROVIDER_KEY_KEK: ${PROVIDER_KEY_KEK:-}
-      POSTGREST_JWT_SECRET: ${POSTGREST_JWT_SECRET:?run compose with --env-file docker/.env.docker}
+      POSTGREST_JWT_SECRET: ${POSTGREST_JWT_SECRET:?put it in docker/.env.docker and name that file with COMPOSE_ENV_FILES or --env-file (docker/README.md)}
     # The login workers export their traces to Axiom with no way to turn it off. They get a token
     # Axiom rejects (start-workers.ts), and the Axiom address leads back into this container, where
     # nothing listens on 443, so the export fails before it leaves.

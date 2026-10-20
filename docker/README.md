@@ -41,7 +41,7 @@ OP_SERVICE_ACCOUNT_TOKEN=$(pnpm run --silent environment:setup) pnpm run environ
 
 들어가는 값: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `CODE_RUNNER_FUNCTION_URL`, `JWT_SECRET`, `VAULT_INTERNAL_TOKEN`, `PROVIDER_KEY_KEK`, `POSTGREST_JWT_SECRET`. `POSTGREST_JWT_SECRET`은 32자 이상이어야 한다(PostgREST 조건). 예전에 만든 파일에 `AXIOM_API_TOKEN`이 남아 있어도 어느 서비스에도 넘어가지 않는다. 지워도 된다.
 
-compose는 이 파일을 `--env-file`로 읽고, 서비스마다 `compose.yaml`의 `environment`에 적힌 값만 넘긴다.
+compose는 이 파일을 env file로 읽고(3절), 서비스마다 `compose.yaml`의 `environment`에 적힌 값만 넘긴다.
 
 | 서비스 | 받는 값 |
 | -- | -- |
@@ -67,20 +67,25 @@ m6는 arm64이고 Docker VMM이라 Rosetta가 없다. 여기서 쓰는 이미지
 
 ## 3. 띄우기
 
-저장소 루트에서 실행한다.
+저장소 루트에서 실행한다. compose가 읽을 파일을 셸마다 한 번 정해 두면, 뒤의 명령에는 따로 붙이지 않는다.
 
 ```bash
-docker compose -f docker/compose.yaml --env-file docker/.env.docker up --build
+export COMPOSE_ENV_FILES="$PWD/docker/.env.docker"
+docker compose -f docker/compose.yaml up --build
 ```
 
 처음에는 `database`가 역할을 만들고, `migrate`가 migration을 적용한 뒤 끝나고, 그다음 `rest`, `gateway`, `workers`, `web`이 뜬다.
 
-`--env-file docker/.env.docker`는 `up`뿐 아니라 이 환경의 compose 명령(`watch`, `down`, `logs`, `ps` 등)마다 붙인다. compose는 `compose.yaml`을 읽을 때 이 파일의 값을 채워 넣으므로, 빠지면 `required variable POSTGREST_JWT_SECRET is missing a value`로 멈춘다. 경로는 명령을 실행하는 디렉터리 기준이다. 같은 이름의 셸 환경 변수가 있으면 그 값이 파일보다 먼저다.
+`COMPOSE_ENV_FILES`는 `--env-file`을 쓰지 않을 때 compose가 읽을 env file을 정하는 환경 변수다([Docker 문서](https://docs.docker.com/compose/how-tos/environment-variables/envvars/)). compose는 명령마다 `compose.yaml`을 읽으며 이 파일의 값을 채워 넣고, `rest`와 `workers`가 `POSTGREST_JWT_SECRET`을 꼭 요구한다. 그래서 `up`뿐 아니라 이 환경의 compose 명령(`watch`, `down`, `logs`, `ps` 등)이 모두 이 파일을 읽어야 한다.
+- 상대 경로는 명령을 실행하는 디렉터리 기준이다(Compose 5.6.0에서 확인). 절대 경로로 적으면 어느 디렉터리에서 불러도 된다.
+- `--env-file`을 같이 쓰면 그쪽이 먼저다. 같은 이름의 셸 환경 변수가 있으면 그 값이 파일보다 먼저다.
+- 파일이 없으면 `couldn't find env file: …`로, 파일에 `POSTGREST_JWT_SECRET`이 없으면 `required variable POSTGREST_JWT_SECRET is missing a value`로 compose가 시작 전에 멈춘다. 1절로 파일을 만든다.
+- `COMPOSE_ENV_FILES`가 있으면 compose는 프로젝트 디렉터리의 `.env`를 읽지 않는다. 같은 셸에서 다른 compose 프로젝트를 쓸 때는 먼저 `unset COMPOSE_ENV_FILES`를 한다.
 
 ## 4. 고치면서 쓰기: `watch`
 
 ```bash
-docker compose -f docker/compose.yaml --env-file docker/.env.docker watch
+docker compose -f docker/compose.yaml watch
 ```
 
 `up --build --watch`로 띄워도 된다. 원격 엔진에서도 동작한다.
@@ -106,7 +111,7 @@ ssh -i ~/.ssh/mini.m6.id_rsa -o IdentitiesOnly=yes -o ExitOnForwardFailure=yes -
 ## 6. 데이터 지우기
 
 ```bash
-docker compose -f docker/compose.yaml --env-file docker/.env.docker down -v
+docker compose -f docker/compose.yaml down -v
 ```
 
 DB 볼륨(`database-data`)과 워커 로컬 저장소 볼륨(`worker-state`)이 지워진다. 다음 `up`은 빈 DB에 역할과 migration부터 다시 만든다.
@@ -116,10 +121,11 @@ DB 볼륨(`database-data`)과 워커 로컬 저장소 볼륨(`worker-state`)이 
 compose 프로젝트 이름은 `compose.yaml`에 `audio-underview`로 고정돼 있다. 그래서 같은 엔진에서 다른 checkout(다른 worktree 등)으로 같은 명령을 부르면 같은 컨테이너와 볼륨을 쓰고, 한쪽의 `down -v`가 다른 쪽 데이터도 지운다. 다른 checkout에서는 `-p`로 이름을 바꾼다. `-p`가 `compose.yaml`의 이름보다 먼저다(`COMPOSE_PROJECT_NAME` 환경 변수도 된다).
 
 ```bash
-docker compose -p audio-underview-second -f docker/compose.yaml --env-file docker/.env.docker up --build
+export COMPOSE_ENV_FILES="$PWD/docker/.env.docker"
+docker compose -p audio-underview-second -f docker/compose.yaml up --build
 ```
 
-그 checkout의 compose 명령마다 같은 `-p`를 붙인다. 포트(5174, 9787~9791)는 이름과 상관없이 같아서 둘을 동시에 띄울 수는 없다. 한쪽을 `stop`이나 `down`(볼륨은 남음)으로 내린 뒤 다른 쪽을 띄운다.
+`COMPOSE_ENV_FILES`는 절대 경로라서, 첫 checkout에서 설정한 셸을 그대로 쓰면 그 checkout의 `.env.docker`를 읽는다. 그래서 그 checkout의 루트에서 다시 설정하거나 새 셸을 연다. 그 checkout의 compose 명령마다 같은 `-p`를 붙인다. 포트(5174, 9787~9791)는 이름과 상관없이 같아서 둘을 동시에 띄울 수는 없다. 한쪽을 `stop`이나 `down`(볼륨은 남음)으로 내린 뒤 다른 쪽을 띄운다.
 
 ## 알아 둘 것
 
