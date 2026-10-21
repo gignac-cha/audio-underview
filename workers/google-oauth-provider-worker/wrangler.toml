@@ -49,6 +49,8 @@ id = "4569de83bcc14ffd822fccad189bf67b"
 # `wrangler dev --env development` runs this environment locally against the same schema.
 [env.development]
 name = "audio-underview-google-oauth-provider-development-worker"
+# The name has 56 characters, and Cloudflare refuses names over 54 when Preview URLs are on (code 100315)
+preview_urls = false
 
 [env.development.vars]
 ALLOWED_ORIGINS = "https://development.audio-underview.pages.dev,https://localhost:5173"
