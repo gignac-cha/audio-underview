@@ -3,9 +3,10 @@ main = "sources/index.ts"
 compatibility_date = "2026-10-12"
 
 [vars]
-ALLOWED_ORIGINS = "http://localhost:5173,https://audio-underview.pages.dev"
+ALLOWED_ORIGINS = "https://audio-underview.pages.dev"
+SUPABASE_SCHEMA = "public"
 
-# Secrets (set via wrangler secret put):
+# Secrets (set via wrangler secret put; each environment keeps its own, add --env <environment>):
 # SUPABASE_URL
 # SUPABASE_SECRET_KEY
 # JWT_SECRET
@@ -36,3 +37,65 @@ crons = ["*/15 * * * *"]
 enabled = true
 head_sampling_rate = 1
 invocation_logs = false
+
+# Environments. Everything above is production. vars, worker_loaders, r2_buckets and services are not
+# inherited, so each environment repeats them; main, compatibility_date, triggers and observability are inherited.
+# Each environment sets name, because wrangler would deploy it as <name>-<environment>.
+
+# staging: the code of a pull request on a copy of the production data
+[env.staging]
+name = "audio-underview-crawler-manager-staging-worker"
+
+[env.staging.vars]
+ALLOWED_ORIGINS = "https://staging.audio-underview.pages.dev"
+SUPABASE_SCHEMA = "staging"
+
+[[env.staging.worker_loaders]]
+binding = "LOADER"
+
+[[env.staging.r2_buckets]]
+binding = "CRAWLER_FILES"
+bucket_name = "audio-underview-crawler-files-staging"
+
+[[env.staging.services]]
+binding = "USER_VAULT"
+service = "audio-underview-user-vault-staging-worker"
+
+# development: a branch chosen by hand, with its own data that stays between deploys.
+# `wrangler dev --env development` runs this environment locally against the same schema.
+[env.development]
+name = "audio-underview-crawler-manager-development-worker"
+
+[env.development.vars]
+ALLOWED_ORIGINS = "https://development.audio-underview.pages.dev,https://localhost:5173"
+SUPABASE_SCHEMA = "development"
+
+[[env.development.worker_loaders]]
+binding = "LOADER"
+
+[[env.development.r2_buckets]]
+binding = "CRAWLER_FILES"
+bucket_name = "audio-underview-crawler-files-development"
+
+[[env.development.services]]
+binding = "USER_VAULT"
+service = "audio-underview-user-vault-development-worker"
+
+# docker: runs only in the compose setup and is never deployed, so its data lives in the container
+[env.docker]
+name = "audio-underview-crawler-manager-docker-worker"
+
+[env.docker.vars]
+ALLOWED_ORIGINS = "https://localhost:5174"
+SUPABASE_SCHEMA = "public"
+
+[[env.docker.worker_loaders]]
+binding = "LOADER"
+
+[[env.docker.r2_buckets]]
+binding = "CRAWLER_FILES"
+bucket_name = "audio-underview-crawler-files-docker"
+
+[[env.docker.services]]
+binding = "USER_VAULT"
+service = "audio-underview-user-vault-docker-worker"

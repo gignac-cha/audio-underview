@@ -1,5 +1,7 @@
 export interface Environment {
-  DB: D1Database;
+  SUPABASE_URL: string;
+  SUPABASE_SCHEMA: string;
+  SUPABASE_SECRET_KEY: string;
   PROVIDER_KEY_KEK?: string;
   PROVIDER_KEY_KEK_PREVIOUS?: string;
   PROVIDER_KEY_KEK_VERSION?: string;

@@ -1,0 +1,61 @@
+name: "Test: Tools"
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/environment-schema/**'
+      - 'tools/deployment-planner/**'
+      # environment-schema tests read the connector migrations.
+      - 'packages/supabase-connector/migrations/**'
+      # A typescript or vitest bump can change only the lockfile, and the tools run on those versions.
+      - 'pnpm-lock.yaml'
+      # deployment-planner tests read the workspace list and the deploy workflows.
+      - 'pnpm-workspace.yaml'
+      - 'workers/*/package.json'
+      - 'functions/*/package.json'
+      - 'applications/*/package.json'
+      - '.github/workflows/**'
+
+concurrency:
+  group: test-tools-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Run tool unit tests
+    permissions:
+      contents: read
+      checks: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # environment-schema decides what is written to the shared database, and
+      # deployment-planner decides what a push to main deploys.
+      - name: Typecheck
+        run: pnpm --filter @audio-underview/environment-schema --filter @audio-underview/deployment-planner run typecheck
+
+      - name: Run tool tests
+        run: pnpm --filter @audio-underview/environment-schema --filter @audio-underview/deployment-planner exec vitest run --reporter=default --reporter=junit --outputFile.junit=test-results.xml
+
+      - name: Test report
+        uses: mikepenz/action-junit-report@v5
+        if: success() || failure()
+        with:
+          check_name: Tool Test Results
+          report_paths: 'tools/*/test-results.xml'

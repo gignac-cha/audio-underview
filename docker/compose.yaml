@@ -1,0 +1,184 @@
+# Docker environment: the web, the five environment workers and a database of their own. See docker/README.md.
+#
+# Nothing is stored in the cloud. What the workers still send out: sign-in and token checks against
+# Google and GitHub, the crawler code runner function, what crawler code fetches (with its DNS over
+# HTTPS lookups), and a provider's API when the user vault checks a key saved to it. No trace goes to
+# Axiom (see the workers service).
+#
+# Secrets come only from docker/.env.docker (pnpm environment:generate docker), at run time. Compose
+# reads it as an env file, and each service lists the values it takes from it. Every compose command
+# needs it, down included, because the file also fills the required POSTGREST_JWT_SECRET below. Name it
+# once per shell, with an absolute path so it holds from any directory (docker/README.md):
+#   export COMPOSE_ENV_FILES="$PWD/docker/.env.docker"
+#   docker compose -f docker/compose.yaml up --build
+#
+# Ports are published on 127.0.0.1 of the Docker host; the browser reaches them as localhost.
+
+# Fixed, so the containers and volumes keep this name whatever directory compose runs from. A second
+# checkout on the same engine passes another name with -p (docker/README.md), or it shares them.
+name: audio-underview
+
+services:
+  # Postgres with the Supabase roles. The database password is a fixed local value: the port is not
+  # published, so only the services below reach it.
+  database:
+    build:
+      context: ..
+      dockerfile: docker/database/Dockerfile
+      target: database
+    environment:
+      POSTGRES_PASSWORD: postgres
+      AUTHENTICATOR_PASSWORD: authenticator
+    volumes:
+      - database-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD', 'pg_isready', '--username', 'postgres', '--dbname', 'postgres']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  # Applies the migration files that are not applied yet, then exits
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/database/Dockerfile
+      target: migrate
+    environment:
+      PGHOST: database
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    depends_on:
+      database:
+        condition: service_healthy
+    develop:
+      watch:
+        - path: ../packages/supabase-connector/migrations
+          action: rebuild
+
+  # PostgREST, the Data API supabase-js calls. It logs in as authenticator and serves public.
+  rest:
+    image: postgrest/postgrest:v14.18
+    environment:
+      PGRST_DB_URI: postgres://authenticator:authenticator@database:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      # The default row limit of the Supabase Data API
+      PGRST_DB_MAX_ROWS: '1000'
+      PGRST_JWT_SECRET: ${POSTGREST_JWT_SECRET:?put it in docker/.env.docker and name that file with COMPOSE_ENV_FILES or --env-file (docker/README.md)}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # Serves <SUPABASE_URL>/rest/v1/ from PostgREST, as the Supabase API URL does
+  gateway:
+    build:
+      context: gateway
+    depends_on:
+      - rest
+
+  # The five workers, as processes of one container (docker/workers/start-workers.ts says why)
+  workers:
+    build:
+      context: ..
+      dockerfile: docker/workspace/Dockerfile
+      target: workers
+    init: true
+    environment:
+      SUPABASE_URL: http://gateway:8000
+      # The login workers send the browser back here after sign-in
+      FRONTEND_URL: https://localhost:5174
+      # start-workers.ts hands each worker the ones it uses
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      CODE_RUNNER_FUNCTION_URL: ${CODE_RUNNER_FUNCTION_URL:-}
+      JWT_SECRET: ${JWT_SECRET:-}
+      VAULT_INTERNAL_TOKEN: ${VAULT_INTERNAL_TOKEN:-}
+      PROVIDER_KEY_KEK: ${PROVIDER_KEY_KEK:-}
+      POSTGREST_JWT_SECRET: ${POSTGREST_JWT_SECRET:?put it in docker/.env.docker and name that file with COMPOSE_ENV_FILES or --env-file (docker/README.md)}
+    # The login workers export their traces to Axiom with no way to turn it off. They get a token
+    # Axiom rejects (start-workers.ts), and the Axiom address leads back into this container, where
+    # nothing listens on 443, so the export fails before it leaves.
+    extra_hosts:
+      - api.axiom.co=127.0.0.1
+    ports:
+      - '127.0.0.1:9787:9787' # Google login
+      - '127.0.0.1:9788:9788' # GitHub login
+      - '127.0.0.1:9789:9789' # crawler-manager
+      - '127.0.0.1:9790:9790' # scheduler-manager
+      - '127.0.0.1:9791:9791' # user-vault
+    volumes:
+      - worker-state:/worker-state
+    depends_on:
+      - gateway
+    develop:
+      watch:
+        # wrangler dev reloads a worker when its sources change
+        - path: ../workers
+          target: /workspace/workers
+          action: sync
+          ignore:
+            - '*/package.json'
+            - '*/.dev.vars*'
+        - path: ../packages
+          target: /workspace/packages
+          action: sync
+          ignore:
+            - '*/package.json'
+        - path: ../workers
+          include: '*/package.json'
+          action: rebuild
+        - path: ../packages
+          include: '*/package.json'
+          action: rebuild
+        - path: ../package.json
+          action: rebuild
+        - path: ../pnpm-lock.yaml
+          action: rebuild
+        - path: ../pnpm-workspace.yaml
+          action: rebuild
+
+  # Vite dev server. The browser runs the web, so the worker addresses are the forwarded localhost ports.
+  web:
+    build:
+      context: ..
+      dockerfile: docker/workspace/Dockerfile
+      target: web
+    init: true
+    environment:
+      VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      VITE_GOOGLE_OAUTH_WORKER_URL: http://localhost:9787
+      VITE_GITHUB_OAUTH_WORKER_URL: http://localhost:9788
+      VITE_CRAWLER_MANAGER_WORKER_URL: http://localhost:9789
+      VITE_SCHEDULER_MANAGER_WORKER_URL: http://localhost:9790
+    ports:
+      - '127.0.0.1:5174:5174'
+    develop:
+      watch:
+        - path: ../applications/web
+          target: /workspace/applications/web
+          action: sync
+          ignore:
+            - package.json
+        - path: ../packages
+          target: /workspace/packages
+          action: sync
+          ignore:
+            - '*/package.json'
+        - path: ../applications/web/package.json
+          action: rebuild
+        - path: ../packages
+          include: '*/package.json'
+          action: rebuild
+        - path: ../package.json
+          action: rebuild
+        - path: ../pnpm-lock.yaml
+          action: rebuild
+        - path: ../pnpm-workspace.yaml
+          action: rebuild
+
+volumes:
+  database-data:
+  worker-state:

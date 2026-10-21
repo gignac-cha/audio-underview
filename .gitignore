@@ -538,6 +538,10 @@ outputs/
 # Cloudflare Wrangler
 .wrangler
 .dev.vars
+.dev.vars.*
+
+# Secrets of the docker environment (written by tools/environment-generator)
+.env.docker
 
 # Playwright
 test-results/

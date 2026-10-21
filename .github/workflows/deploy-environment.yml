@@ -1,0 +1,395 @@
+name: "Deploy: Environment"
+
+# Deploys one whole non-production environment (staging or development):
+# the Supabase schema, the five workers the web calls, and the web.
+# Called by deploy-staging.yml and deploy-development.yml. Production keeps its
+# own workflows.
+#
+# Every wrangler step names the environment twice on purpose: `--env` in
+# `command`, and the action's `environment` input, which is the only way to send
+# the secret upload (`wrangler secret bulk --env`) to the environment's worker.
+# The action adds `--env` to a command only when the command has none, so each
+# command still gets it exactly once. A wrangler command without `--env` would
+# run against the production worker.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'staging or development'
+        type: string
+        required: true
+      reset:
+        description: 'Drop the schema and rebuild it from the first migration'
+        type: boolean
+        default: false
+      pull_request_number:
+        description: 'Pull request that gets a comment with the address once the web is deployed'
+        type: number
+        required: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    name: Validate environment
+    permissions:
+      contents: read
+    outputs:
+      prefix: ${{ steps.environment.outputs.prefix }}
+
+    steps:
+      - name: Check environment name
+        id: environment
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          case "${ENVIRONMENT}" in
+            staging | development) ;;
+            *)
+              echo "::error::environment must be staging or development, not '${ENVIRONMENT}'"
+              exit 1
+              ;;
+          esac
+          echo "prefix=${ENVIRONMENT^^}" >> "${GITHUB_OUTPUT}"
+
+      # An empty variable would build a web that calls no worker, and a
+      # production value would point this environment at production.
+      - name: Check repository variables
+        env:
+          PREFIX: ${{ steps.environment.outputs.prefix }}
+          VITE_GOOGLE_OAUTH_WORKER_URL: ${{ vars[format('{0}_VITE_GOOGLE_OAUTH_WORKER_URL', steps.environment.outputs.prefix)] }}
+          VITE_GITHUB_OAUTH_WORKER_URL: ${{ vars[format('{0}_VITE_GITHUB_OAUTH_WORKER_URL', steps.environment.outputs.prefix)] }}
+          VITE_CRAWLER_MANAGER_WORKER_URL: ${{ vars[format('{0}_VITE_CRAWLER_MANAGER_WORKER_URL', steps.environment.outputs.prefix)] }}
+          VITE_SCHEDULER_MANAGER_WORKER_URL: ${{ vars[format('{0}_VITE_SCHEDULER_MANAGER_WORKER_URL', steps.environment.outputs.prefix)] }}
+          FRONTEND_URL: ${{ vars[format('{0}_FRONTEND_URL', steps.environment.outputs.prefix)] }}
+          PRODUCTION_VITE_GOOGLE_OAUTH_WORKER_URL: ${{ vars.VITE_GOOGLE_OAUTH_WORKER_URL }}
+          PRODUCTION_VITE_GITHUB_OAUTH_WORKER_URL: ${{ vars.VITE_GITHUB_OAUTH_WORKER_URL }}
+          PRODUCTION_VITE_CRAWLER_MANAGER_WORKER_URL: ${{ vars.VITE_CRAWLER_MANAGER_WORKER_URL }}
+          PRODUCTION_VITE_SCHEDULER_MANAGER_WORKER_URL: ${{ vars.VITE_SCHEDULER_MANAGER_WORKER_URL }}
+          PRODUCTION_FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+        run: |
+          failed=0
+          for name in VITE_GOOGLE_OAUTH_WORKER_URL VITE_GITHUB_OAUTH_WORKER_URL VITE_CRAWLER_MANAGER_WORKER_URL VITE_SCHEDULER_MANAGER_WORKER_URL FRONTEND_URL; do
+            production="PRODUCTION_${name}"
+            if [ -z "${!name}" ]; then
+              echo "::error::Repository variable ${PREFIX}_${name} is not set"
+              failed=1
+            elif [ "${!name}" = "${!production}" ]; then
+              echo "::error::Repository variable ${PREFIX}_${name} has the production value of ${name}"
+              failed=1
+            fi
+          done
+          exit "${failed}"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # A missing or wrong name deploys under another name, or over the
+      # production worker when it repeats the production name.
+      - name: Check worker names
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          failed=0
+          for worker in user-vault crawler-manager scheduler-manager google-oauth-provider github-oauth-provider; do
+            file="workers/${worker}-worker/wrangler.toml"
+            expected="audio-underview-${worker}-${ENVIRONMENT}-worker"
+            actual=$(awk -v section="[env.${ENVIRONMENT}]" '
+              $0 == section { inside = 1; next }
+              /^\[/ { inside = 0 }
+              inside && /^name *=/ { sub(/^name *= *"/, ""); sub(/".*$/, ""); print }
+            ' "${file}")
+            if [ "${actual}" != "${expected}" ]; then
+              echo "::error file=${file}::[env.${ENVIRONMENT}] must set name = \"${expected}\", found '${actual}'"
+              failed=1
+            fi
+          done
+          exit "${failed}"
+
+  schema:
+    runs-on: ubuntu-latest
+    needs: validate
+    name: Build database schema
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # The schema tool has no npm dependencies, so it needs no install.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+
+      - name: Build schema
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          RESET: ${{ inputs.reset }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+        run: |
+          if [ "${RESET}" = "true" ]; then
+            node tools/environment-schema/scripts/build-environment-schema.ts "${ENVIRONMENT}" --reset
+          else
+            node tools/environment-schema/scripts/build-environment-schema.ts "${ENVIRONMENT}"
+          fi
+
+  # user-vault, crawler-manager and scheduler-manager deploy in this order, so
+  # the worker a service binding names exists before the worker that binds it.
+  user-vault:
+    runs-on: ubuntu-latest
+    needs: schema
+    name: Deploy User Vault Worker
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/user-vault-worker
+          environment: ${{ inputs.environment }}
+          command: deploy --env ${{ inputs.environment }}
+
+  crawler-manager:
+    runs-on: ubuntu-latest
+    needs: user-vault
+    name: Deploy Crawler Manager Worker
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/crawler-manager-worker
+          environment: ${{ inputs.environment }}
+          command: deploy --env ${{ inputs.environment }}
+
+  scheduler-manager:
+    runs-on: ubuntu-latest
+    needs: crawler-manager
+    name: Deploy Scheduler Manager Worker
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/scheduler-manager-worker
+          environment: ${{ inputs.environment }}
+          command: deploy --env ${{ inputs.environment }}
+
+  # The login workers bind no other worker, so they deploy side by side.
+  google-oauth-provider:
+    runs-on: ubuntu-latest
+    needs: [validate, schema]
+    name: Deploy Google OAuth Worker
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/google-oauth-provider-worker
+          environment: ${{ inputs.environment }}
+          command: deploy --env ${{ inputs.environment }}
+          secrets: |
+            GOOGLE_CLIENT_ID
+            GOOGLE_CLIENT_SECRET
+            FRONTEND_URL
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          FRONTEND_URL: ${{ vars[format('{0}_FRONTEND_URL', needs.validate.outputs.prefix)] }}
+
+  github-oauth-provider:
+    runs-on: ubuntu-latest
+    needs: [validate, schema]
+    name: Deploy GitHub OAuth Worker
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/github-oauth-provider-worker
+          environment: ${{ inputs.environment }}
+          command: deploy --env ${{ inputs.environment }}
+          secrets: |
+            GITHUB_CLIENT_ID
+            GITHUB_CLIENT_SECRET
+            FRONTEND_URL
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          GITHUB_CLIENT_ID: ${{ vars.OAUTH_GITHUB_CLIENT_ID }}
+          GITHUB_CLIENT_SECRET: ${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}
+          FRONTEND_URL: ${{ vars[format('{0}_FRONTEND_URL', needs.validate.outputs.prefix)] }}
+
+  web:
+    runs-on: ubuntu-latest
+    needs: [validate, user-vault, crawler-manager, scheduler-manager, google-oauth-provider, github-oauth-provider]
+    name: Deploy to Cloudflare Pages
+    # No permissions block: this job takes what the caller grants, so only
+    # deploy-staging.yml gives it pull-requests: write for the comment.
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web application
+        run: pnpm --filter @audio-underview/web build
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          VITE_GOOGLE_OAUTH_WORKER_URL: ${{ vars[format('{0}_VITE_GOOGLE_OAUTH_WORKER_URL', needs.validate.outputs.prefix)] }}
+          VITE_GITHUB_OAUTH_WORKER_URL: ${{ vars[format('{0}_VITE_GITHUB_OAUTH_WORKER_URL', needs.validate.outputs.prefix)] }}
+          VITE_CRAWLER_MANAGER_WORKER_URL: ${{ vars[format('{0}_VITE_CRAWLER_MANAGER_WORKER_URL', needs.validate.outputs.prefix)] }}
+          VITE_SCHEDULER_MANAGER_WORKER_URL: ${{ vars[format('{0}_VITE_SCHEDULER_MANAGER_WORKER_URL', needs.validate.outputs.prefix)] }}
+
+      # No gitHubToken: with it the action would record a GitHub deployment in
+      # the preview environment, which nothing deactivates anymore.
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy ./applications/web/outputs --project-name=audio-underview --branch=${{ inputs.environment }}
+
+      # Only the branch address is given: the per-deployment address is not in
+      # the workers' allowed origins, so logging in fails there.
+      - name: Comment on pull request
+        if: inputs.pull_request_number
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          PULL_REQUEST: ${{ inputs.pull_request_number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          {
+            echo "## ${ENVIRONMENT^}"
+            echo
+            echo "This pull request is what ${ENVIRONMENT} now runs."
+            echo
+            echo "- Address: https://${ENVIRONMENT}.audio-underview.pages.dev"
+            echo "- Head commit: ${HEAD_SHA}"
+          } > "${RUNNER_TEMP}/environment-comment.md"
+          gh pr comment "${PULL_REQUEST}" --repo "${GITHUB_REPOSITORY}" --body-file "${RUNNER_TEMP}/environment-comment.md"
+
+      - name: Deployment summary
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          {
+            echo "### Deployment"
+            echo "| Key | Value |"
+            echo "|---|---|"
+            echo "| Environment | ${ENVIRONMENT} |"
+            echo "| URL | https://${ENVIRONMENT}.audio-underview.pages.dev |"
+            echo "| Commit | ${HEAD_SHA} |"
+          } >> "${GITHUB_STEP_SUMMARY}"

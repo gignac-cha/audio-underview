@@ -16,6 +16,7 @@ export default defineConfig({
             '-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgvY6PKmRlVMJ86LDK8GZWtnCWdhVx7Zc+H199BxJSv2GhRANCAAQ9ONrL9gmYH9whdml1B3juiAaVXyKpHgVYytrrAuPRXHdUki5NT5O5p/X8+dMGzG0EEuJCENbTdVB2aWK+K86O\n-----END PRIVATE KEY-----',
           FRONTEND_URL: 'https://example.com',
           SUPABASE_URL: 'https://test.supabase.co',
+          SUPABASE_SCHEMA: 'test_schema',
           SUPABASE_SECRET_KEY: 'test-supabase-secret',
           AXIOM_API_TOKEN: 'test-axiom-token',
           AXIOM_DATASET: 'test-dataset',

@@ -1,5 +1,7 @@
+import { createSupabaseClient, type ProviderKeyRow } from '@audio-underview/supabase-connector';
 import { isAuditAction, type AuditAction } from './audit.ts';
 import type { WrappedDataEncryptionKey } from './envelope.ts';
+import type { Environment } from './environment.ts';
 import { isProviderName, type ProviderName } from './providers.ts';
 
 export interface ProviderKeyRecord {
@@ -73,7 +75,7 @@ export interface UserVaultStorage {
   updateEnvironmentVariable(record: EnvironmentVariableRecord): Promise<string | null>;
   /**
    * Inserts a new variable only while the user has fewer than maximumCount variables,
-   * in one statement. A variable of the same name inserted concurrently is left alone.
+   * in one transaction. A variable of the same name inserted concurrently is left alone.
    *
    * @returns whether the row was inserted
    */
@@ -89,91 +91,19 @@ export interface UserVaultStorage {
 export const AUDIT_EVENT_LIMIT_MINIMUM = 1;
 export const AUDIT_EVENT_LIMIT_MAXIMUM = 200;
 
-const PROVIDER_KEY_COLUMNS =
-  'provider, ciphertext, iv, wrapped_dek, dek_iv, key_version, last4, created_at, validated_at';
+/** What the storage needs of the environment: the Supabase project and the schema of the environment */
+export type StorageEnvironment = Pick<Environment, 'SUPABASE_URL' | 'SUPABASE_SCHEMA' | 'SUPABASE_SECRET_KEY'>;
 
-const SELECT_PROVIDER_KEY_STATEMENT = `SELECT ${PROVIDER_KEY_COLUMNS} FROM provider_keys WHERE user_id = ? AND provider = ?`;
+const PROVIDER_KEY_COLUMNS = 'provider, ciphertext, iv, wrapped_dek, dek_iv, key_version, last4, created_at, validated_at';
 
-const SELECT_PROVIDER_KEYS_STATEMENT = `SELECT ${PROVIDER_KEY_COLUMNS} FROM provider_keys WHERE user_id = ?`;
+const ENVIRONMENT_VARIABLE_COLUMNS = 'name, ciphertext, iv, wrapped_dek, dek_iv, key_version, created_at, updated_at';
 
-const UPSERT_PROVIDER_KEY_STATEMENT = `INSERT INTO provider_keys (user_id, provider, ciphertext, iv, wrapped_dek, dek_iv, key_version, last4, created_at, validated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT (user_id, provider) DO UPDATE SET
-  ciphertext = excluded.ciphertext,
-  iv = excluded.iv,
-  wrapped_dek = excluded.wrapped_dek,
-  dek_iv = excluded.dek_iv,
-  key_version = excluded.key_version,
-  last4 = excluded.last4,
-  created_at = excluded.created_at,
-  validated_at = excluded.validated_at`;
+type SelectedProviderKeyRow = Pick<
+  ProviderKeyRow,
+  'provider' | 'ciphertext' | 'iv' | 'wrapped_dek' | 'dek_iv' | 'key_version' | 'last4' | 'created_at' | 'validated_at'
+>;
 
-const DELETE_PROVIDER_KEY_STATEMENT = 'DELETE FROM provider_keys WHERE user_id = ? AND provider = ?';
-
-// The wrapped_dek condition keeps a rewrap from overwriting a row that a
-// concurrent put has already replaced with a new envelope.
-const REPLACE_WRAPPED_DATA_ENCRYPTION_KEY_STATEMENT =
-  'UPDATE provider_keys SET wrapped_dek = ?, dek_iv = ? WHERE user_id = ? AND provider = ? AND wrapped_dek = ?';
-
-const INSERT_AUDIT_EVENT_STATEMENT =
-  'INSERT INTO key_audit_log (user_id, provider, action, at, ip_hash, ua_hash) VALUES (?, ?, ?, ?, ?, ?)';
-
-const SELECT_AUDIT_EVENTS_STATEMENT =
-  'SELECT provider, action, at FROM key_audit_log WHERE user_id = ? ORDER BY id DESC LIMIT ?';
-
-const SELECT_ENVIRONMENT_VARIABLE_SUMMARIES_STATEMENT =
-  'SELECT name, created_at, updated_at FROM environment_variables WHERE user_id = ? ORDER BY name';
-
-const SELECT_ENVIRONMENT_VARIABLES_STATEMENT =
-  'SELECT name, ciphertext, iv, wrapped_dek, dek_iv, key_version, created_at, updated_at FROM environment_variables WHERE user_id = ?';
-
-const UPDATE_ENVIRONMENT_VARIABLE_STATEMENT = `UPDATE environment_variables SET
-  ciphertext = ?, iv = ?, wrapped_dek = ?, dek_iv = ?, key_version = ?, updated_at = ?
-WHERE user_id = ? AND name = ?
-RETURNING created_at`;
-
-// The count condition keeps the limit in the same statement as the insert. A name inserted
-// concurrently is left alone, and the caller then replaces it instead.
-const INSERT_ENVIRONMENT_VARIABLE_STATEMENT = `INSERT INTO environment_variables (user_id, name, ciphertext, iv, wrapped_dek, dek_iv, key_version, created_at, updated_at)
-SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
-WHERE (SELECT COUNT(*) FROM environment_variables WHERE user_id = ?) < ?
-ON CONFLICT (user_id, name) DO NOTHING`;
-
-const DELETE_ENVIRONMENT_VARIABLE_STATEMENT = 'DELETE FROM environment_variables WHERE user_id = ? AND name = ?';
-
-const REPLACE_ENVIRONMENT_VARIABLE_WRAPPED_DATA_ENCRYPTION_KEY_STATEMENT =
-  'UPDATE environment_variables SET wrapped_dek = ?, dek_iv = ? WHERE user_id = ? AND name = ? AND wrapped_dek = ?';
-
-interface EnvironmentVariableRow {
-  name: string;
-  ciphertext: string;
-  iv: string;
-  wrapped_dek: string;
-  dek_iv: string;
-  key_version: number;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ProviderKeyRow {
-  provider: unknown;
-  ciphertext: string;
-  iv: string;
-  wrapped_dek: string;
-  dek_iv: string;
-  key_version: number;
-  last4: string;
-  created_at: string;
-  validated_at: string | null;
-}
-
-interface AuditEventRow {
-  provider: unknown;
-  action: unknown;
-  at: string;
-}
-
-function toProviderKeyRecord(row: ProviderKeyRow): ProviderKeyRecord | null {
+function toProviderKeyRecord(row: SelectedProviderKeyRow): ProviderKeyRecord | null {
   if (!isProviderName(row.provider)) {
     return null;
   }
@@ -190,91 +120,141 @@ function toProviderKeyRecord(row: ProviderKeyRow): ProviderKeyRecord | null {
   };
 }
 
+/**
+ * supabase-js answers a failed request with an error instead of throwing. A failed call throws
+ * here, so a route fails on it as on any other error, and the audit paths that swallow errors swallow it.
+ */
+function requireSuccess<Data>(
+  result: { data: Data; error: null } | { data: null; error: { message: string } },
+  operation: string,
+): Data {
+  if (result.error !== null) {
+    throw new Error(`Failed to ${operation}: ${result.error.message}`);
+  }
+  return result.data;
+}
+
 export function clampAuditEventLimit(limit: number): number {
   return Math.min(AUDIT_EVENT_LIMIT_MAXIMUM, Math.max(AUDIT_EVENT_LIMIT_MINIMUM, Math.floor(limit)));
 }
 
 /**
- * The only place that talks to D1. Every statement carries the bound userID,
- * columns are always listed, and the audit table is only inserted into and read.
+ * The only place that talks to Supabase, in the schema of the environment. Every request is
+ * filtered by the bound userID or writes it, columns are always listed, and the audit table
+ * is only inserted into and read.
  */
-export function createUserVaultStorage(database: D1Database, userID: string): UserVaultStorage {
+export function createUserVaultStorage(environment: StorageEnvironment, userID: string): UserVaultStorage {
+  const client = createSupabaseClient({
+    supabaseURL: environment.SUPABASE_URL,
+    supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
+  });
+
   return {
     userID,
 
     async readProviderKey(provider) {
-      const row = await database
-        .prepare(SELECT_PROVIDER_KEY_STATEMENT)
-        .bind(userID, provider)
-        .first<ProviderKeyRow>();
+      const row = requireSuccess(
+        await client
+          .from('provider_keys')
+          .select(PROVIDER_KEY_COLUMNS)
+          .eq('user_id', userID)
+          .eq('provider', provider)
+          .maybeSingle(),
+        'read provider key',
+      );
       return row === null ? null : toProviderKeyRecord(row);
     },
 
     async listProviderKeys() {
-      const result = await database.prepare(SELECT_PROVIDER_KEYS_STATEMENT).bind(userID).all<ProviderKeyRow>();
-      return result.results
-        .map(toProviderKeyRecord)
-        .filter((record): record is ProviderKeyRecord => record !== null);
+      const rows = requireSuccess(
+        await client.from('provider_keys').select(PROVIDER_KEY_COLUMNS).eq('user_id', userID),
+        'list provider keys',
+      );
+      return rows.map(toProviderKeyRecord).filter((record): record is ProviderKeyRecord => record !== null);
     },
 
     async writeProviderKey(record) {
-      await database
-        .prepare(UPSERT_PROVIDER_KEY_STATEMENT)
-        .bind(
-          userID,
-          record.provider,
-          record.ciphertext,
-          record.initializationVector,
-          record.wrappedDataEncryptionKey,
-          record.dataEncryptionKeyInitializationVector,
-          record.keyVersion,
-          record.last4,
-          record.createdAt,
-          record.validatedAt,
-        )
-        .run();
+      // A conflict replaces every envelope column, so a replaced key gets a whole new envelope
+      requireSuccess(
+        await client.from('provider_keys').upsert(
+          {
+            user_id: userID,
+            provider: record.provider,
+            ciphertext: record.ciphertext,
+            iv: record.initializationVector,
+            wrapped_dek: record.wrappedDataEncryptionKey,
+            dek_iv: record.dataEncryptionKeyInitializationVector,
+            key_version: record.keyVersion,
+            last4: record.last4,
+            created_at: record.createdAt,
+            validated_at: record.validatedAt,
+          },
+          { onConflict: 'user_id,provider' },
+        ),
+        'write provider key',
+      );
     },
 
     async deleteProviderKey(provider) {
-      const result = await database.prepare(DELETE_PROVIDER_KEY_STATEMENT).bind(userID, provider).run();
-      return (result.meta.changes ?? 0) > 0;
+      const rows = requireSuccess(
+        await client.from('provider_keys').delete().eq('user_id', userID).eq('provider', provider).select('provider'),
+        'delete provider key',
+      );
+      return rows.length > 0;
     },
 
     async replaceWrappedDataEncryptionKey(provider, previousWrappedDataEncryptionKey, replacement) {
-      const result = await database
-        .prepare(REPLACE_WRAPPED_DATA_ENCRYPTION_KEY_STATEMENT)
-        .bind(
-          replacement.wrappedDataEncryptionKey,
-          replacement.dataEncryptionKeyInitializationVector,
-          userID,
-          provider,
-          previousWrappedDataEncryptionKey,
-        )
-        .run();
-      return (result.meta.changes ?? 0) > 0;
+      // The wrapped_dek condition keeps a rewrap from overwriting a row that a
+      // concurrent put has already replaced with a new envelope.
+      const rows = requireSuccess(
+        await client
+          .from('provider_keys')
+          .update({
+            wrapped_dek: replacement.wrappedDataEncryptionKey,
+            dek_iv: replacement.dataEncryptionKeyInitializationVector,
+          })
+          .eq('user_id', userID)
+          .eq('provider', provider)
+          .eq('wrapped_dek', previousWrappedDataEncryptionKey)
+          .select('provider'),
+        'replace wrapped data encryption key',
+      );
+      return rows.length > 0;
     },
 
     async appendAuditEvent(event) {
-      await database
-        .prepare(INSERT_AUDIT_EVENT_STATEMENT)
-        .bind(userID, event.provider, event.action, event.at, event.ipHash, event.userAgentHash)
-        .run();
+      requireSuccess(
+        await client.from('key_audit_log').insert({
+          user_id: userID,
+          provider: event.provider,
+          action: event.action,
+          at: event.at,
+          ip_hash: event.ipHash,
+          ua_hash: event.userAgentHash,
+        }),
+        'append audit event',
+      );
     },
 
     async listEnvironmentVariableSummaries() {
-      const result = await database
-        .prepare(SELECT_ENVIRONMENT_VARIABLE_SUMMARIES_STATEMENT)
-        .bind(userID)
-        .all<Pick<EnvironmentVariableRow, 'name' | 'created_at' | 'updated_at'>>();
-      return result.results.map((row) => ({ name: row.name, createdAt: row.created_at, updatedAt: row.updated_at }));
+      const rows = requireSuccess(
+        await client
+          .from('environment_variables')
+          .select('name, created_at, updated_at')
+          .eq('user_id', userID)
+          .order('name', { ascending: true }),
+        'list environment variable summaries',
+      );
+      return rows.map((row) => ({ name: row.name, createdAt: row.created_at, updatedAt: row.updated_at }));
     },
 
     async listEnvironmentVariables() {
-      const result = await database
-        .prepare(SELECT_ENVIRONMENT_VARIABLES_STATEMENT)
-        .bind(userID)
-        .all<EnvironmentVariableRow>();
-      return result.results.map((row) => ({
+      const rows = requireSuccess(
+        await client.from('environment_variables').select(ENVIRONMENT_VARIABLE_COLUMNS).eq('user_id', userID),
+        'list environment variables',
+      );
+      return rows.map((row) => ({
         name: row.name,
         ciphertext: row.ciphertext,
         initializationVector: row.iv,
@@ -287,68 +267,85 @@ export function createUserVaultStorage(database: D1Database, userID: string): Us
     },
 
     async updateEnvironmentVariable(record) {
-      const row = await database
-        .prepare(UPDATE_ENVIRONMENT_VARIABLE_STATEMENT)
-        .bind(
-          record.ciphertext,
-          record.initializationVector,
-          record.wrappedDataEncryptionKey,
-          record.dataEncryptionKeyInitializationVector,
-          record.keyVersion,
-          record.updatedAt,
-          userID,
-          record.name,
-        )
-        .first<Pick<EnvironmentVariableRow, 'created_at'>>();
-      return row === null ? null : row.created_at;
+      const rows = requireSuccess(
+        await client
+          .from('environment_variables')
+          .update({
+            ciphertext: record.ciphertext,
+            iv: record.initializationVector,
+            wrapped_dek: record.wrappedDataEncryptionKey,
+            dek_iv: record.dataEncryptionKeyInitializationVector,
+            key_version: record.keyVersion,
+            updated_at: record.updatedAt,
+          })
+          .eq('user_id', userID)
+          .eq('name', record.name)
+          .select('created_at'),
+        'update environment variable',
+      );
+      return rows[0]?.created_at ?? null;
     },
 
     async insertEnvironmentVariable(record, maximumCount) {
-      const result = await database
-        .prepare(INSERT_ENVIRONMENT_VARIABLE_STATEMENT)
-        .bind(
-          userID,
-          record.name,
-          record.ciphertext,
-          record.initializationVector,
-          record.wrappedDataEncryptionKey,
-          record.dataEncryptionKeyInitializationVector,
-          record.keyVersion,
-          record.createdAt,
-          record.updatedAt,
-          userID,
-          maximumCount,
-        )
-        .run();
-      return (result.meta.changes ?? 0) > 0;
+      // The function of migration 015 keeps the count and the insert in one transaction. A name inserted
+      // concurrently is left alone, and the caller then replaces it instead.
+      const inserted = requireSuccess(
+        await client.rpc('insert_environment_variable', {
+          variable: {
+            user_id: userID,
+            name: record.name,
+            ciphertext: record.ciphertext,
+            iv: record.initializationVector,
+            wrapped_dek: record.wrappedDataEncryptionKey,
+            dek_iv: record.dataEncryptionKeyInitializationVector,
+            key_version: record.keyVersion,
+            created_at: record.createdAt,
+            updated_at: record.updatedAt,
+          },
+          maximum_count: maximumCount,
+        }),
+        'insert environment variable',
+      );
+      return inserted === true;
     },
 
     async deleteEnvironmentVariable(name) {
-      const result = await database.prepare(DELETE_ENVIRONMENT_VARIABLE_STATEMENT).bind(userID, name).run();
-      return (result.meta.changes ?? 0) > 0;
+      const rows = requireSuccess(
+        await client.from('environment_variables').delete().eq('user_id', userID).eq('name', name).select('name'),
+        'delete environment variable',
+      );
+      return rows.length > 0;
     },
 
     async replaceEnvironmentVariableWrappedDataEncryptionKey(name, previousWrappedDataEncryptionKey, replacement) {
-      const result = await database
-        .prepare(REPLACE_ENVIRONMENT_VARIABLE_WRAPPED_DATA_ENCRYPTION_KEY_STATEMENT)
-        .bind(
-          replacement.wrappedDataEncryptionKey,
-          replacement.dataEncryptionKeyInitializationVector,
-          userID,
-          name,
-          previousWrappedDataEncryptionKey,
-        )
-        .run();
-      return (result.meta.changes ?? 0) > 0;
+      const rows = requireSuccess(
+        await client
+          .from('environment_variables')
+          .update({
+            wrapped_dek: replacement.wrappedDataEncryptionKey,
+            dek_iv: replacement.dataEncryptionKeyInitializationVector,
+          })
+          .eq('user_id', userID)
+          .eq('name', name)
+          .eq('wrapped_dek', previousWrappedDataEncryptionKey)
+          .select('name'),
+        'replace environment variable wrapped data encryption key',
+      );
+      return rows.length > 0;
     },
 
     async listAuditEvents(limit) {
-      const result = await database
-        .prepare(SELECT_AUDIT_EVENTS_STATEMENT)
-        .bind(userID, clampAuditEventLimit(limit))
-        .all<AuditEventRow>();
+      const rows = requireSuccess(
+        await client
+          .from('key_audit_log')
+          .select('provider, action, at')
+          .eq('user_id', userID)
+          .order('id', { ascending: false })
+          .limit(clampAuditEventLimit(limit)),
+        'list audit events',
+      );
       const events: AuditEventRecord[] = [];
-      for (const row of result.results) {
+      for (const row of rows) {
         if (isProviderName(row.provider) && isAuditAction(row.action)) {
           events.push({ provider: row.provider, action: row.action, at: row.at });
         }

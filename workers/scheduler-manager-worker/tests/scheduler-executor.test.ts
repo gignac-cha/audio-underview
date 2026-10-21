@@ -185,6 +185,7 @@ function createDependencies(crawlerResults: unknown[] = []): {
   const supabaseClient = createSupabaseClient({
     supabaseURL: env.SUPABASE_URL,
     supabaseSecretKey: env.SUPABASE_SECRET_KEY,
+    schema: env.SUPABASE_SCHEMA,
   });
   return {
     dependencies: { supabaseClient, crawlerExecutionClient, logger, userUUID: USER_UUID },

@@ -107,6 +107,7 @@ function createDependencies(
   const supabaseClient = createSupabaseClient({
     supabaseURL: env.SUPABASE_URL,
     supabaseSecretKey: env.SUPABASE_SECRET_KEY,
+    schema: env.SUPABASE_SCHEMA,
   });
   return {
     dependencies: { supabaseClient, crawlerExecutionClient: client, logger, userUUID: MOCK_USER_UUID },

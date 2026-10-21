@@ -197,6 +197,7 @@ export async function handleCreateStage(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const ownershipError = await verifySchedulerOwnership(supabaseClient, schedulerID, userUUID, context);
@@ -292,6 +293,7 @@ export async function handleListStages(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const ownershipError = await verifySchedulerOwnership(supabaseClient, schedulerID, userUUID, context);
@@ -311,6 +313,7 @@ export async function handleGetStage(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const ownershipError = await verifySchedulerOwnership(supabaseClient, schedulerID, userUUID, context);
@@ -335,6 +338,7 @@ export async function handleUpdateStage(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const ownershipError = await verifySchedulerOwnership(supabaseClient, schedulerID, userUUID, context);
@@ -511,6 +515,7 @@ export async function handleDeleteStage(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const ownershipError = await verifySchedulerOwnership(supabaseClient, schedulerID, userUUID, context);
@@ -538,6 +543,7 @@ export async function handleReorderStages(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const ownershipError = await verifySchedulerOwnership(supabaseClient, schedulerID, userUUID, context);

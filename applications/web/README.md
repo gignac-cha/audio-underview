@@ -21,15 +21,16 @@ pnpm dev
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and fill in the values:
+The dev server reads `.env.development` (committed), which points at the local workers that root `pnpm dev` starts. Put the one secret value in `.env.development.local` (gitignored), or let `pnpm environment:generate` write it from 1Password:
 
 ```bash
-cp .env.example .env
+cp .env.example .env.development.local
 ```
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `VITE_GOOGLE_CLIENT_ID` | Google OAuth 2.0 Client ID | Yes |
+| Variable | Description | Where |
+|----------|-------------|-------|
+| `VITE_GOOGLE_CLIENT_ID` | Google OAuth 2.0 Client ID | `.env.development.local` |
+| `VITE_GOOGLE_OAUTH_WORKER_URL`, `VITE_GITHUB_OAUTH_WORKER_URL`, `VITE_CRAWLER_MANAGER_WORKER_URL`, `VITE_SCHEDULER_MANAGER_WORKER_URL` | Worker addresses | `.env.development` locally; CI sets them for staging, development and production builds |
 
 ### Getting Google OAuth Client ID
 

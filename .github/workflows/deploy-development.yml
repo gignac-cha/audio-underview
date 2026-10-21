@@ -1,0 +1,27 @@
+name: "Deploy: Development"
+
+on:
+  # Deploys the branch picked with "Use workflow from" on the Actions page.
+  workflow_dispatch:
+    inputs:
+      reset:
+        description: 'Drop the development schema and rebuild it from the first migration (its data is lost)'
+        type: boolean
+        default: false
+
+# Development is a single environment, so the last deploy wins. A running
+# deploy is never cancelled halfway.
+concurrency:
+  group: deploy-development
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to development
+    permissions:
+      contents: read
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: development
+      reset: ${{ inputs.reset }}
+    secrets: inherit

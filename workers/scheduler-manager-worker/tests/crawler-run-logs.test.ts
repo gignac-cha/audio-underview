@@ -65,7 +65,7 @@ function createLogger(): Logger {
 
 function createDependencies(run: CrawlerExecutionClient['run']): ExecutorDependencies & { crawlerExecutionClient: { run: ReturnType<typeof vi.fn> } } {
   return {
-    supabaseClient: createSupabaseClient({ supabaseURL: env.SUPABASE_URL, supabaseSecretKey: env.SUPABASE_SECRET_KEY }),
+    supabaseClient: createSupabaseClient({ supabaseURL: env.SUPABASE_URL, supabaseSecretKey: env.SUPABASE_SECRET_KEY, schema: env.SUPABASE_SCHEMA }),
     crawlerExecutionClient: { run: vi.fn(run) },
     logger: createLogger(),
     userUUID: USER_UUID,
@@ -270,7 +270,7 @@ describe('a scheduled run', () => {
     };
 
     const result = await runScheduledPipeline({
-      supabaseClient: createSupabaseClient({ supabaseURL: env.SUPABASE_URL, supabaseSecretKey: env.SUPABASE_SECRET_KEY }),
+      supabaseClient: createSupabaseClient({ supabaseURL: env.SUPABASE_URL, supabaseSecretKey: env.SUPABASE_SECRET_KEY, schema: env.SUPABASE_SCHEMA }),
       crawlerExecutionClient: { run },
       logger: createLogger(),
       resolveTaskGroupWorker: () => undefined,

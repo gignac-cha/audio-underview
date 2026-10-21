@@ -68,7 +68,7 @@ function createDependencies(outcomes: (CrawlerRunOutcome | Error | string)[] = [
   });
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), createChild: vi.fn().mockReturnThis() };
   const dependencies: ExecutorDependencies = {
-    supabaseClient: createSupabaseClient({ supabaseURL: env.SUPABASE_URL, supabaseSecretKey: env.SUPABASE_SECRET_KEY }),
+    supabaseClient: createSupabaseClient({ supabaseURL: env.SUPABASE_URL, supabaseSecretKey: env.SUPABASE_SECRET_KEY, schema: env.SUPABASE_SCHEMA }),
     crawlerExecutionClient: { run } as CrawlerExecutionClient,
     logger: logger as unknown as Logger,
     userUUID: USER_UUID,
@@ -389,7 +389,7 @@ describe('a scheduled run', () => {
     return {
       run,
       dependencies: {
-        supabaseClient: createSupabaseClient({ supabaseURL: env.SUPABASE_URL, supabaseSecretKey: env.SUPABASE_SECRET_KEY }),
+        supabaseClient: createSupabaseClient({ supabaseURL: env.SUPABASE_URL, supabaseSecretKey: env.SUPABASE_SECRET_KEY, schema: env.SUPABASE_SCHEMA }),
         crawlerExecutionClient: { run } as CrawlerExecutionClient,
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), createChild: vi.fn().mockReturnThis() } as unknown as Logger,
         resolveTaskGroupWorker: () => undefined,

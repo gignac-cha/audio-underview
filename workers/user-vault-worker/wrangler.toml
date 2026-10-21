@@ -3,15 +3,13 @@ main = "sources/index.ts"
 compatibility_date = "2026-10-12"
 workers_dev = false
 
-[[d1_databases]]
-binding = "DB"
-database_name = "audio-underview-user-vault"
-database_id = "f52de732-d798-4165-8ee8-76153afba0d2"
-
 [vars]
+SUPABASE_SCHEMA = "public"
 PROVIDER_KEY_KEK_VERSION = "1"
 
-# Secrets (set via wrangler secret put):
+# Secrets (set via wrangler secret put; each environment keeps its own, add --env <environment>):
+# SUPABASE_URL               required; the vault tables are in Supabase, in the schema SUPABASE_SCHEMA names
+# SUPABASE_SECRET_KEY        required
 # PROVIDER_KEY_KEK           required; key encryption key (KEK) that wraps every data encryption key
 # PROVIDER_KEY_KEK_PREVIOUS  optional; previous KEK, tried after PROVIDER_KEY_KEK when unwrapping
 # VAULT_INTERNAL_TOKEN       optional; value callers must send in the x-user-vault-token header
@@ -22,3 +20,33 @@ PROVIDER_KEY_KEK_VERSION = "1"
 [observability.logs]
 enabled = true
 head_sampling_rate = 1
+
+# Environments. Everything above is production. vars are not inherited, so each environment repeats
+# them; main, compatibility_date, workers_dev and observability are inherited.
+# Each environment sets name, because wrangler would deploy it as <name>-<environment>.
+
+# staging: the code of a pull request. Its vault tables start empty: production's rows are sealed with
+# production's key encryption key, so they are not copied.
+[env.staging]
+name = "audio-underview-user-vault-staging-worker"
+
+[env.staging.vars]
+SUPABASE_SCHEMA = "staging"
+PROVIDER_KEY_KEK_VERSION = "1"
+
+# development: a branch chosen by hand, with its own data that stays between deploys.
+# `wrangler dev --env development` runs this environment locally against the same schema.
+[env.development]
+name = "audio-underview-user-vault-development-worker"
+
+[env.development.vars]
+SUPABASE_SCHEMA = "development"
+PROVIDER_KEY_KEK_VERSION = "1"
+
+# docker: runs only in the compose setup and is never deployed, so its data lives in the container
+[env.docker]
+name = "audio-underview-user-vault-docker-worker"
+
+[env.docker.vars]
+SUPABASE_SCHEMA = "public"
+PROVIDER_KEY_KEK_VERSION = "1"

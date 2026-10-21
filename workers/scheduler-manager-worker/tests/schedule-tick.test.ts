@@ -205,6 +205,7 @@ function createDependencies(workflow: ReturnType<typeof createFakeWorkflow>): Sc
   const supabaseClient = createSupabaseClient({
     supabaseURL: env.SUPABASE_URL,
     supabaseSecretKey: env.SUPABASE_SECRET_KEY,
+    schema: env.SUPABASE_SCHEMA,
   });
   return {
     supabaseClient,

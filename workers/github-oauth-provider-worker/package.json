@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./sources/index.ts",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --env development --port 8788 --inspector-port 9331",
     "deploy": "wrangler deploy",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

@@ -1,5 +1,6 @@
 import { createWorkerLogger } from '@audio-underview/logger';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { InMemorySupabase, SUPABASE_ENVIRONMENT } from '../tests/in-memory-supabase.ts';
 import {
   AUDIT_ACTIONS,
   extractAuditFingerprint,
@@ -8,9 +9,9 @@ import {
   isAuditAction,
   recordAuditEvent,
 } from './audit.ts';
-import { FakeDatabase } from './fake-database.ts';
 import { createUserVaultStorage } from './storage.ts';
 
+const USER_ID = '00000000-0000-4000-8000-000000000001';
 const IP = '203.0.113.7';
 const USER_AGENT = 'Mozilla/5.0 (Macintosh) AudioUnderview/1.0';
 
@@ -19,7 +20,15 @@ async function expectedHash(salt: string, value: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+let database: InMemorySupabase;
+
+beforeEach(() => {
+  database = new InMemorySupabase();
+  vi.stubGlobal('fetch', database.fetch);
+});
+
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -38,7 +47,7 @@ describe('audit actions', () => {
 describe('extractAuditFingerprint', () => {
   it('takes only ip and userAgent from the body', () => {
     const fingerprint = extractAuditFingerprint({
-      userId: 'user-1',
+      userId: USER_ID,
       provider: 'openai',
       key: 'sk-proj-abcdefghijklmnop',
       ip: IP,
@@ -89,8 +98,7 @@ describe('hashAuditValue', () => {
 
 describe('recordAuditEvent', () => {
   it('stores the salted hashes and NULL for missing values', async () => {
-    const database = new FakeDatabase();
-    const storage = createUserVaultStorage(database.asD1Database(), 'user-1');
+    const storage = createUserVaultStorage(SUPABASE_ENVIRONMENT, USER_ID);
     const logger = createWorkerLogger({ enabled: false });
     await recordAuditEvent({
       storage,
@@ -104,7 +112,7 @@ describe('recordAuditEvent', () => {
     expect(database.auditLog).toEqual([
       {
         id: 1,
-        user_id: 'user-1',
+        user_id: USER_ID,
         provider: 'openai',
         action: 'used',
         at: '2026-09-29T00:00:00.000Z',
@@ -115,9 +123,8 @@ describe('recordAuditEvent', () => {
   });
 
   it('logs and swallows a failed write', async () => {
-    const database = new FakeDatabase();
     database.brokenTables.add('key_audit_log');
-    const storage = createUserVaultStorage(database.asD1Database(), 'user-1');
+    const storage = createUserVaultStorage(SUPABASE_ENVIRONMENT, USER_ID);
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const logger = createWorkerLogger({ defaultContext: { module: 'user-vault-worker' } });
     await expect(

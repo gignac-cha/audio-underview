@@ -11,6 +11,7 @@ export default defineConfig({
           KAKAO_CLIENT_SECRET: 'test-kakao-client-secret',
           FRONTEND_URL: 'https://example.com',
           SUPABASE_URL: 'https://test.supabase.co',
+          SUPABASE_SCHEMA: 'test_schema',
           SUPABASE_SECRET_KEY: 'test-supabase-secret',
           AXIOM_API_TOKEN: 'test-axiom-token',
           AXIOM_DATASET: 'test-dataset',

@@ -23,6 +23,7 @@ export async function handleListRuns(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const ownershipError = await verifySchedulerOwnership(supabaseClient, schedulerID, userUUID, context);
@@ -68,6 +69,7 @@ export async function handleGetRun(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const ownershipError = await verifySchedulerOwnership(supabaseClient, schedulerID, userUUID, context);
@@ -98,6 +100,7 @@ export async function handleGetStageRun(
   const supabaseClient = createSupabaseClient({
     supabaseURL: environment.SUPABASE_URL,
     supabaseSecretKey: environment.SUPABASE_SECRET_KEY,
+    schema: environment.SUPABASE_SCHEMA,
   });
 
   const ownershipError = await verifySchedulerOwnership(supabaseClient, schedulerID, userUUID, context);

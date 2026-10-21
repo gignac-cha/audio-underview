@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { InMemorySupabase, SUPABASE_ENVIRONMENT, type InMemoryProviderKeyRow } from '../tests/in-memory-supabase.ts';
 import { encodeBase64, openProviderKey } from './envelope.ts';
 import type { Environment } from './environment.ts';
-import { FakeDatabase, type FakeProviderKeyRow } from './fake-database.ts';
 import worker from './index.ts';
 import type { ProviderName } from './providers.ts';
 
 const WORKER_ORIGIN = 'https://user-vault.internal';
+const USER_1 = '00000000-0000-4000-8000-000000000001';
+const USER_2 = '00000000-0000-4000-8000-000000000002';
+const USER_A = '00000000-0000-4000-8000-00000000000a';
+const USER_B = '00000000-0000-4000-8000-00000000000b';
+const USER_WITHOUT_ROWS = '00000000-0000-4000-8000-000000000000';
 const CURRENT_SECRET = 'current-key-encryption-secret';
 const PREVIOUS_SECRET = 'previous-key-encryption-secret';
 const INTERNAL_TOKEN = 'internal-token-for-tests';
@@ -30,7 +35,7 @@ interface ProviderCall {
 }
 
 interface Harness {
-  database: FakeDatabase;
+  database: InMemorySupabase;
   environment: Environment;
   providerCalls: ProviderCall[];
   validationCalls: ProviderCall[];
@@ -43,11 +48,11 @@ interface Harness {
 
 let harness: Harness;
 
-function createHarness(overrides: Partial<Environment> = {}, database: FakeDatabase = new FakeDatabase()): Harness {
+function createHarness(overrides: Partial<Environment> = {}, database: InMemorySupabase = new InMemorySupabase()): Harness {
   const created: Harness = {
     database,
     environment: {
-      DB: database.asD1Database(),
+      ...SUPABASE_ENVIRONMENT,
       PROVIDER_KEY_KEK: CURRENT_SECRET,
       PROVIDER_KEY_KEK_VERSION: '1',
       ...overrides,
@@ -98,6 +103,10 @@ beforeEach(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      // The storage reaches Supabase through the same fetch
+      if (harness.database.serves(input)) {
+        return harness.database.fetch(input, init);
+      }
       const call = await captureCall(input, init);
       // Only the put route validates keys, so every fetch made while it runs is a validation call.
       if (harness.currentRoute === '/internal/keys/put') {
@@ -151,11 +160,11 @@ async function register(
   return result;
 }
 
-function rowFor(userID: string, provider: ProviderName): FakeProviderKeyRow | undefined {
+function rowFor(userID: string, provider: ProviderName): InMemoryProviderKeyRow | undefined {
   return harness.database.providerKeys.find((row) => row.user_id === userID && row.provider === provider);
 }
 
-function openRow(row: FakeProviderKeyRow, userID: string, secrets: string[] = [CURRENT_SECRET]) {
+function openRow(row: InMemoryProviderKeyRow, userID: string, secrets: string[] = [CURRENT_SECRET]) {
   return openProviderKey({
     userID,
     envelope: {
@@ -169,6 +178,13 @@ function openRow(row: FakeProviderKeyRow, userID: string, secrets: string[] = [C
     },
     keyEncryptionKeySecrets: secrets,
   });
+}
+
+/** The user and the limit of the last request, which reads the audit log */
+function lastAuditQuery(): [string | null | undefined, string | null | undefined] {
+  const request = harness.database.requests.at(-1);
+  expect(request?.table).toBe('key_audit_log');
+  return [request?.query.get('user_id'), request?.query.get('limit')];
 }
 
 function auditActions(userID: string): string[] {
@@ -205,17 +221,25 @@ describe('request handling', () => {
 
   it('returns 404 for an unknown path', async () => {
     for (const path of ['/', '/internal/keys', '/internal/keys/put/extra', '/internal/keys/list', '/toString']) {
-      const result = await call(path, { userId: 'user-1' });
+      const result = await call(path, { userId: USER_1 });
       expect(result).toEqual({ status: 404, json: { error: 'not_found' } });
     }
   });
 
-  it('returns 400 when userId is missing or not a 1 to 200 character string', async () => {
-    for (const body of [{}, { userId: '' }, { userId: 'u'.repeat(201) }, { userId: 42 }, { userId: null }]) {
-      const result = await call('/internal/keys/status', body);
-      expect(result).toEqual({ status: 400, json: { error: 'invalid_request' } });
+  it('returns 400 when userId is missing or not a uuid in lowercase', async () => {
+    for (const userId of [undefined, '', 'user-1', 'u'.repeat(200), USER_A.toUpperCase(), `{${USER_1}}`, `${USER_1} `, USER_1.replaceAll('-', ''), 42, null]) {
+      const result = await call('/internal/keys/status', { userId });
+      expect(result, String(userId)).toEqual({ status: 400, json: { error: 'invalid_request' } });
     }
-    await expect(call('/internal/keys/status', { userId: 'u'.repeat(200) })).resolves.toMatchObject({ status: 200 });
+    expect(harness.database.requests).toEqual([]);
+    await expect(call('/internal/keys/status', { userId: USER_A })).resolves.toMatchObject({ status: 200 });
+  });
+
+  it('answers 500 without reaching Supabase when SUPABASE_SCHEMA is missing', async () => {
+    createHarness({ SUPABASE_SCHEMA: undefined as unknown as string });
+    await expect(call('/internal/keys/status', { userId: USER_1 })).resolves.toEqual({ status: 500, json: { error: 'server_error' } });
+    expect(harness.database.requests).toEqual([]);
+    expect(harness.logLines.some((line) => line.includes('SUPABASE_SCHEMA'))).toBe(true);
   });
 
   it('returns 400 when the body is not a JSON object', async () => {
@@ -228,48 +252,48 @@ describe('request handling', () => {
   it('returns 503 without a key encryption key and stores nothing', async () => {
     for (const secret of [undefined, '']) {
       createHarness({ PROVIDER_KEY_KEK: secret });
-      const result = await call('/internal/keys/put', { userId: 'user-1', provider: 'openai', key: KEYS.openai });
+      const result = await call('/internal/keys/put', { userId: USER_1, provider: 'openai', key: KEYS.openai });
       expect(result).toEqual({ status: 503, json: { error: 'vault_unavailable' } });
     }
     expect(harness.database.providerKeys).toEqual([]);
-    expect(harness.database.executedStatements).toEqual([]);
+    expect(harness.database.requests).toEqual([]);
     expect(harness.validationCalls).toEqual([]);
     expect(harness.logLines.some((line) => line.includes('"level":"error"'))).toBe(true);
   });
 
   it('does not require the internal token when it is not configured', async () => {
-    await expect(call('/internal/keys/status', { userId: 'user-1' })).resolves.toMatchObject({ status: 200 });
+    await expect(call('/internal/keys/status', { userId: USER_1 })).resolves.toMatchObject({ status: 200 });
   });
 
   it('requires the internal token header with the exact value when it is configured', async () => {
     createHarness({ VAULT_INTERNAL_TOKEN: INTERNAL_TOKEN });
-    await expect(call('/internal/keys/status', { userId: 'user-1' })).resolves.toEqual({
+    await expect(call('/internal/keys/status', { userId: USER_1 })).resolves.toEqual({
       status: 401,
       json: { error: 'unauthorized' },
     });
     await expect(
-      call('/internal/keys/status', { userId: 'user-1' }, { headers: { 'x-user-vault-token': 'wrong' } }),
+      call('/internal/keys/status', { userId: USER_1 }, { headers: { 'x-user-vault-token': 'wrong' } }),
     ).resolves.toEqual({ status: 401, json: { error: 'unauthorized' } });
     await expect(
       call(
         '/internal/keys/status',
-        { userId: 'user-1' },
+        { userId: USER_1 },
         { headers: { 'x-user-vault-token': `${INTERNAL_TOKEN}x` } },
       ),
     ).resolves.toEqual({ status: 401, json: { error: 'unauthorized' } });
     await expect(
-      call('/internal/unknown', { userId: 'user-1' }, { headers: { 'x-user-vault-token': 'wrong' } }),
+      call('/internal/unknown', { userId: USER_1 }, { headers: { 'x-user-vault-token': 'wrong' } }),
     ).resolves.toEqual({ status: 401, json: { error: 'unauthorized' } });
     await expect(
-      call('/internal/keys/status', { userId: 'user-1' }, { headers: { 'x-user-vault-token': INTERNAL_TOKEN } }),
+      call('/internal/keys/status', { userId: USER_1 }, { headers: { 'x-user-vault-token': INTERNAL_TOKEN } }),
     ).resolves.toMatchObject({ status: 200 });
   });
 });
 
 describe('/internal/keys/put', () => {
   it('stores an envelope without the plaintext key', async () => {
-    const result = await register('user-1', 'openai');
-    const row = rowFor('user-1', 'openai');
+    const result = await register(USER_1, 'openai');
+    const row = rowFor(USER_1, 'openai');
     expect(row).toBeDefined();
     expect(result.json).toEqual({
       provider: 'openai',
@@ -282,18 +306,18 @@ describe('/internal/keys/put', () => {
     expect(row?.key_version).toBe(1);
     expect(row?.last4).toBe('abcd');
     expect(Number.isNaN(Date.parse(row?.created_at ?? ''))).toBe(false);
-    await expect(openRow(row as FakeProviderKeyRow, 'user-1')).resolves.toBe(KEYS.openai);
+    await expect(openRow(row as InMemoryProviderKeyRow, USER_1)).resolves.toBe(KEYS.openai);
     expect(harness.validationCalls).toHaveLength(1);
   });
 
   it('writes the configured key generation on new rows', async () => {
     createHarness({ PROVIDER_KEY_KEK_VERSION: '3' });
-    await register('user-1', 'google');
-    expect(rowFor('user-1', 'google')?.key_version).toBe(3);
+    await register(USER_1, 'google');
+    expect(rowFor(USER_1, 'google')?.key_version).toBe(3);
   });
 
   it('does not store a key for an unknown provider', async () => {
-    const result = await call('/internal/keys/put', { userId: 'user-1', provider: 'mistral', key: KEYS.openai });
+    const result = await call('/internal/keys/put', { userId: USER_1, provider: 'mistral', key: KEYS.openai });
     expect(result).toEqual({ status: 400, json: { error: 'unknown_provider' } });
     expect(harness.database.providerKeys).toEqual([]);
     expect(harness.validationCalls).toEqual([]);
@@ -302,7 +326,7 @@ describe('/internal/keys/put', () => {
   it('does not store a key the provider rejects', async () => {
     for (const status of [400, 401, 403]) {
       harness.validate = () => new Response('{"error":"invalid x-api-key"}', { status });
-      const result = await call('/internal/keys/put', { userId: 'user-1', provider: 'anthropic', key: KEYS.anthropic });
+      const result = await call('/internal/keys/put', { userId: USER_1, provider: 'anthropic', key: KEYS.anthropic });
       expect(result).toEqual({ status: 400, json: { error: 'invalid_key' } });
     }
     expect(harness.database.providerKeys).toEqual([]);
@@ -312,13 +336,13 @@ describe('/internal/keys/put', () => {
   it('does not store a key when validation is unavailable', async () => {
     harness.validate = () => new Response('overloaded', { status: 529 });
     await expect(
-      call('/internal/keys/put', { userId: 'user-1', provider: 'xai', key: KEYS.xai }),
+      call('/internal/keys/put', { userId: USER_1, provider: 'xai', key: KEYS.xai }),
     ).resolves.toEqual({ status: 503, json: { error: 'validation_unavailable' } });
     harness.validate = () => {
       throw new TypeError('Network connection lost.');
     };
     await expect(
-      call('/internal/keys/put', { userId: 'user-1', provider: 'xai', key: KEYS.xai }),
+      call('/internal/keys/put', { userId: USER_1, provider: 'xai', key: KEYS.xai }),
     ).resolves.toEqual({ status: 503, json: { error: 'validation_unavailable' } });
     expect(harness.database.providerKeys).toEqual([]);
     expect(harness.database.auditLog).toEqual([]);
@@ -327,7 +351,7 @@ describe('/internal/keys/put', () => {
   it('does not validate through a gateway base that is not https', async () => {
     createHarness({ AI_GATEWAY_BASE_URL: 'http://gateway.example.com/v1/a/b', AI_GATEWAY_TOKEN: 'vault-gateway-token' });
     await expect(
-      call('/internal/keys/put', { userId: 'user-1', provider: 'openai', key: KEYS.openai }),
+      call('/internal/keys/put', { userId: USER_1, provider: 'openai', key: KEYS.openai }),
     ).resolves.toEqual({ status: 503, json: { error: 'validation_unavailable' } });
     expect(harness.validationCalls).toEqual([]);
     expect(harness.providerCalls).toEqual([]);
@@ -336,7 +360,7 @@ describe('/internal/keys/put', () => {
 
   it('does not call the provider for a malformed key', async () => {
     for (const key of ['short', ` ${KEYS.openai}`, `${KEYS.openai}\n`, 12345678901234567890, undefined]) {
-      const result = await call('/internal/keys/put', { userId: 'user-1', provider: 'openai', key });
+      const result = await call('/internal/keys/put', { userId: USER_1, provider: 'openai', key });
       expect(result).toEqual({ status: 400, json: { error: 'invalid_key' } });
     }
     expect(harness.validationCalls).toEqual([]);
@@ -347,13 +371,13 @@ describe('/internal/keys/put', () => {
   it('builds a whole new envelope when a key is replaced', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-09-29T00:00:00.000Z'));
-    await register('user-1', 'openai');
-    const before = { ...rowFor('user-1', 'openai') } as FakeProviderKeyRow;
+    await register(USER_1, 'openai');
+    const before = { ...rowFor(USER_1, 'openai') } as InMemoryProviderKeyRow;
 
     vi.setSystemTime(new Date('2026-09-30T00:00:00.000Z'));
     const replacementKey = 'sk-proj-replacementKey0123456789wxyz';
-    const result = await register('user-1', 'openai', replacementKey);
-    const after = rowFor('user-1', 'openai') as FakeProviderKeyRow;
+    const result = await register(USER_1, 'openai', replacementKey);
+    const after = rowFor(USER_1, 'openai') as InMemoryProviderKeyRow;
 
     expect(harness.database.providerKeys).toHaveLength(1);
     for (const column of ['ciphertext', 'iv', 'wrapped_dek', 'dek_iv', 'last4', 'created_at', 'validated_at'] as const) {
@@ -361,30 +385,30 @@ describe('/internal/keys/put', () => {
     }
     expect(after.created_at).toBe('2026-09-30T00:00:00.000Z');
     expect(result.json).toMatchObject({ last4: 'wxyz', validatedAt: '2026-09-30T00:00:00.000Z' });
-    await expect(openRow(after, 'user-1')).resolves.toBe(replacementKey);
+    await expect(openRow(after, USER_1)).resolves.toBe(replacementKey);
   });
 
   it('keeps users apart', async () => {
-    await register('user-a', 'openai', KEYS.openai);
-    await register('user-b', 'openai', OTHER_OPENAI_KEY);
-    await expect(openRow(rowFor('user-a', 'openai') as FakeProviderKeyRow, 'user-a')).resolves.toBe(KEYS.openai);
-    await expect(openRow(rowFor('user-b', 'openai') as FakeProviderKeyRow, 'user-b')).resolves.toBe(OTHER_OPENAI_KEY);
+    await register(USER_A, 'openai', KEYS.openai);
+    await register(USER_B, 'openai', OTHER_OPENAI_KEY);
+    await expect(openRow(rowFor(USER_A, 'openai') as InMemoryProviderKeyRow, USER_A)).resolves.toBe(KEYS.openai);
+    await expect(openRow(rowFor(USER_B, 'openai') as InMemoryProviderKeyRow, USER_B)).resolves.toBe(OTHER_OPENAI_KEY);
 
-    const statusA = await call('/internal/keys/status', { userId: 'user-a' });
-    const statusB = await call('/internal/keys/status', { userId: 'user-b' });
+    const statusA = await call('/internal/keys/status', { userId: USER_A });
+    const statusB = await call('/internal/keys/status', { userId: USER_B });
     expect((statusA.json.keys as { last4: string | null }[])[1]?.last4).toBe('abcd');
     expect((statusB.json.keys as { last4: string | null }[])[1]?.last4).toBe('wxyz');
 
-    await call('/internal/proxy', { userId: 'user-b', provider: 'openai', path: 'v1/models', method: 'GET' });
+    await call('/internal/proxy', { userId: USER_B, provider: 'openai', path: 'v1/models', method: 'GET' });
     expect(harness.providerCalls.at(-1)?.headers.authorization).toBe(`Bearer ${OTHER_OPENAI_KEY}`);
   });
 });
 
 describe('/internal/keys/status', () => {
   it('always lists four providers in a fixed order and exposes only last4', async () => {
-    await register('user-1', 'google');
-    const result = await call('/internal/keys/status', { userId: 'user-1' });
-    const row = rowFor('user-1', 'google');
+    await register(USER_1, 'google');
+    const result = await call('/internal/keys/status', { userId: USER_1 });
+    const row = rowFor(USER_1, 'google');
     expect(result).toEqual({
       status: 200,
       json: {
@@ -403,7 +427,7 @@ describe('/internal/keys/status', () => {
   });
 
   it('lists four providers for a user without rows', async () => {
-    const result = await call('/internal/keys/status', { userId: 'nobody' });
+    const result = await call('/internal/keys/status', { userId: USER_WITHOUT_ROWS });
     expect(result.json.keys).toEqual([
       { provider: 'anthropic', configured: false, last4: null, validatedAt: null },
       { provider: 'openai', configured: false, last4: null, validatedAt: null },
@@ -415,28 +439,28 @@ describe('/internal/keys/status', () => {
 
 describe('/internal/keys/delete', () => {
   it('removes only the given user and provider', async () => {
-    await register('user-a', 'openai');
-    await register('user-a', 'google');
-    await register('user-b', 'openai', OTHER_OPENAI_KEY);
-    await expect(call('/internal/keys/delete', { userId: 'user-a', provider: 'openai' })).resolves.toEqual({
+    await register(USER_A, 'openai');
+    await register(USER_A, 'google');
+    await register(USER_B, 'openai', OTHER_OPENAI_KEY);
+    await expect(call('/internal/keys/delete', { userId: USER_A, provider: 'openai' })).resolves.toEqual({
       status: 200,
       json: { removed: true },
     });
     expect(harness.database.providerKeys.map((row) => `${row.user_id}/${row.provider}`)).toEqual([
-      'user-a/google',
-      'user-b/openai',
+      `${USER_A}/google`,
+      `${USER_B}/openai`,
     ]);
   });
 
   it('reports removed: false for a key that did not exist', async () => {
-    await expect(call('/internal/keys/delete', { userId: 'user-a', provider: 'xai' })).resolves.toEqual({
+    await expect(call('/internal/keys/delete', { userId: USER_A, provider: 'xai' })).resolves.toEqual({
       status: 200,
       json: { removed: false },
     });
   });
 
   it('rejects an unknown provider', async () => {
-    await expect(call('/internal/keys/delete', { userId: 'user-a', provider: 'mistral' })).resolves.toEqual({
+    await expect(call('/internal/keys/delete', { userId: USER_A, provider: 'mistral' })).resolves.toEqual({
       status: 400,
       json: { error: 'unknown_provider' },
     });
@@ -445,9 +469,9 @@ describe('/internal/keys/delete', () => {
 
 describe('/internal/proxy', () => {
   it('decrypts the key and attaches the provider authentication headers', async () => {
-    await register('user-1', 'anthropic');
+    await register(USER_1, 'anthropic');
     const result = await call('/internal/proxy', {
-      userId: 'user-1',
+      userId: USER_1,
       provider: 'anthropic',
       path: '/v1/messages?beta=true',
       headers: { 'content-type': 'application/json', 'anthropic-beta': 'prompt-caching-2024-07-31' },
@@ -473,22 +497,22 @@ describe('/internal/proxy', () => {
   });
 
   it('keeps the key out of the response even when the provider echoes it back', async () => {
-    await register('user-1', 'openai');
+    await register(USER_1, 'openai');
     harness.respond = (providerCall) =>
       new Response(
         JSON.stringify({ error: { message: `Incorrect API key provided: ${providerCall.headers.authorization}` } }),
         { status: 401, headers: { 'content-type': 'application/json' } },
       );
-    const result = await call('/internal/proxy', { userId: 'user-1', provider: 'openai', path: 'v1/models' });
+    const result = await call('/internal/proxy', { userId: USER_1, provider: 'openai', path: 'v1/models' });
     expect(result.status).toBe(200);
     expect(result.json).toMatchObject({ ok: true, status: 401 });
     expect(harness.responseTexts.at(-1)).not.toContain(KEYS.openai);
   });
 
   it('ignores caller authentication headers', async () => {
-    await register('user-1', 'google');
+    await register(USER_1, 'google');
     await call('/internal/proxy', {
-      userId: 'user-1',
+      userId: USER_1,
       provider: 'google',
       path: 'v1beta/models',
       method: 'GET',
@@ -506,15 +530,15 @@ describe('/internal/proxy', () => {
   });
 
   it('answers no_key for an unregistered provider, another user, and a moved row', async () => {
-    await register('user-a', 'openai');
+    await register(USER_A, 'openai');
     const noKey = { status: 404, json: { ok: false, error: 'no_key' } };
 
-    await expect(call('/internal/proxy', { userId: 'user-a', provider: 'xai', path: 'v1/models' })).resolves.toEqual(noKey);
-    await expect(call('/internal/proxy', { userId: 'user-b', provider: 'openai', path: 'v1/models' })).resolves.toEqual(noKey);
+    await expect(call('/internal/proxy', { userId: USER_A, provider: 'xai', path: 'v1/models' })).resolves.toEqual(noKey);
+    await expect(call('/internal/proxy', { userId: USER_B, provider: 'openai', path: 'v1/models' })).resolves.toEqual(noKey);
 
-    const row = rowFor('user-a', 'openai') as FakeProviderKeyRow;
-    row.user_id = 'user-b';
-    await expect(call('/internal/proxy', { userId: 'user-b', provider: 'openai', path: 'v1/models' })).resolves.toEqual(noKey);
+    const row = rowFor(USER_A, 'openai') as InMemoryProviderKeyRow;
+    row.user_id = USER_B;
+    await expect(call('/internal/proxy', { userId: USER_B, provider: 'openai', path: 'v1/models' })).resolves.toEqual(noKey);
 
     expect(harness.providerCalls).toEqual([]);
     const decryptionLog = harness.logLines.find((line) => line.includes('Provider key decryption failed'));
@@ -524,58 +548,58 @@ describe('/internal/proxy', () => {
 
   it('checks the URL before reading the key and never leaves through a caller-chosen gateway namespace', async () => {
     const rejected = await call('/internal/proxy', {
-      userId: 'user-1',
+      userId: USER_1,
       provider: 'openai',
       path: 'https://evil.example.com/v1/models',
     });
     expect(rejected).toEqual({ status: 400, json: { ok: false, error: 'invalid_path' } });
-    expect(harness.database.executedStatements).toEqual([]);
+    expect(harness.database.requests).toEqual([]);
 
     createHarness({ AI_GATEWAY_BASE_URL: GATEWAY_BASE_URL });
-    await register('user-1', 'openai');
-    const statementsBefore = harness.database.executedStatements.length;
+    await register(USER_1, 'openai');
+    const requestsBefore = harness.database.requests.length;
     const traversal = await call('/internal/proxy', {
-      userId: 'user-1',
+      userId: USER_1,
       provider: 'openai',
       path: 'v1/%2e%2e/%2e%2e/%2e%2e/%2e%2e/attacker-account/attacker-gateway/openai/v1/chat/completions',
     });
     expect(traversal).toEqual({ status: 400, json: { ok: false, error: 'invalid_path' } });
-    expect(harness.database.executedStatements).toHaveLength(statementsBefore);
+    expect(harness.database.requests).toHaveLength(requestsBefore);
     expect(harness.providerCalls).toEqual([]);
   });
 
   it('rejects a path that is not a string, and an unknown provider', async () => {
-    await expect(call('/internal/proxy', { userId: 'user-1', provider: 'openai', path: 42 })).resolves.toEqual({
+    await expect(call('/internal/proxy', { userId: USER_1, provider: 'openai', path: 42 })).resolves.toEqual({
       status: 400,
       json: { ok: false, error: 'invalid_path' },
     });
-    await expect(call('/internal/proxy', { userId: 'user-1', provider: 'mistral', path: 'v1/models' })).resolves.toEqual({
+    await expect(call('/internal/proxy', { userId: USER_1, provider: 'mistral', path: 'v1/models' })).resolves.toEqual({
       status: 400,
       json: { ok: false, error: 'unknown_provider' },
     });
   });
 
   it('uppercases the method, defaults to POST, and rejects methods outside the list', async () => {
-    await register('user-1', 'xai');
-    await call('/internal/proxy', { userId: 'user-1', provider: 'xai', path: 'v1/models', method: 'get' });
-    await call('/internal/proxy', { userId: 'user-1', provider: 'xai', path: 'v1/chat/completions', body: '{}' });
+    await register(USER_1, 'xai');
+    await call('/internal/proxy', { userId: USER_1, provider: 'xai', path: 'v1/models', method: 'get' });
+    await call('/internal/proxy', { userId: USER_1, provider: 'xai', path: 'v1/chat/completions', body: '{}' });
     expect(harness.providerCalls.map((providerCall) => providerCall.method)).toEqual(['GET', 'POST']);
 
     for (const method of ['HEAD', 'OPTIONS', 'TRACE', 'CONNECT', 42, null]) {
       await expect(
-        call('/internal/proxy', { userId: 'user-1', provider: 'xai', path: 'v1/models', method }),
+        call('/internal/proxy', { userId: USER_1, provider: 'xai', path: 'v1/models', method }),
       ).resolves.toEqual({ status: 400, json: { ok: false, error: 'invalid_request' } });
     }
     expect(harness.providerCalls).toHaveLength(2);
   });
 
   it('answers 502 on a connection failure without quoting the request', async () => {
-    await register('user-1', 'openai');
+    await register(USER_1, 'openai');
     harness.respond = (providerCall) => {
       throw new TypeError(`connect ECONNREFUSED while sending ${new TextDecoder().decode(providerCall.body)}`);
     };
     const result = await call('/internal/proxy', {
-      userId: 'user-1',
+      userId: USER_1,
       provider: 'openai',
       path: 'v1/chat/completions',
       body: '{"prompt":"confidential prompt text"}',
@@ -586,7 +610,7 @@ describe('/internal/proxy', () => {
   });
 
   it('answers 502 when the provider response body breaks halfway', async () => {
-    await register('user-1', 'openai');
+    await register(USER_1, 'openai');
     harness.respond = () =>
       new Response(
         new ReadableStream({
@@ -597,13 +621,13 @@ describe('/internal/proxy', () => {
         { status: 200 },
       );
     await expect(
-      call('/internal/proxy', { userId: 'user-1', provider: 'openai', path: 'v1/models', method: 'GET' }),
+      call('/internal/proxy', { userId: USER_1, provider: 'openai', path: 'v1/models', method: 'GET' }),
     ).resolves.toEqual({ status: 502, json: { ok: false, error: 'provider_unreachable' } });
   });
 
   it('sends the key with redirect: manual on both the validation call and the proxy call', async () => {
-    await register('user-1', 'openai');
-    await call('/internal/proxy', { userId: 'user-1', provider: 'openai', path: 'v1/models', method: 'GET' });
+    await register(USER_1, 'openai');
+    await call('/internal/proxy', { userId: USER_1, provider: 'openai', path: 'v1/models', method: 'GET' });
     expect(harness.validationCalls).toHaveLength(1);
     expect(harness.providerCalls).toHaveLength(1);
     expect(harness.validationCalls[0]?.redirect).toBe('manual');
@@ -611,14 +635,14 @@ describe('/internal/proxy', () => {
   });
 
   it('passes a redirect through as data instead of following it', async () => {
-    await register('user-1', 'openai');
+    await register(USER_1, 'openai');
     harness.respond = () =>
       new Response('Found', {
         status: 302,
         headers: { location: 'https://evil.example.com/collect', 'content-type': 'text/plain' },
       });
     await expect(
-      call('/internal/proxy', { userId: 'user-1', provider: 'openai', path: 'v1/models', method: 'GET' }),
+      call('/internal/proxy', { userId: USER_1, provider: 'openai', path: 'v1/models', method: 'GET' }),
     ).resolves.toEqual({
       status: 200,
       json: { ok: true, provider: 'openai', status: 302, contentType: 'text/plain', body: 'Found' },
@@ -627,26 +651,26 @@ describe('/internal/proxy', () => {
   });
 
   it('refuses a gateway base that is not https before reading the key', async () => {
-    const database = new FakeDatabase();
+    const database = new InMemorySupabase();
     createHarness({}, database);
-    await register('user-1', 'openai');
+    await register(USER_1, 'openai');
     createHarness(
       { AI_GATEWAY_BASE_URL: 'http://gateway.example.com/v1/a/b', AI_GATEWAY_TOKEN: 'vault-gateway-token' },
       database,
     );
-    const statementsBefore = database.executedStatements.length;
+    const requestsBefore = database.requests.length;
     await expect(
-      call('/internal/proxy', { userId: 'user-1', provider: 'openai', path: 'v1/models', method: 'GET' }),
+      call('/internal/proxy', { userId: USER_1, provider: 'openai', path: 'v1/models', method: 'GET' }),
     ).resolves.toEqual({ status: 400, json: { ok: false, error: 'blocked_origin' } });
     expect(harness.providerCalls).toEqual([]);
-    expect(database.executedStatements).toHaveLength(statementsBefore);
+    expect(database.requests).toHaveLength(requestsBefore);
   });
 
   it('passes provider errors through as data', async () => {
-    await register('user-1', 'google');
+    await register(USER_1, 'google');
     harness.respond = () => new Response('rate limited', { status: 429, headers: { 'content-type': 'text/plain' } });
     await expect(
-      call('/internal/proxy', { userId: 'user-1', provider: 'google', path: 'v1beta/models:generateContent' }),
+      call('/internal/proxy', { userId: USER_1, provider: 'google', path: 'v1beta/models:generateContent' }),
     ).resolves.toEqual({
       status: 200,
       json: { ok: true, provider: 'google', status: 429, contentType: 'text/plain', body: 'rate limited' },
@@ -654,7 +678,7 @@ describe('/internal/proxy', () => {
 
     harness.respond = () => new Response(new Uint8Array([104, 105]), { status: 500 });
     const withoutContentType = await call('/internal/proxy', {
-      userId: 'user-1',
+      userId: USER_1,
       provider: 'google',
       path: 'v1beta/models',
     });
@@ -662,7 +686,7 @@ describe('/internal/proxy', () => {
   });
 
   it('sends a binary body byte for byte and keeps the content-type boundary', async () => {
-    await register('user-1', 'openai');
+    await register(USER_1, 'openai');
     const boundary = '----vault-boundary-7MA4YWxkTrZu0gW';
     const prefix = new TextEncoder().encode(
       `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="a.mp3"\r\nContent-Type: audio/mpeg\r\n\r\n`,
@@ -672,7 +696,7 @@ describe('/internal/proxy', () => {
     const bytes = new Uint8Array([...prefix, ...binary, ...suffix]);
 
     await call('/internal/proxy', {
-      userId: 'user-1',
+      userId: USER_1,
       provider: 'openai',
       path: 'v1/audio/transcriptions',
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
@@ -684,9 +708,9 @@ describe('/internal/proxy', () => {
   });
 
   it('rejects text and binary together, bodies that are not base64 or strings, and bodies over the limit', async () => {
-    await register('user-1', 'openai');
+    await register(USER_1, 'openai');
     const invalid = { status: 400, json: { ok: false, error: 'invalid_request' } };
-    const base = { userId: 'user-1', provider: 'openai', path: 'v1/files' };
+    const base = { userId: USER_1, provider: 'openai', path: 'v1/files' };
 
     await expect(call('/internal/proxy', { ...base, body: 'text', bodyBase64: 'aGk=' })).resolves.toEqual(invalid);
     await expect(call('/internal/proxy', { ...base, bodyBase64: '%%%not-base64%%%' })).resolves.toEqual(invalid);
@@ -697,9 +721,9 @@ describe('/internal/proxy', () => {
   });
 
   it('rejects a GET that carries a body instead of reporting the provider unreachable', async () => {
-    await register('user-1', 'openai');
+    await register(USER_1, 'openai');
     const invalid = { status: 400, json: { ok: false, error: 'invalid_request' } };
-    const base = { userId: 'user-1', provider: 'openai', path: 'v1/models' };
+    const base = { userId: USER_1, provider: 'openai', path: 'v1/models' };
 
     await expect(call('/internal/proxy', { ...base, method: 'GET', body: '{}' })).resolves.toEqual(invalid);
     await expect(call('/internal/proxy', { ...base, method: 'get', bodyBase64: 'aGk=' })).resolves.toEqual(invalid);
@@ -708,10 +732,10 @@ describe('/internal/proxy', () => {
 
   it('uses only the vault gateway settings', async () => {
     createHarness({ AI_GATEWAY_BASE_URL: ` ${GATEWAY_BASE_URL}/ `, AI_GATEWAY_TOKEN: 'vault-gateway-token' });
-    await register('user-1', 'openai');
+    await register(USER_1, 'openai');
     harness.validationCalls = [];
     await call('/internal/proxy', {
-      userId: 'user-1',
+      userId: USER_1,
       provider: 'openai',
       path: 'v1/chat/completions',
       body: '{}',
@@ -729,35 +753,35 @@ describe('/internal/proxy', () => {
 
 describe('/internal/keys/rewrap', () => {
   it('moves every row to the new key encryption key without touching the key ciphertext and counts rows it cannot open', async () => {
-    const database = new FakeDatabase();
+    const database = new InMemorySupabase();
     createHarness({ PROVIDER_KEY_KEK: PREVIOUS_SECRET }, database);
-    await register('user-1', 'openai');
-    await register('user-1', 'google');
-    await register('user-2', 'anthropic');
-    const moved = rowFor('user-2', 'anthropic') as FakeProviderKeyRow;
-    moved.user_id = 'user-1';
+    await register(USER_1, 'openai');
+    await register(USER_1, 'google');
+    await register(USER_2, 'anthropic');
+    const moved = rowFor(USER_2, 'anthropic') as InMemoryProviderKeyRow;
+    moved.user_id = USER_1;
     const before = database.providerKeys.map((row) => ({ ...row }));
 
     createHarness({ PROVIDER_KEY_KEK: CURRENT_SECRET, PROVIDER_KEY_KEK_PREVIOUS: PREVIOUS_SECRET }, database);
-    const result = await call('/internal/keys/rewrap', { userId: 'user-1' });
+    const result = await call('/internal/keys/rewrap', { userId: USER_1 });
     expect(result).toEqual({
       status: 200,
       json: { rewrapped: 2, unrecoverable: 1, environment_variables_rewrapped: 0, environment_variables_unrecoverable: 0 },
     });
 
     for (const provider of ['openai', 'google'] as const) {
-      const previous = before.find((row) => row.provider === provider) as FakeProviderKeyRow;
-      const current = rowFor('user-1', provider) as FakeProviderKeyRow;
+      const previous = before.find((row) => row.provider === provider) as InMemoryProviderKeyRow;
+      const current = rowFor(USER_1, provider) as InMemoryProviderKeyRow;
       expect(current.ciphertext).toBe(previous.ciphertext);
       expect(current.iv).toBe(previous.iv);
       expect(current.key_version).toBe(previous.key_version);
       expect(current.created_at).toBe(previous.created_at);
       expect(current.wrapped_dek).not.toBe(previous.wrapped_dek);
       expect(current.dek_iv).not.toBe(previous.dek_iv);
-      await expect(openRow(current, 'user-1', [CURRENT_SECRET])).resolves.toBe(KEYS[provider]);
-      await expect(openRow(current, 'user-1', [PREVIOUS_SECRET])).resolves.toBeNull();
+      await expect(openRow(current, USER_1, [CURRENT_SECRET])).resolves.toBe(KEYS[provider]);
+      await expect(openRow(current, USER_1, [PREVIOUS_SECRET])).resolves.toBeNull();
     }
-    expect(rowFor('user-1', 'anthropic')).toEqual(before.find((row) => row.provider === 'anthropic'));
+    expect(rowFor(USER_1, 'anthropic')).toEqual(before.find((row) => row.provider === 'anthropic'));
     expect(harness.providerCalls).toEqual([]);
     expect(harness.logLines.some((line) => line.includes('"rewrapped":2'))).toBe(true);
   });
@@ -768,27 +792,27 @@ describe('plaintext keys', () => {
     createHarness({ AUDIT_HASH_SALT: 'salt', AI_GATEWAY_BASE_URL: GATEWAY_BASE_URL, AI_GATEWAY_TOKEN: 'gateway-token' });
     harness.validate = () => new Response('{}', { status: 200 });
     for (const provider of ['anthropic', 'openai', 'google', 'xai'] as const) {
-      await register('user-1', provider, KEYS[provider], { ip: '203.0.113.7', userAgent: 'agent' });
+      await register(USER_1, provider, KEYS[provider], { ip: '203.0.113.7', userAgent: 'agent' });
     }
     harness.respond = (providerCall) =>
       new Response(`echo ${JSON.stringify(providerCall.headers)}`, { status: 401 });
     for (const provider of ['anthropic', 'openai', 'google', 'xai'] as const) {
-      await call('/internal/proxy', { userId: 'user-1', provider, path: 'v1/models', method: 'GET' });
+      await call('/internal/proxy', { userId: USER_1, provider, path: 'v1/models', method: 'GET' });
     }
     harness.respond = () => {
       throw new Error(`socket closed; last header ${KEYS.openai}`);
     };
-    await call('/internal/proxy', { userId: 'user-1', provider: 'openai', path: 'v1/models' });
+    await call('/internal/proxy', { userId: USER_1, provider: 'openai', path: 'v1/models' });
     harness.validate = () => new Response(`bad key ${KEYS.xai}`, { status: 401 });
-    await call('/internal/keys/put', { userId: 'user-1', provider: 'xai', key: KEYS.xai });
+    await call('/internal/keys/put', { userId: USER_1, provider: 'xai', key: KEYS.xai });
     harness.validate = () => {
       throw new Error(`timeout sending ${KEYS.google}`);
     };
-    await call('/internal/keys/put', { userId: 'user-1', provider: 'google', key: KEYS.google });
-    await call('/internal/keys/status', { userId: 'user-1' });
-    await call('/internal/keys/audit', { userId: 'user-1' });
-    await call('/internal/keys/rewrap', { userId: 'user-1' });
-    await call('/internal/keys/delete', { userId: 'user-1', provider: 'openai' });
+    await call('/internal/keys/put', { userId: USER_1, provider: 'google', key: KEYS.google });
+    await call('/internal/keys/status', { userId: USER_1 });
+    await call('/internal/keys/audit', { userId: USER_1 });
+    await call('/internal/keys/rewrap', { userId: USER_1 });
+    await call('/internal/keys/delete', { userId: USER_1, provider: 'openai' });
 
     expect(harness.responseTexts.length).toBeGreaterThan(10);
     expectNoPlaintextKey(harness.responseTexts);
@@ -798,37 +822,37 @@ describe('plaintext keys', () => {
 
 describe('audit log', () => {
   it('records registered for the first key and replaced for the next', async () => {
-    await register('user-1', 'openai');
-    await register('user-1', 'openai', 'sk-proj-replacementKey0123456789wxyz');
-    expect(auditActions('user-1')).toEqual(['registered', 'replaced']);
+    await register(USER_1, 'openai');
+    await register(USER_1, 'openai', 'sk-proj-replacementKey0123456789wxyz');
+    expect(auditActions(USER_1)).toEqual(['registered', 'replaced']);
   });
 
   it('records removed only when a key was actually removed', async () => {
-    await call('/internal/keys/delete', { userId: 'user-1', provider: 'openai' });
-    expect(auditActions('user-1')).toEqual([]);
-    await register('user-1', 'openai');
-    await call('/internal/keys/delete', { userId: 'user-1', provider: 'openai' });
-    await call('/internal/keys/delete', { userId: 'user-1', provider: 'openai' });
-    expect(auditActions('user-1')).toEqual(['registered', 'removed']);
+    await call('/internal/keys/delete', { userId: USER_1, provider: 'openai' });
+    expect(auditActions(USER_1)).toEqual([]);
+    await register(USER_1, 'openai');
+    await call('/internal/keys/delete', { userId: USER_1, provider: 'openai' });
+    await call('/internal/keys/delete', { userId: USER_1, provider: 'openai' });
+    expect(auditActions(USER_1)).toEqual(['registered', 'removed']);
   });
 
   it('records used before the provider call, and nothing for requests that never reach the key', async () => {
-    await register('user-1', 'openai');
-    await call('/internal/proxy', { userId: 'user-1', provider: 'openai', path: '../evil' });
-    await call('/internal/proxy', { userId: 'user-1', provider: 'openai', path: 'v1/models', method: 'TRACE' });
-    await call('/internal/proxy', { userId: 'user-1', provider: 'xai', path: 'v1/models' });
-    await call('/internal/proxy', { userId: 'user-1', provider: 'mistral', path: 'v1/models' });
-    expect(auditActions('user-1')).toEqual(['registered']);
+    await register(USER_1, 'openai');
+    await call('/internal/proxy', { userId: USER_1, provider: 'openai', path: '../evil' });
+    await call('/internal/proxy', { userId: USER_1, provider: 'openai', path: 'v1/models', method: 'TRACE' });
+    await call('/internal/proxy', { userId: USER_1, provider: 'xai', path: 'v1/models' });
+    await call('/internal/proxy', { userId: USER_1, provider: 'mistral', path: 'v1/models' });
+    expect(auditActions(USER_1)).toEqual(['registered']);
 
-    await call('/internal/proxy', { userId: 'user-1', provider: 'openai', path: 'v1/models', method: 'GET' });
-    expect(auditActions('user-1')).toEqual(['registered', 'used']);
+    await call('/internal/proxy', { userId: USER_1, provider: 'openai', path: 'v1/models', method: 'GET' });
+    expect(auditActions(USER_1)).toEqual(['registered', 'used']);
     expect(harness.providerCalls.at(-1)?.auditActionsAtCall).toEqual(['registered', 'used']);
   });
 
   it('stores fingerprints only as salted hashes, and NULL when they are missing', async () => {
     createHarness({ AUDIT_HASH_SALT: 'audit-salt' });
-    await register('user-1', 'openai', KEYS.openai, { ip: '203.0.113.7', userAgent: 'AudioUnderview/1.0' });
-    await register('user-1', 'google', KEYS.google, { ip: '', userAgent: 42 });
+    await register(USER_1, 'openai', KEYS.openai, { ip: '203.0.113.7', userAgent: 'AudioUnderview/1.0' });
+    await register(USER_1, 'google', KEYS.google, { ip: '', userAgent: 42 });
     const [withFingerprint, withoutFingerprint] = harness.database.auditLog;
     expect(withFingerprint?.ip_hash).toBe(await sha256Hex('audit-salt\n203.0.113.7'));
     expect(withFingerprint?.ua_hash).toBe(await sha256Hex('audit-salt\nAudioUnderview/1.0'));
@@ -841,15 +865,15 @@ describe('audit log', () => {
   it('lists events newest first without hashes, hides other users, and honours the limit', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-09-29T00:00:01.000Z'));
-    await register('user-1', 'openai', KEYS.openai, { ip: '203.0.113.7' });
+    await register(USER_1, 'openai', KEYS.openai, { ip: '203.0.113.7' });
     vi.setSystemTime(new Date('2026-09-29T00:00:02.000Z'));
-    await register('user-2', 'openai', OTHER_OPENAI_KEY);
+    await register(USER_2, 'openai', OTHER_OPENAI_KEY);
     vi.setSystemTime(new Date('2026-09-29T00:00:03.000Z'));
-    await call('/internal/proxy', { userId: 'user-1', provider: 'openai', path: 'v1/models', method: 'GET' });
+    await call('/internal/proxy', { userId: USER_1, provider: 'openai', path: 'v1/models', method: 'GET' });
     vi.setSystemTime(new Date('2026-09-29T00:00:04.000Z'));
-    await call('/internal/keys/delete', { userId: 'user-1', provider: 'openai' });
+    await call('/internal/keys/delete', { userId: USER_1, provider: 'openai' });
 
-    const all = await call('/internal/keys/audit', { userId: 'user-1' });
+    const all = await call('/internal/keys/audit', { userId: USER_1 });
     expect(all).toEqual({
       status: 200,
       json: {
@@ -862,49 +886,47 @@ describe('audit log', () => {
     });
     expect(harness.responseTexts.at(-1)).not.toMatch(/[0-9a-f]{64}/);
 
-    const limited = await call('/internal/keys/audit', { userId: 'user-1', limit: 2.9 });
+    const limited = await call('/internal/keys/audit', { userId: USER_1, limit: 2.9 });
     expect((limited.json.events as unknown[]).length).toBe(2);
-    const minimum = await call('/internal/keys/audit', { userId: 'user-1', limit: 0 });
+    const minimum = await call('/internal/keys/audit', { userId: USER_1, limit: 0 });
     expect((minimum.json.events as unknown[]).length).toBe(1);
-    await call('/internal/keys/audit', { userId: 'user-1', limit: '2' });
-    expect(harness.database.executedStatements.at(-1)?.values).toEqual(['user-1', 50]);
-    await call('/internal/keys/audit', { userId: 'user-1', limit: 500 });
-    expect(harness.database.executedStatements.at(-1)?.values).toEqual(['user-1', 200]);
+    await call('/internal/keys/audit', { userId: USER_1, limit: '2' });
+    expect(lastAuditQuery()).toEqual([`eq.${USER_1}`, '50']);
+    await call('/internal/keys/audit', { userId: USER_1, limit: 500 });
+    expect(lastAuditQuery()).toEqual([`eq.${USER_1}`, '200']);
 
-    const other = await call('/internal/keys/audit', { userId: 'user-2' });
+    const other = await call('/internal/keys/audit', { userId: USER_2 });
     expect(other.json.events).toEqual([{ provider: 'openai', action: 'registered', at: '2026-09-29T00:00:02.000Z' }]);
   });
 
   it('has no route that edits or deletes events', async () => {
-    await register('user-1', 'openai');
-    await call('/internal/proxy', { userId: 'user-1', provider: 'openai', path: 'v1/models' });
-    await call('/internal/keys/delete', { userId: 'user-1', provider: 'openai' });
-    await call('/internal/keys/audit', { userId: 'user-1' });
-    await call('/internal/keys/rewrap', { userId: 'user-1' });
+    await register(USER_1, 'openai');
+    await call('/internal/proxy', { userId: USER_1, provider: 'openai', path: 'v1/models' });
+    await call('/internal/keys/delete', { userId: USER_1, provider: 'openai' });
+    await call('/internal/keys/audit', { userId: USER_1 });
+    await call('/internal/keys/rewrap', { userId: USER_1 });
     for (const path of ['/internal/keys/audit/delete', '/internal/keys/audit/update', '/internal/audit', '/internal/keys/audit/clear']) {
-      await expect(call(path, { userId: 'user-1' })).resolves.toEqual({ status: 404, json: { error: 'not_found' } });
+      await expect(call(path, { userId: USER_1 })).resolves.toEqual({ status: 404, json: { error: 'not_found' } });
     }
-    const auditStatements = harness.database.executedStatements.filter((statement) =>
-      statement.sql.includes('key_audit_log'),
-    );
-    expect(auditStatements.length).toBeGreaterThan(0);
-    for (const statement of auditStatements) {
-      expect(statement.sql).toMatch(/^(INSERT INTO|SELECT)/);
+    const auditRequests = harness.database.requests.filter((request) => request.table === 'key_audit_log');
+    expect(auditRequests.length).toBeGreaterThan(0);
+    for (const request of auditRequests) {
+      expect(request.method).toMatch(/^(POST|GET)$/);
     }
     expect(harness.database.auditLog.map((row) => row.action)).toEqual(['registered', 'used', 'removed']);
   });
 
   it('keeps key operations working when the audit table is broken', async () => {
     harness.database.brokenTables.add('key_audit_log');
-    await expect(register('user-1', 'openai')).resolves.toMatchObject({ status: 200 });
+    await expect(register(USER_1, 'openai')).resolves.toMatchObject({ status: 200 });
     await expect(
-      call('/internal/proxy', { userId: 'user-1', provider: 'openai', path: 'v1/models', method: 'GET' }),
+      call('/internal/proxy', { userId: USER_1, provider: 'openai', path: 'v1/models', method: 'GET' }),
     ).resolves.toMatchObject({ status: 200, json: { ok: true } });
-    await expect(call('/internal/keys/delete', { userId: 'user-1', provider: 'openai' })).resolves.toEqual({
+    await expect(call('/internal/keys/delete', { userId: USER_1, provider: 'openai' })).resolves.toEqual({
       status: 200,
       json: { removed: true },
     });
-    await expect(call('/internal/keys/audit', { userId: 'user-1' })).resolves.toEqual({
+    await expect(call('/internal/keys/audit', { userId: USER_1 })).resolves.toEqual({
       status: 200,
       json: { events: [] },
     });

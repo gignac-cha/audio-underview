@@ -1,0 +1,26 @@
+# Build context of docker/compose.yaml, which builds from the repository root.
+# Secrets reach the containers only at run time through docker/.env.docker, so no secret file may
+# enter an image.
+
+# Installed, generated and local state
+**/node_modules
+**/.wrangler
+**/outputs
+**/.turbo
+**/.vitest
+**/test-results
+**/playwright-report
+**/storybook-static
+.git
+.claude
+
+# Secret files
+**/.env
+**/.env.*
+**/.dev.vars
+**/.dev.vars.*
+**/production-oauth-secrets.env
+docker/.env.docker
+
+# Documents are not used by any image, and local ones can hold secrets
+documents
