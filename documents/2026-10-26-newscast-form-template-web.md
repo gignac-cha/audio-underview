@@ -3,7 +3,7 @@
 요구사항은 `documents/migration/08-newscast.md`, 이슈는 TES-266(폼 단계와 템플릿)과 TES-267(웹 재생 화면과 공유)이다. 2번(`2026-10-26-newscast-task-group.md`)의 그룹 워커 위에 다음을 만든다.
 
 1. 스케줄의 새 단계 종류 "폼"(사용자 대기)
-2. 뉴스캐스트 템플릿 스케줄
+2. 뉴스캐스트 템플릿 스케줄(뺐다, 2번)
 3. 웹 뉴스캐스트 화면
 4. 공개 공유 화면(share-viewer)
 
@@ -76,29 +76,9 @@
 - 단계 추가·수정 대화상자에 Form 종류를 둔다. 폼 정의 JSON 입력란(예시가 들어 있음)과 기다리는 시간(분)을 받는다.
 - 단계 이름은 "Form"으로 보인다.
 
-## 2. 뉴스캐스트 템플릿 (newscast-worker)
+## 2. 뉴스캐스트 템플릿 (뺐다)
 
-- `POST /newscasts/schedulers` `{ source: 'geeknews' | 'url' | 'text' }`(세션)
-  - 응답은 `200 { scheduler_id, form_stage_id, newscast_stage_id, source }`다.
-  - 사용자와 출처마다 스케줄 하나를 만들어 두고 다시 쓴다.
-  - 기억은 테이블 `newscast_schedulers (user_uuid, source, scheduler_id, created_at, PRIMARY KEY (user_uuid, source))`에 둔다. migration 016에 더하고 RLS와 GRANT를 붙인다.
-  - 기억한 스케줄이 지워졌으면 새로 만든다.
-- 스케줄은 scheduler-manager의 공개 API로 만든다.
-  - 새 service binding `SCHEDULER_MANAGER`(기본 entrypoint)로 부르고, 요청한 사용자의 `Authorization`을 그대로 넘긴다. 그래서 검사와 권한은 scheduler가 한다.
-  - binding은 환경 다섯 모두에 둔다.
-- **이름과 cron:** 스케줄 이름은 `Newscast from GeekNews` / `Newscast from a URL` / `Newscast from text`다. cron 없이 꺼진 상태로 만든다.
-- **단계:**
-  - **geeknews:**
-    1. 시스템 크롤러 `geeknews-list`. 입력 schema는 `{ url: { type: 'string', default: 'https://news.hada.io/' } }`다.
-    2. 폼 `articles`: checkboxes, `x-options { from: '$', label: 'title', description: 'originalUrl' }`, `minItems 1`, `maxItems 10`, 30분
-    3. 뉴스캐스트 그룹 v1(설정 기본값)
-  - **url:**
-    1. 폼 `url`: text, `format: 'uri'`, `maxLength 2048`, 필수, 30분
-    2. 뉴스캐스트 그룹
-  - **text:**
-    1. 폼 `title?`(text, 200자)과 `text`(textarea, 24,000자, 필수), 30분
-    2. 뉴스캐스트 그룹
-- **구독:** geeknews 템플릿은 그 사용자에게 `geeknews-list`의 `crawler_permissions`(`subscriber`) 행을 만든다. 이미 있으면 넘어간다. 구독 API(TES-268)가 생기기 전까지의 자리다.
+- 템플릿 스케줄과 웹의 만들기 패널은 2026-10-26에 뺐다. 뉴스캐스트는 Schedulers 화면의 스케줄(목록 → 글 고르기 폼 → 뉴스캐스트 단계)로만 만들기 때문이다.
 
 ## 3. 웹 뉴스캐스트 화면 (applications/web)
 
@@ -113,20 +93,7 @@
   - 오류 패널에서 다시 잇기, 같은 조건으로, 조건 바꿔서 버튼은 뺀다. `blocked_no_key`는 Settings로 안내한다.
   - media token 갱신(수명의 절반)과 재생 중 URL 고정(9741051)은 그대로다.
   - 파이프라인 그래프(d3)도 옮긴다.
-- **새로 만드는 것: "New newscast" 패널**(프로토타입 만들기 폼의 자리)
-  - 출처 탭은 GeekNews, URL, Text다.
-  - 설정은 provider, model(`MODELS_BY_PROVIDER`), effort(`effortsForModel`), length, TTS model, signal이다. Text에는 verbatim이 더 있다.
-  - 키 안내는 `useProviderKeys`로 한다. Google 키가 없으면 막고 Settings로 안내한다. 고른 provider의 키가 없어도 안내한다.
-  - **시작 순서:**
-    1. `POST /newscasts/schedulers`
-    2. 그룹 단계 설정 저장(`PUT /schedulers/:id/stages/:stageID` `{ settings }`)
-    3. `POST /schedulers/:id/execute`(202, `run_id`)
-    4. 회차를 읽어 폼 stage run이 `waiting`이 될 때까지 기다리고, `GET …/stage-runs/:id`로 `form`을 읽는다.
-  - **답하기:**
-    - GeekNews는 `form.fields[0].choices`로 글 고르기 목록(최대 10)을 보여 주고, 사용자가 고르면 답을 보낸다.
-    - URL과 Text는 패널에 적은 값을 바로 답으로 보낸다.
-  - 그 스케줄에 진행 중 회차가 있으면(409) 안내하고, 기다리는 폼이 있으면 Cancel을 준다.
-  - 답한 뒤에는 목록(`GET /newscasts`)이 2초마다 갱신돼 새 뉴스캐스트와 진행이 보인다.
+- **만들기는 없다:** 화면은 목록, 재생, 공유만 한다. 목록이 비었으면 스케줄이 뉴스캐스트를 만든다고 알리고 Schedulers(`/schedulers`)로 잇는다.
 - **테스트:** main 방식(브라우저 모드, MSW, `vitest-browser-react`)으로 다시 쓴다. 프로토타입 테스트가 확인하던 동작은 남긴다. 특히 재생 중 URL이 바뀌지 않는 것, 시그널을 같은 요소로 재생하는 것, 파트 넘김을 확인한다.
 
 ## 4. 공개 공유 화면 (applications/share-viewer)
@@ -161,16 +128,15 @@
 
 - scheduler, newscast 워커, 웹, share-viewer, 도구의 typecheck·테스트와 루트 `pnpm typecheck`
 - development에서 확인한다.
-  1. Newscasts → New newscast → GeekNews → 글 1개 고르기
+  1. Schedulers에서 `geeknews-list` → 폼 → 뉴스캐스트 그룹 스케줄을 Run now로 돌리고, Answer로 글 1개를 고른다.
   2. 뉴스캐스트가 만들어져 목록에 진행이 보이고, 재생과 자막이 된다.
   3. 공유 링크가 로그인 없이 share-viewer에서 열리고 미리보기가 붙는다.
-  4. URL과 Text 출처도 확인한다.
-  5. 스케줄 화면에서 Answer와 Cancel을 확인한다.
+  4. 스케줄 화면에서 Cancel도 확인한다.
 
 ## 7. 추적 목록
 
 | 항목 | 상태 | 원인 | 재접속 |
 | -- | -- | -- | -- |
-| 구독 API와 공식 크롤러 목록 | 미접속 | 템플릿이 구독 행을 직접 만듦 | TES-268 |
+| 구독 API와 공식 크롤러 목록 | 미접속 | 구독 행이 없으면 일반 사용자는 `geeknews-list`를 단계에 넣지 못함 | TES-268 |
 | 실패한 뉴스캐스트 다시 잇기 | 미접속 | 2번에서 뺌 | 나중 |
 | 알림(폼이 기다림) | 미접속 | 08에서 뺌 | 나중 |
