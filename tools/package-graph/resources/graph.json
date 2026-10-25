@@ -390,6 +390,14 @@
       "depth": 2
     },
     {
+      "name": "@audio-underview/newscast-worker",
+      "label": "newscast-worker",
+      "path": "workers/newscast-worker",
+      "kind": "worker",
+      "category": "platform-workers",
+      "depth": 3
+    },
+    {
       "name": "@audio-underview/scheduler-manager-worker",
       "label": "scheduler-manager-worker",
       "path": "workers/scheduler-manager-worker",
@@ -890,6 +898,41 @@
     {
       "source": "@audio-underview/newscast-tts",
       "target": "@audio-underview/newscast-core",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/newscast-worker",
+      "target": "@audio-underview/logger",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/newscast-worker",
+      "target": "@audio-underview/newscast-audio",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/newscast-worker",
+      "target": "@audio-underview/newscast-core",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/newscast-worker",
+      "target": "@audio-underview/newscast-script",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/newscast-worker",
+      "target": "@audio-underview/newscast-tts",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/newscast-worker",
+      "target": "@audio-underview/supabase-connector",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/newscast-worker",
+      "target": "@audio-underview/worker-tools",
       "development": false
     },
     {

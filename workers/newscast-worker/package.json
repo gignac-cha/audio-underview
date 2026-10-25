@@ -1,0 +1,29 @@
+{
+  "name": "@audio-underview/newscast-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./sources/index.ts",
+  "scripts": {
+    "dev": "wrangler dev --env development --port 8792 --inspector-port 9335",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "packageManager": "pnpm@10.26.1",
+  "dependencies": {
+    "@audio-underview/logger": "workspace:*",
+    "@audio-underview/newscast-audio": "workspace:*",
+    "@audio-underview/newscast-core": "workspace:*",
+    "@audio-underview/newscast-script": "workspace:*",
+    "@audio-underview/newscast-tts": "workspace:*",
+    "@audio-underview/supabase-connector": "workspace:*",
+    "@audio-underview/worker-tools": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "catalog:worker",
+    "@cloudflare/workers-types": "catalog:worker",
+    "msw": "catalog:worker",
+    "vitest": "catalog:worker"
+  }
+}

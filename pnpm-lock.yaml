@@ -995,6 +995,43 @@ importers:
         specifier: catalog:worker
         version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(jsdom@28.0.0)(msw@3.0.3(@types/node@26.6.5)(graphql@16.14.2)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2)))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2))
 
+  workers/newscast-worker:
+    dependencies:
+      '@audio-underview/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
+      '@audio-underview/newscast-audio':
+        specifier: workspace:*
+        version: link:../../packages/newscast-audio
+      '@audio-underview/newscast-core':
+        specifier: workspace:*
+        version: link:../../packages/newscast-core
+      '@audio-underview/newscast-script':
+        specifier: workspace:*
+        version: link:../../packages/newscast-script
+      '@audio-underview/newscast-tts':
+        specifier: workspace:*
+        version: link:../../packages/newscast-tts
+      '@audio-underview/supabase-connector':
+        specifier: workspace:*
+        version: link:../../packages/supabase-connector
+      '@audio-underview/worker-tools':
+        specifier: workspace:*
+        version: link:../tools
+    devDependencies:
+      '@cloudflare/vitest-plugin':
+        specifier: catalog:worker
+        version: 1.4.4(@cloudflare/workers-types@5.20261016.1)(@types/node@26.6.5)(vitest@5.0.5)
+      '@cloudflare/workers-types':
+        specifier: catalog:worker
+        version: 5.20261016.1
+      msw:
+        specifier: catalog:worker
+        version: 3.0.3(@types/node@26.6.5)(graphql@16.14.2)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2))
+      vitest:
+        specifier: catalog:worker
+        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(jsdom@28.0.0)(msw@3.0.3(@types/node@26.6.5)(graphql@16.14.2)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2)))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2))
+
   workers/scheduler-manager-worker:
     dependencies:
       '@audio-underview/logger':
