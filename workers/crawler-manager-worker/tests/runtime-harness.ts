@@ -159,13 +159,14 @@ export async function createTestJWT(subject: string): Promise<string> {
 }
 
 /**
- * A request to the worker, authenticated as the user unless userUUID is null.
+ * A request to the worker, authenticated as the user unless userUUID is null. headers are added to the
+ * ones every request has.
  */
 export async function workerRequest(
   path: string,
-  options: { method?: string; body?: string; userUUID?: string | null } = {},
+  options: { method?: string; body?: string; userUUID?: string | null; headers?: Record<string, string> } = {},
 ): Promise<Request> {
-  const headers = new Headers({ Origin: 'https://example.com' });
+  const headers = new Headers({ Origin: 'https://example.com', ...options.headers });
   if (options.userUUID !== null && options.userUUID !== undefined) {
     headers.set('Authorization', `Bearer ${await createTestJWT(options.userUUID)}`);
   }

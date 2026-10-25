@@ -45,6 +45,12 @@ import {
   handlePutEnvironmentVariable,
   handleDeleteEnvironmentVariable,
 } from './handlers/environment-variables.ts';
+import {
+  handleListProviderKeys,
+  handleListProviderKeyAudit,
+  handlePutProviderKey,
+  handleDeleteProviderKey,
+} from './handlers/provider-keys.ts';
 import { cleanUpCrawlerFiles } from './file-cleanup.ts';
 
 export type { CrawlerExecuteResult, CrawlerRunOutcome, Environment };
@@ -90,6 +96,10 @@ const HELP = {
     { method: 'GET', path: '/environment-variables', description: 'List the names of your environment variables' },
     { method: 'PUT', path: '/environment-variables/:name', description: 'Set an environment variable' },
     { method: 'DELETE', path: '/environment-variables/:name', description: 'Delete an environment variable' },
+    { method: 'GET', path: '/provider-keys', description: 'List which providers have a key of yours' },
+    { method: 'GET', path: '/provider-keys/audit', description: 'List the recent events of your provider keys' },
+    { method: 'PUT', path: '/provider-keys/:provider', description: 'Register or replace the key of a provider' },
+    { method: 'DELETE', path: '/provider-keys/:provider', description: 'Delete the key of a provider' },
   ],
 };
 
@@ -323,6 +333,9 @@ const CRAWLER_TEST_RUNS_PATHNAME = '/crawler-test-runs';
 const CRAWLER_TEST_RUN_PATTERN = /^\/crawler-test-runs\/([^/]+)$/;
 const FILE_PATTERN = /^\/files\/([^/]+)$/;
 const ENVIRONMENT_VARIABLE_PATTERN = /^\/environment-variables\/([^/]*)$/;
+const PROVIDER_KEYS_PATHNAME = '/provider-keys';
+const PROVIDER_KEY_AUDIT_PATHNAME = '/provider-keys/audit';
+const PROVIDER_KEY_PATTERN = /^\/provider-keys\/([^/]*)$/;
 
 function methodNotAllowed(context: ResponseContext, allow: string): Response {
   const response = errorResponse('method_not_allowed', 'Method not allowed', 405, context);
@@ -331,8 +344,8 @@ function methodNotAllowed(context: ResponseContext, allow: string): Response {
 }
 
 /**
- * The routes added with the crawler runtime: direct runs, test runs, files and environment variables.
- * Each authenticates with a user UUID. Undefined when the path is none of them.
+ * The routes added with the crawler runtime: direct runs, test runs, files, environment variables and
+ * provider keys. Each authenticates with a user UUID. Undefined when the path is none of them.
  */
 async function routeCrawlerRuntime(
   request: Request,
@@ -348,6 +361,9 @@ async function routeCrawlerRuntime(
   const fileMatch = FILE_PATTERN.exec(url.pathname);
   const environmentVariableMatch = ENVIRONMENT_VARIABLE_PATTERN.exec(url.pathname);
   const isEnvironmentVariables = url.pathname === '/environment-variables';
+  const isProviderKeys = url.pathname === PROVIDER_KEYS_PATHNAME;
+  const isProviderKeyAudit = url.pathname === PROVIDER_KEY_AUDIT_PATHNAME;
+  const providerKeyMatch = PROVIDER_KEY_PATTERN.exec(url.pathname);
   if (
     crawlerRunsMatch === null &&
     crawlerRunMatch === null &&
@@ -356,7 +372,9 @@ async function routeCrawlerRuntime(
     crawlerTestRunMatch === null &&
     fileMatch === null &&
     environmentVariableMatch === null &&
-    !isEnvironmentVariables
+    !isEnvironmentVariables &&
+    !isProviderKeys &&
+    providerKeyMatch === null
   ) {
     return undefined;
   }
@@ -434,6 +452,34 @@ async function routeCrawlerRuntime(
       return methodNotAllowed(context, 'GET');
     }
     return handleDownloadFile(environment, context, fileMatch[1], userUUID);
+  }
+
+  // GET /provider-keys — which providers have a key
+  if (isProviderKeys) {
+    if (request.method !== 'GET') {
+      return methodNotAllowed(context, 'GET');
+    }
+    return handleListProviderKeys(environment, context, userUUID);
+  }
+
+  // GET /provider-keys/audit — the recent events of the keys. Matched before the provider, which it is not.
+  if (isProviderKeyAudit) {
+    if (request.method !== 'GET') {
+      return methodNotAllowed(context, 'GET');
+    }
+    return handleListProviderKeyAudit(environment, context, userUUID);
+  }
+
+  // PUT, DELETE /provider-keys/:provider
+  if (providerKeyMatch !== null) {
+    const provider = providerKeyMatch[1];
+    if (request.method === 'PUT') {
+      return handlePutProviderKey(request, environment, context, provider, userUUID);
+    }
+    if (request.method === 'DELETE') {
+      return handleDeleteProviderKey(request, environment, context, provider, userUUID);
+    }
+    return methodNotAllowed(context, 'PUT, DELETE');
   }
 
   // GET /environment-variables — names only
