@@ -1,7 +1,7 @@
 name: "Deploy: Environment"
 
 # Deploys one whole non-production environment (staging or development):
-# the Supabase schema, the five workers the web calls, and the web.
+# the Supabase schema, the six workers the web calls, and the web.
 # Called by deploy-staging.yml and deploy-development.yml. Production keeps its
 # own workflows.
 #
@@ -91,7 +91,7 @@ jobs:
           ENVIRONMENT: ${{ inputs.environment }}
         run: |
           failed=0
-          for worker in user-vault crawler-manager scheduler-manager google-oauth-provider github-oauth-provider; do
+          for worker in user-vault crawler-manager newscast scheduler-manager google-oauth-provider github-oauth-provider; do
             file="workers/${worker}-worker/wrangler.toml"
             expected="audio-underview-${worker}-${ENVIRONMENT}-worker"
             actual=$(awk -v section="[env.${ENVIRONMENT}]" '
@@ -136,8 +136,10 @@ jobs:
             node tools/environment-schema/scripts/build-environment-schema.ts "${ENVIRONMENT}"
           fi
 
-  # user-vault, crawler-manager and scheduler-manager deploy in this order, so
-  # the worker a service binding names exists before the worker that binds it.
+  # user-vault, crawler-manager, newscast and scheduler-manager deploy in this
+  # order, so the worker a service binding names exists before the worker that
+  # binds it. newscast and scheduler-manager name each other, so newscast comes
+  # first and relies on the scheduler-manager that the environment already has.
   user-vault:
     runs-on: ubuntu-latest
     needs: schema
@@ -204,9 +206,41 @@ jobs:
           environment: ${{ inputs.environment }}
           command: deploy --env ${{ inputs.environment }}
 
-  scheduler-manager:
+  newscast:
     runs-on: ubuntu-latest
     needs: crawler-manager
+    name: Deploy Newscast Worker
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/newscast-worker
+          environment: ${{ inputs.environment }}
+          command: deploy --env ${{ inputs.environment }}
+
+  scheduler-manager:
+    runs-on: ubuntu-latest
+    needs: newscast
     name: Deploy Scheduler Manager Worker
     permissions:
       contents: read
@@ -321,7 +355,7 @@ jobs:
 
   web:
     runs-on: ubuntu-latest
-    needs: [validate, user-vault, crawler-manager, scheduler-manager, google-oauth-provider, github-oauth-provider]
+    needs: [validate, user-vault, crawler-manager, newscast, scheduler-manager, google-oauth-provider, github-oauth-provider]
     name: Deploy to Cloudflare Pages
     # No permissions block: this job takes what the caller grants, so only
     # deploy-staging.yml gives it pull-requests: write for the comment.
