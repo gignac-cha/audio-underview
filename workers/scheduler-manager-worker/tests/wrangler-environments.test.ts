@@ -11,7 +11,7 @@ import configurationText from '../wrangler.toml?raw';
 interface WorkerConfiguration {
   name?: string;
   vars?: Record<string, string>;
-  services?: Array<{ binding: string; service: string }>;
+  services?: Array<{ binding: string; service: string; entrypoint?: string }>;
   workflows?: Array<{ binding: string; name: string; class_name: string }>;
   triggers?: { crons?: string[] };
   env?: Record<string, WorkerConfiguration>;
@@ -71,12 +71,13 @@ function cronsOf(name: EnvironmentName): string[] | undefined {
   return configurationOf(name).triggers?.crons ?? configuration.triggers?.crons;
 }
 
-const EXPECTED: Record<EnvironmentName, { name: string; schema: string; origins: string; crawlerManager: string; workflow: string; crons: string[] }> = {
+const EXPECTED: Record<EnvironmentName, { name: string; schema: string; origins: string; crawlerManager: string; newscast: string; workflow: string; crons: string[] }> = {
   production: {
     name: 'audio-underview-scheduler-manager-worker',
     schema: 'public',
     origins: 'https://audio-underview.pages.dev',
     crawlerManager: 'audio-underview-crawler-manager-worker',
+    newscast: 'audio-underview-newscast-worker',
     workflow: 'audio-underview-scheduler-run-workflow',
     crons: ['*/10 * * * *'],
   },
@@ -86,6 +87,7 @@ const EXPECTED: Record<EnvironmentName, { name: string; schema: string; origins:
     schema: 'staging',
     origins: 'https://staging.audio-underview.pages.dev',
     crawlerManager: 'audio-underview-crawler-manager-staging-worker',
+    newscast: 'audio-underview-newscast-staging-worker',
     workflow: 'audio-underview-scheduler-run-staging-workflow',
     crons: [],
   },
@@ -94,6 +96,7 @@ const EXPECTED: Record<EnvironmentName, { name: string; schema: string; origins:
     schema: 'development',
     origins: 'https://development.audio-underview.pages.dev,https://localhost:5173',
     crawlerManager: 'audio-underview-crawler-manager-development-worker',
+    newscast: 'audio-underview-newscast-development-worker',
     workflow: 'audio-underview-scheduler-run-development-workflow',
     crons: ['*/10 * * * *'],
   },
@@ -102,6 +105,7 @@ const EXPECTED: Record<EnvironmentName, { name: string; schema: string; origins:
     schema: 'public',
     origins: 'https://localhost:5174',
     crawlerManager: 'audio-underview-crawler-manager-docker-worker',
+    newscast: 'audio-underview-newscast-docker-worker',
     workflow: 'audio-underview-scheduler-run-docker-workflow',
     crons: ['*/10 * * * *'],
   },
@@ -113,6 +117,7 @@ function resourcesOf(name: EnvironmentName): Record<string, string | undefined> 
   return {
     'worker name': worker.name,
     'crawler manager worker': bindingOf(worker.services, 'CRAWLER_MANAGER')?.service,
+    'newscast worker': bindingOf(worker.services, 'NEWSCAST')?.service,
     'workflow name': bindingOf(worker.workflows, 'SCHEDULER_RUN_WORKFLOW')?.name,
   };
 }
@@ -143,6 +148,13 @@ describe('wrangler.toml environments', () => {
 
     it('calls the crawler manager of its own environment', () => {
       expect(bindingOf(configurationOf(name).services, 'CRAWLER_MANAGER')?.service).toBe(expected.crawlerManager);
+    });
+
+    // The group stage calls startTaskGroupRun on the binding, so it has to name the entrypoint that has it
+    it('starts newscasts through the task group entrypoint of the newscast worker of its own environment', () => {
+      const binding = bindingOf(configurationOf(name).services, 'NEWSCAST');
+      expect(binding?.service).toBe(expected.newscast);
+      expect(binding?.entrypoint).toBe('NewscastTaskGroup');
     });
 
     it('runs scheduled runs in the workflow of its own environment, with the same class', () => {
@@ -178,7 +190,7 @@ describe('wrangler.toml environments', () => {
     }
   });
 
-  it('gives every environment a worker, a crawler manager and a workflow of its own', () => {
+  it('gives every environment a worker, a crawler manager, a newscast worker and a workflow of its own', () => {
     for (const kind of Object.keys(resourcesOf('production'))) {
       const values = NAMES.map((name) => resourcesOf(name)[kind]);
       expect(new Set(values).size, kind).toBe(values.length);

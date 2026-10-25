@@ -15,6 +15,12 @@ SUPABASE_SCHEMA = "public"
 binding = "CRAWLER_MANAGER"
 service = "audio-underview-crawler-manager-worker"
 
+# The worker of the task group "newscast": the group stage of a run calls its startTaskGroupRun
+[[services]]
+binding = "NEWSCAST"
+service = "audio-underview-newscast-worker"
+entrypoint = "NewscastTaskGroup"
+
 # The tick that starts scheduled runs that are due
 [triggers]
 crons = ["*/10 * * * *"]
@@ -52,6 +58,11 @@ SUPABASE_SCHEMA = "staging"
 binding = "CRAWLER_MANAGER"
 service = "audio-underview-crawler-manager-staging-worker"
 
+[[env.staging.services]]
+binding = "NEWSCAST"
+service = "audio-underview-newscast-staging-worker"
+entrypoint = "NewscastTaskGroup"
+
 [[env.staging.workflows]]
 name = "audio-underview-scheduler-run-staging-workflow"
 binding = "SCHEDULER_RUN_WORKFLOW"
@@ -71,6 +82,11 @@ SUPABASE_SCHEMA = "development"
 binding = "CRAWLER_MANAGER"
 service = "audio-underview-crawler-manager-development-worker"
 
+[[env.development.services]]
+binding = "NEWSCAST"
+service = "audio-underview-newscast-development-worker"
+entrypoint = "NewscastTaskGroup"
+
 [[env.development.workflows]]
 name = "audio-underview-scheduler-run-development-workflow"
 binding = "SCHEDULER_RUN_WORKFLOW"
@@ -87,6 +103,11 @@ SUPABASE_SCHEMA = "public"
 [[env.docker.services]]
 binding = "CRAWLER_MANAGER"
 service = "audio-underview-crawler-manager-docker-worker"
+
+[[env.docker.services]]
+binding = "NEWSCAST"
+service = "audio-underview-newscast-docker-worker"
+entrypoint = "NewscastTaskGroup"
 
 [[env.docker.workflows]]
 name = "audio-underview-scheduler-run-docker-workflow"
