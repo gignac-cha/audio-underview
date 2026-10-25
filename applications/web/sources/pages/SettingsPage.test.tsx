@@ -106,6 +106,19 @@ function answerAccount(initialNames: string[]) {
   return { names, requests };
 }
 
+// The page also holds the provider key sections: they answer an account without keys or history,
+// and a test that needs more registers its own handlers, which come first
+beforeEach(() => {
+  worker.use(
+    http.get(`${MANAGER_URL}/provider-keys`, async () => {
+      return HttpResponse.json({
+        data: ['anthropic', 'openai', 'google', 'xai'].map((provider) => ({ provider, configured: false, last4: null, validated_at: null })),
+      });
+    }),
+    http.get(`${MANAGER_URL}/provider-keys/audit`, async () => HttpResponse.json({ data: [] })),
+  );
+});
+
 const nameInput = () => page.getByLabelText('Name', { exact: true });
 const valueInput = () => page.getByLabelText('Value', { exact: true });
 const addButton = () => page.getByRole('button', { name: 'Add', exact: true });
@@ -119,6 +132,20 @@ describe('SettingsPage — list', () => {
     await expect.element(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible();
     await expect.element(page.getByRole('heading', { name: 'Environment variables' })).toBeVisible();
     await expect.element(page.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings');
+  });
+
+  test('shows the provider keys and their history below the environment variables', async () => {
+    answerAccount([]);
+
+    await renderPage();
+
+    await expect.element(page.getByRole('group', { name: 'Google', exact: true })).toHaveTextContent('Not set');
+    await expect.element(page.getByText('No provider key history yet.')).toBeVisible();
+    const headings = page
+      .getByRole('heading', { level: 2 })
+      .elements()
+      .map((element) => element.textContent);
+    expect(headings).toEqual(['Environment variables', 'Provider keys', 'Provider key history']);
   });
 
   test('lists the names with their created and changed times and the count out of 100', async () => {
