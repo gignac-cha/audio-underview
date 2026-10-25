@@ -1,0 +1,25 @@
+{
+  "name": "@audio-underview/newscast-audio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./sources/index.ts",
+  "types": "./sources/index.ts",
+  "exports": {
+    ".": {
+      "types": "./sources/index.ts",
+      "import": "./sources/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@audio-underview/newscast-core": "workspace:*",
+    "@breezystack/lamejs": "^1.2.7"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.5"
+  }
+}
