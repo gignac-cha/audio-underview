@@ -1,8 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  SchedulerFormChoice,
+  SchedulerFormField,
+  SchedulerFormWidget,
   SchedulerRunRow,
   SchedulerRunStatus,
+  SchedulerStageRunForm,
   SchedulerStageRunRow,
 } from '@audio-underview/supabase-connector';
 import {
@@ -25,11 +29,11 @@ type WithoutIndexSignature<T> = {
 };
 
 /**
- * A stage run without its input, output and logs, which can be large. The connector's
+ * A stage run without its input, output, form and logs, which can be large. The connector's
  * SchedulerStageRunSummary is Omit<> of a row type with an index signature, which drops the named
  * fields, so it is built here from the named fields only.
  */
-export type StageRunSummary = Omit<WithoutIndexSignature<SchedulerStageRunRow>, 'input' | 'output' | 'logs'>;
+export type StageRunSummary = Omit<WithoutIndexSignature<SchedulerStageRunRow>, 'input' | 'output' | 'form' | 'logs'>;
 
 /** A run with the summaries of its stage runs */
 export type SchedulerRunDetail = SchedulerRunRow & { stage_runs: StageRunSummary[] };
@@ -39,6 +43,22 @@ export interface SchedulerExecution {
   run_id: string;
   status: SchedulerRunStatus;
   error: string | null;
+}
+
+/** What the answer and cancel requests answer: the status the stage run has now */
+export interface StageRunActionResult {
+  status: SchedulerRunStatus;
+}
+
+interface StageRunActionInput {
+  scheduler_id: string;
+  run_id: string;
+  stage_run_id: string;
+}
+
+interface AnswerStageRunInput extends StageRunActionInput {
+  // The value of each field by its name; a choice is named by its index
+  answer: Record<string, unknown>;
 }
 
 interface RefreshOptions {
@@ -53,14 +73,16 @@ export const RUN_IN_PROGRESS_MESSAGE = 'A run is already in progress';
 const RUN_STATUSES: readonly SchedulerRunStatus[] = [
   'pending',
   'running',
+  'waiting',
   'completed',
   'failed',
   'partially_failed',
   'skipped',
 ];
 
+// A form stage run waits for an answer while its run goes on, so it is not finished
 export function isInProgress(status: SchedulerRunStatus | undefined): boolean {
-  return status === 'pending' || status === 'running';
+  return status === 'pending' || status === 'running' || status === 'waiting';
 }
 
 // ─── Query keys ────────────────────────────────────────────────
@@ -224,6 +246,80 @@ export function useGetStageRun(
   };
 }
 
+const FORM_WIDGETS: readonly SchedulerFormWidget[] = [
+  'checkboxes',
+  'radio',
+  'select',
+  'text',
+  'textarea',
+  'number',
+  'toggle',
+];
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function readOptionalNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function readFormField(value: unknown): SchedulerFormField | undefined {
+  if (!isPlainObject(value) || typeof value.name !== 'string') return undefined;
+  const widget = FORM_WIDGETS.find((candidate) => candidate === value.widget);
+  if (widget === undefined) return undefined;
+
+  let choices: SchedulerFormChoice[] | undefined;
+  if (value.choices !== undefined) {
+    if (!Array.isArray(value.choices)) return undefined;
+    choices = [];
+    for (const choice of value.choices) {
+      if (!isPlainObject(choice) || typeof choice.label !== 'string') return undefined;
+      choices.push({ label: choice.label, description: readOptionalString(choice.description) });
+    }
+  }
+  // A field that is asked by choice has them
+  if ((widget === 'checkboxes' || widget === 'radio' || widget === 'select') && choices === undefined) return undefined;
+
+  return {
+    name: value.name,
+    title: readOptionalString(value.title),
+    description: readOptionalString(value.description),
+    widget,
+    required: value.required === true,
+    choices,
+    minItems: readOptionalNumber(value.minItems),
+    maxItems: readOptionalNumber(value.maxItems),
+    maxLength: readOptionalNumber(value.maxLength),
+    minimum: readOptionalNumber(value.minimum),
+    maximum: readOptionalNumber(value.maximum),
+    default: value.default,
+  };
+}
+
+/**
+ * The form of a stage run as the server stores it, or undefined when the stage run has none or what
+ * it has cannot be read, so a form this page cannot show is never half shown.
+ */
+export function readStageRunForm(value: unknown): SchedulerStageRunForm | undefined {
+  if (!isPlainObject(value) || !Array.isArray(value.fields) || typeof value.expires_at !== 'string') return undefined;
+  const fields: SchedulerFormField[] = [];
+  for (const candidate of value.fields) {
+    const field = readFormField(candidate);
+    if (field === undefined) return undefined;
+    fields.push(field);
+  }
+  return {
+    schema: isPlainObject(value.schema) ? value.schema : {},
+    fields,
+    expires_at: value.expires_at,
+  };
+}
+
 function readRunStatus(value: unknown, fallback: SchedulerRunStatus): SchedulerRunStatus {
   return RUN_STATUSES.find((status) => status === value) ?? fallback;
 }
@@ -271,6 +367,64 @@ export function useExecuteScheduler() {
 
   return {
     executeScheduler: mutation.mutateAsync,
+    status: mutation.status,
+    error: mutation.error ?? undefined,
+    reset: mutation.reset,
+  };
+}
+
+function stageRunActionPath({ scheduler_id, run_id, stage_run_id }: StageRunActionInput, action: 'answer' | 'cancel') {
+  return `/schedulers/${scheduler_id}/runs/${run_id}/stage-runs/${stage_run_id}/${action}`;
+}
+
+/**
+ * Answers the form a stage run waits for. The server answers 409 when the stage run is not waiting
+ * (it was answered, cancelled or timed out) and 400 with the reason when the answer is refused; both
+ * throw the server's own text.
+ */
+export function useAnswerStageRun() {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation<StageRunActionResult, Error, AnswerStageRunInput>({
+    mutationFn: async ({ answer, ...input }) => {
+      return await requestSchedulerManagerJSON(stageRunActionPath(input, 'answer'), {
+        method: 'POST',
+        body: { answer },
+      }) as StageRunActionResult;
+    },
+    // Settled, not succeeded: a refused answer may mean the stage run ended in the meantime
+    onSettled: (_data, _error, variables) => {
+      queryClient.invalidateQueries({ queryKey: schedulerRunsKey(variables.scheduler_id) });
+    },
+  });
+
+  return {
+    answerStageRun: mutation.mutateAsync,
+    status: mutation.status,
+    error: mutation.error ?? undefined,
+    reset: mutation.reset,
+  };
+}
+
+/**
+ * Cancels the form a stage run waits for, which ends the run as failed.
+ */
+export function useCancelStageRun() {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation<StageRunActionResult, Error, StageRunActionInput>({
+    mutationFn: async (input) => {
+      return await requestSchedulerManagerJSON(stageRunActionPath(input, 'cancel'), {
+        method: 'POST',
+      }) as StageRunActionResult;
+    },
+    onSettled: (_data, _error, variables) => {
+      queryClient.invalidateQueries({ queryKey: schedulerRunsKey(variables.scheduler_id) });
+    },
+  });
+
+  return {
+    cancelStageRun: mutation.mutateAsync,
     status: mutation.status,
     error: mutation.error ?? undefined,
     reset: mutation.reset,

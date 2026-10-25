@@ -45,11 +45,66 @@ importers:
         specifier: ^4.151.1
         version: 4.151.1(@cloudflare/workers-types@5.20261016.1)(@types/node@26.6.5)
 
+  applications/share-viewer:
+    dependencies:
+      '@audio-underview/newscast-core':
+        specifier: workspace:*
+        version: link:../../packages/newscast-core
+      '@emotion/react':
+        specifier: ^11.14.0
+        version: 11.14.0(@types/react@19.3.0)(react@19.3.1)
+      '@emotion/styled':
+        specifier: ^11.14.1
+        version: 11.14.1(@emotion/react@11.14.0(@types/react@19.3.0)(react@19.3.1))(@types/react@19.3.0)(react@19.3.1)
+      react:
+        specifier: ^19.3.1
+        version: 19.3.1
+      react-dom:
+        specifier: ^19.3.1
+        version: 19.3.1(react@19.3.1)
+      react-router:
+        specifier: ^8.4.0
+        version: 8.4.0(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: catalog:worker
+        version: 5.20261016.1
+      '@testing-library/jest-dom':
+        specifier: ^7.0.1
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5)
+      '@testing-library/react':
+        specifier: ^16.3.3
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@testing-library/user-event':
+        specifier: ^14.6.8
+        version: 14.6.8(@testing-library/dom@10.4.2)
+      '@types/react':
+        specifier: ^19.3.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: ^19.3.0
+        version: 19.3.0(@types/react@19.3.0)
+      '@vitejs/plugin-react':
+        specifier: ^6.1.2
+        version: 6.1.2(@rolldown/plugin-babel@0.2.4(@babel/core@7.29.7)(@babel/runtime@7.29.10)(rolldown@1.2.14)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2)))(babel-plugin-react-compiler@1.0.0)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2))
+      jsdom:
+        specifier: ^28.0.0
+        version: 28.0.0
+      vite:
+        specifier: ^8.3.4
+        version: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2)
+      vitest:
+        specifier: ^5.0.5
+        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(jsdom@28.0.0)(msw@3.0.3(@types/node@26.6.5)(graphql@16.14.2)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2)))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2))
+
   applications/web:
     dependencies:
       '@audio-underview/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      '@audio-underview/newscast-core':
+        specifier: workspace:*
+        version: link:../../packages/newscast-core
       '@audio-underview/sign-provider':
         specifier: workspace:*
         version: link:../../packages/sign-provider
@@ -119,6 +174,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      d3:
+        specifier: ^7.9.0
+        version: 7.9.0
       jotai:
         specifier: ^3.0.1
         version: 3.0.1(@types/react@19.3.0)(react@19.3.1)
@@ -168,6 +226,9 @@ importers:
       '@testing-library/react':
         specifier: ^16.3.3
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@types/d3':
+        specifier: ^7.4.3
+        version: 7.4.3
       '@types/react':
         specifier: ^19.3.0
         version: 19.3.0
@@ -381,6 +442,49 @@ importers:
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+    devDependencies:
+      vitest:
+        specifier: ^5.0.5
+        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(jsdom@28.0.0)(msw@3.0.3(@types/node@26.6.5)(graphql@16.14.2)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2)))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2))
+
+  packages/newscast-audio:
+    dependencies:
+      '@audio-underview/newscast-core':
+        specifier: workspace:*
+        version: link:../newscast-core
+      '@breezystack/lamejs':
+        specifier: ^1.2.7
+        version: 1.2.7
+    devDependencies:
+      vitest:
+        specifier: ^5.0.5
+        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(jsdom@28.0.0)(msw@3.0.3(@types/node@26.6.5)(graphql@16.14.2)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2)))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2))
+
+  packages/newscast-core:
+    dependencies:
+      '@audio-underview/logger':
+        specifier: workspace:*
+        version: link:../logger
+    devDependencies:
+      vitest:
+        specifier: ^5.0.5
+        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(jsdom@28.0.0)(msw@3.0.3(@types/node@26.6.5)(graphql@16.14.2)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2)))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2))
+
+  packages/newscast-script:
+    dependencies:
+      '@audio-underview/newscast-core':
+        specifier: workspace:*
+        version: link:../newscast-core
+    devDependencies:
+      vitest:
+        specifier: ^5.0.5
+        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(jsdom@28.0.0)(msw@3.0.3(@types/node@26.6.5)(graphql@16.14.2)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2)))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2))
+
+  packages/newscast-tts:
+    dependencies:
+      '@audio-underview/newscast-core':
+        specifier: workspace:*
+        version: link:../newscast-core
     devDependencies:
       vitest:
         specifier: ^5.0.5
@@ -952,6 +1056,43 @@ importers:
         specifier: catalog:worker
         version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(jsdom@28.0.0)(msw@3.0.3(@types/node@26.6.5)(graphql@16.14.2)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2)))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2))
 
+  workers/newscast-worker:
+    dependencies:
+      '@audio-underview/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
+      '@audio-underview/newscast-audio':
+        specifier: workspace:*
+        version: link:../../packages/newscast-audio
+      '@audio-underview/newscast-core':
+        specifier: workspace:*
+        version: link:../../packages/newscast-core
+      '@audio-underview/newscast-script':
+        specifier: workspace:*
+        version: link:../../packages/newscast-script
+      '@audio-underview/newscast-tts':
+        specifier: workspace:*
+        version: link:../../packages/newscast-tts
+      '@audio-underview/supabase-connector':
+        specifier: workspace:*
+        version: link:../../packages/supabase-connector
+      '@audio-underview/worker-tools':
+        specifier: workspace:*
+        version: link:../tools
+    devDependencies:
+      '@cloudflare/vitest-plugin':
+        specifier: catalog:worker
+        version: 1.4.4(@cloudflare/workers-types@5.20261016.1)(@types/node@26.6.5)(vitest@5.0.5)
+      '@cloudflare/workers-types':
+        specifier: catalog:worker
+        version: 5.20261016.1
+      msw:
+        specifier: catalog:worker
+        version: 3.0.3(@types/node@26.6.5)(graphql@16.14.2)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2))
+      vitest:
+        specifier: catalog:worker
+        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(jsdom@28.0.0)(msw@3.0.3(@types/node@26.6.5)(graphql@16.14.2)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2)))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(sass@1.105.2))
+
   workers/scheduler-manager-worker:
     dependencies:
       '@audio-underview/logger':
@@ -1333,6 +1474,9 @@ packages:
 
   '@blazediff/core@1.10.0':
     resolution: {integrity: sha512-AOQff0zgR7cGsZL+4E7hVkmujoPUpm0J9xzWGWZj5wCjd3gmxESXAPfKyuzs93VdpQNFhHlBhfOjrcZ+XTERtQ==}
+
+  '@breezystack/lamejs@1.2.7':
+    resolution: {integrity: sha512-6wc7ck65ctA75Hq7FYHTtTvGnYs6msgdxiSUICQ+A01nVOWg6rqouZB8IdyteRlfpYYiFovkf67dIeOgWIUzTA==}
 
   '@chromatic-com/storybook@5.5.1':
     resolution: {integrity: sha512-DOtUEBIJHmqsOWg+Hi1t5m5FTNlyzL0NpZUwQob+ex30nDvL4p+MrYctmvEqH/QT72mf9mLXbz3Uj8aoWD2OYA==}
@@ -5003,8 +5147,7 @@ snapshots:
     dependencies:
       '@1password/sdk-core': 0.5.0
 
-  '@acemir/cssom@0.9.32':
-    optional: true
+  '@acemir/cssom@0.9.32': {}
 
   '@adobe/css-tools@4.5.0': {}
 
@@ -5015,7 +5158,6 @@ snapshots:
       '@csstools/css-parser-algorithms': 4.0.2(@csstools/css-tokenizer@4.0.2)
       '@csstools/css-tokenizer': 4.0.2
       lru-cache: 11.5.3
-    optional: true
 
   '@asamuzakjp/dom-selector@6.8.1':
     dependencies:
@@ -5024,10 +5166,8 @@ snapshots:
       css-tree: 3.2.1
       is-potential-custom-element-name: 1.0.1
       lru-cache: 11.5.3
-    optional: true
 
-  '@asamuzakjp/nwsapi@2.3.9':
-    optional: true
+  '@asamuzakjp/nwsapi@2.3.9': {}
 
   '@atproto-labs/did-resolver@0.3.11':
     dependencies:
@@ -5248,6 +5388,8 @@ snapshots:
 
   '@blazediff/core@1.10.0': {}
 
+  '@breezystack/lamejs@1.2.7': {}
+
   '@chromatic-com/storybook@5.5.1(storybook@10.6.2(@types/react@19.3.0)(prettier@3.9.10)(react@19.3.1))':
     dependencies:
       '@neoconfetti/react': 1.0.0
@@ -5303,14 +5445,12 @@ snapshots:
     dependencies:
       '@jridgewell/trace-mapping': 0.3.9
 
-  '@csstools/color-helpers@6.1.2':
-    optional: true
+  '@csstools/color-helpers@6.1.2': {}
 
   '@csstools/css-calc@3.4.3(@csstools/css-parser-algorithms@4.0.2(@csstools/css-tokenizer@4.0.2))(@csstools/css-tokenizer@4.0.2)':
     dependencies:
       '@csstools/css-parser-algorithms': 4.0.2(@csstools/css-tokenizer@4.0.2)
       '@csstools/css-tokenizer': 4.0.2
-    optional: true
 
   '@csstools/css-color-parser@4.2.6(@csstools/css-parser-algorithms@4.0.2(@csstools/css-tokenizer@4.0.2))(@csstools/css-tokenizer@4.0.2)':
     dependencies:
@@ -5318,20 +5458,16 @@ snapshots:
       '@csstools/css-calc': 3.4.3(@csstools/css-parser-algorithms@4.0.2(@csstools/css-tokenizer@4.0.2))(@csstools/css-tokenizer@4.0.2)
       '@csstools/css-parser-algorithms': 4.0.2(@csstools/css-tokenizer@4.0.2)
       '@csstools/css-tokenizer': 4.0.2
-    optional: true
 
   '@csstools/css-parser-algorithms@4.0.2(@csstools/css-tokenizer@4.0.2)':
     dependencies:
       '@csstools/css-tokenizer': 4.0.2
-    optional: true
 
   '@csstools/css-syntax-patches-for-csstree@1.1.15(css-tree@3.2.1)':
     optionalDependencies:
       css-tree: 3.2.1
-    optional: true
 
-  '@csstools/css-tokenizer@4.0.2':
-    optional: true
+  '@csstools/css-tokenizer@4.0.2': {}
 
   '@dnd-kit/accessibility@3.1.1(react@19.3.1)':
     dependencies:
@@ -5556,8 +5692,7 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
-  '@exodus/bytes@1.16.0':
-    optional: true
+  '@exodus/bytes@1.16.0': {}
 
   '@floating-ui/core@1.8.0':
     dependencies:
@@ -7153,8 +7288,7 @@ snapshots:
 
   '@webcontainer/env@1.1.1': {}
 
-  agent-base@7.1.4:
-    optional: true
+  agent-base@7.1.4: {}
 
   ansi-regex@5.0.1: {}
 
@@ -7197,7 +7331,6 @@ snapshots:
   bidi-js@1.1.0:
     dependencies:
       require-from-string: 2.0.2
-    optional: true
 
   blake3-wasm@2.1.5: {}
 
@@ -7279,7 +7412,6 @@ snapshots:
     dependencies:
       mdn-data: 2.27.1
       source-map-js: 1.2.2
-    optional: true
 
   css.escape@1.5.1: {}
 
@@ -7289,7 +7421,6 @@ snapshots:
       '@csstools/css-syntax-patches-for-csstree': 1.1.15(css-tree@3.2.1)
       css-tree: 3.2.1
       lru-cache: 11.5.3
-    optional: true
 
   csstype@3.2.3: {}
 
@@ -7451,14 +7582,12 @@ snapshots:
       whatwg-url: 16.0.1
     transitivePeerDependencies:
       - '@noble/hashes'
-    optional: true
 
   debug@4.4.3:
     dependencies:
       ms: 2.1.3
 
-  decimal.js@10.6.0:
-    optional: true
+  decimal.js@10.6.0: {}
 
   deep-eql@5.0.2: {}
 
@@ -7499,8 +7628,7 @@ snapshots:
 
   empathic@2.1.0: {}
 
-  entities@8.1.0:
-    optional: true
+  entities@8.1.0: {}
 
   error-ex@1.3.4:
     dependencies:
@@ -7622,7 +7750,6 @@ snapshots:
       '@exodus/bytes': 1.16.0
     transitivePeerDependencies:
       - '@noble/hashes'
-    optional: true
 
   http-proxy-agent@7.0.2:
     dependencies:
@@ -7630,7 +7757,6 @@ snapshots:
       debug: 4.4.3
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   https-proxy-agent@7.0.6:
     dependencies:
@@ -7638,7 +7764,6 @@ snapshots:
       debug: 4.4.3
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   iceberg-js@0.8.1: {}
 
@@ -7679,8 +7804,7 @@ snapshots:
 
   is-node-process@1.2.0: {}
 
-  is-potential-custom-element-name@1.0.1:
-    optional: true
+  is-potential-custom-element-name@1.0.1: {}
 
   is-wsl@3.1.1:
     dependencies:
@@ -7722,7 +7846,6 @@ snapshots:
     transitivePeerDependencies:
       - '@noble/hashes'
       - supports-color
-    optional: true
 
   jsesc@3.1.0: {}
 
@@ -7811,8 +7934,7 @@ snapshots:
 
   marked@14.0.0: {}
 
-  mdn-data@2.27.1:
-    optional: true
+  mdn-data@2.27.1: {}
 
   min-indent@1.0.1: {}
 
@@ -7951,7 +8073,6 @@ snapshots:
   parse5@8.0.1:
     dependencies:
       entities: 8.1.0
-    optional: true
 
   path-parse@1.0.7: {}
 
@@ -8008,8 +8129,7 @@ snapshots:
       '@types/node': 26.6.5
       long: 5.3.2
 
-  punycode@2.3.1:
-    optional: true
+  punycode@2.3.1: {}
 
   react-docgen-typescript@2.4.0(typescript@7.0.2):
     dependencies:
@@ -8098,8 +8218,7 @@ snapshots:
       indent-string: 4.0.0
       strip-indent: 3.0.0
 
-  require-from-string@2.0.2:
-    optional: true
+  require-from-string@2.0.2: {}
 
   resolve-from@4.0.0: {}
 
@@ -8187,7 +8306,6 @@ snapshots:
   saxes@6.0.0:
     dependencies:
       xmlchars: 2.2.0
-    optional: true
 
   scheduler@0.28.0: {}
 
@@ -8304,8 +8422,7 @@ snapshots:
 
   supports-preserve-symlinks-flag@1.0.0: {}
 
-  symbol-tree@3.2.4:
-    optional: true
+  symbol-tree@3.2.4: {}
 
   tagged-tag@1.0.0: {}
 
@@ -8341,7 +8458,6 @@ snapshots:
   tr46@6.0.0:
     dependencies:
       punycode: 2.3.1
-    optional: true
 
   ts-dedent@2.3.0: {}
 
@@ -8393,8 +8509,7 @@ snapshots:
 
   undici@7.29.1: {}
 
-  undici@7.30.1:
-    optional: true
+  undici@7.30.1: {}
 
   unenv@2.0.0-rc.24:
     dependencies:
@@ -8481,13 +8596,10 @@ snapshots:
   w3c-xmlserializer@5.0.0:
     dependencies:
       xml-name-validator: 5.0.0
-    optional: true
 
-  webidl-conversions@8.0.1:
-    optional: true
+  webidl-conversions@8.0.1: {}
 
-  whatwg-mimetype@5.0.0:
-    optional: true
+  whatwg-mimetype@5.0.0: {}
 
   whatwg-url@16.0.1:
     dependencies:
@@ -8496,7 +8608,6 @@ snapshots:
       webidl-conversions: 8.0.1
     transitivePeerDependencies:
       - '@noble/hashes'
-    optional: true
 
   why-is-node-running@3.2.1: {}
 
@@ -8540,11 +8651,9 @@ snapshots:
     dependencies:
       is-wsl: 3.1.1
 
-  xml-name-validator@5.0.0:
-    optional: true
+  xml-name-validator@5.0.0: {}
 
-  xmlchars@2.2.0:
-    optional: true
+  xmlchars@2.2.0: {}
 
   y18n@5.0.8: {}
 

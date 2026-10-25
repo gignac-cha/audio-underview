@@ -1,4 +1,4 @@
-// Starts the five environment workers of the docker environment in one container.
+// Starts the six environment workers of the docker environment in one container.
 //
 // wrangler dev lists every running worker in its local dev registry, a directory with one file per
 // worker that records the address of a debug port the worker's workerd binds on 127.0.0.1. A service
@@ -114,7 +114,7 @@ function createChildEnvironment(): NodeJS.ProcessEnv {
   return environment;
 }
 
-// Prefixes every output line with the worker's label, since five processes share one log
+// Prefixes every output line with the worker's label, since six processes share one log
 function forwardOutput(label: string, child: ChildProcess): void {
   for (const [stream, output] of [
     [child.stdout, process.stdout],
@@ -238,6 +238,17 @@ async function main(): Promise<void> {
       variables: {
         ...supabase,
         PROVIDER_KEY_KEK: readVariable('PROVIDER_KEY_KEK'),
+        VAULT_INTERNAL_TOKEN: vaultInternalToken,
+      },
+    },
+    {
+      label: 'newscast',
+      directory: 'newscast-worker',
+      port: 9792,
+      inspectorPort: 9335,
+      variables: {
+        ...supabase,
+        JWT_SECRET: jwtSecret,
         VAULT_INTERNAL_TOKEN: vaultInternalToken,
       },
     },

@@ -95,7 +95,7 @@ export function schedulerRunInstanceID(schedulerID: string, scheduledFor: Date):
 }
 
 /**
- * Workflow instance ID of a manual run that has a task group stage.
+ * Workflow instance ID of a manual run that has a task group or form stage.
  */
 export function manualRunInstanceID(runID: string): string {
   return `manual-${runID}`;

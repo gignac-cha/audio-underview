@@ -37,8 +37,8 @@ function hasCrawler(stage: SchedulerStageRow): stage is CrawlerStageRow {
  * Runs one crawler stage of a pipeline run (fan-out or normal) and records its stage run.
  * Shared by the manual execution and the scheduled run.
  *
- * @throws when the stage fails, or when every fan-out item fails; also for a task group stage,
- * which only a Workflow instance can run
+ * @throws when the stage fails, or when every fan-out item fails; also for a task group or form
+ * stage, which only a Workflow instance can run
  */
 export async function executePipelineStage(
   dependencies: ExecutorDependencies,
@@ -49,9 +49,12 @@ export async function executePipelineStage(
 ): Promise<PipelineStageResult> {
   const { supabaseClient } = dependencies;
 
-  // Only reached when a task group stage was added after the manual execution read the stages
+  // Only reached when a task group or form stage was added after the manual execution read the stages
   if (stage.stage_type === 'task_group') {
     throw new Error(`Stage ${stage.stage_order}: a task group stage cannot run in a direct execution`);
+  }
+  if (stage.stage_type === 'form') {
+    throw new Error(`Stage ${stage.stage_order}: a form stage cannot run in a direct execution`);
   }
   if (!hasCrawler(stage)) {
     throw new Error(`Stage ${stage.stage_order}: crawler is missing`);

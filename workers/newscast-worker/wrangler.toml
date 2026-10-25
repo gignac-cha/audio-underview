@@ -1,0 +1,165 @@
+name = "audio-underview-newscast-worker"
+main = "sources/index.ts"
+compatibility_date = "2026-10-12"
+
+[vars]
+ALLOWED_ORIGINS = "https://audio-underview.pages.dev"
+SUPABASE_SCHEMA = "public"
+
+# Secrets (set via wrangler secret put; each environment keeps its own, add --env <environment>):
+# SUPABASE_URL
+# SUPABASE_SECRET_KEY
+# JWT_SECRET
+# VAULT_INTERNAL_TOKEN      the vault's value; sent in the x-user-vault-token header
+
+# Provider calls go through the vault with the key of the user, so no provider key is a secret of this worker
+[[services]]
+binding = "USER_VAULT"
+service = "audio-underview-user-vault-worker"
+
+# Reads the articles through the system crawlers (executeCrawlerByName)
+[[services]]
+binding = "CRAWLER_MANAGER"
+service = "audio-underview-crawler-manager-worker"
+
+# Where the task group reports its progress and its end to the scheduler
+[[services]]
+binding = "SCHEDULER_TASK_GROUP_REPORTS"
+service = "audio-underview-scheduler-manager-worker"
+entrypoint = "TaskGroupReports"
+
+# The audio of each newscast: <newscast ID>/part-<N> and <newscast ID>/signal
+[[r2_buckets]]
+binding = "NEWSCAST_AUDIO"
+bucket_name = "audio-underview-newscast-audio"
+
+# The PCM of the TTS chunks and the checkpoints of the steps, both with a TTL of 7 days.
+# The id is filled in when the namespace is created.
+[[kv_namespaces]]
+binding = "NEWSCAST_STATE"
+id = "d39b668ad59d486fb33379070e4d8866"
+
+# One instance makes one newscast
+[[workflows]]
+name = "audio-underview-newscast-workflow"
+binding = "NEWSCAST_WORKFLOW"
+class_name = "NewscastWorkflow"
+
+# The CPU limit of an invocation, raised to 5 minutes (Workers Paid only) for the MP3 encoding
+[limits]
+cpu_ms = 300000
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+# Invocation logs stay off: an audio URL carries a media token and a share URL carries the share token
+invocation_logs = false
+
+# Environments. Everything above is production. vars, services, r2_buckets, kv_namespaces and workflows are
+# not inherited, so each environment repeats them; main, compatibility_date, limits and observability are inherited.
+# Each environment sets name, because wrangler would deploy it as <name>-<environment>. The workflow
+# name is per account, so each environment has its own.
+
+# staging: the code of a pull request on a copy of the production data
+[env.staging]
+name = "audio-underview-newscast-staging-worker"
+
+[env.staging.vars]
+ALLOWED_ORIGINS = "https://staging.audio-underview.pages.dev"
+SUPABASE_SCHEMA = "staging"
+
+[[env.staging.services]]
+binding = "USER_VAULT"
+service = "audio-underview-user-vault-staging-worker"
+
+[[env.staging.services]]
+binding = "CRAWLER_MANAGER"
+service = "audio-underview-crawler-manager-staging-worker"
+
+[[env.staging.services]]
+binding = "SCHEDULER_TASK_GROUP_REPORTS"
+service = "audio-underview-scheduler-manager-staging-worker"
+entrypoint = "TaskGroupReports"
+
+[[env.staging.r2_buckets]]
+binding = "NEWSCAST_AUDIO"
+bucket_name = "audio-underview-newscast-audio-staging"
+
+[[env.staging.kv_namespaces]]
+binding = "NEWSCAST_STATE"
+id = "989226f9e7ce4cdf85a876b8a6cf5534"
+
+[[env.staging.workflows]]
+name = "audio-underview-newscast-staging-workflow"
+binding = "NEWSCAST_WORKFLOW"
+class_name = "NewscastWorkflow"
+
+# development: a branch chosen by hand, with its own data that stays between deploys.
+# `wrangler dev --env development` runs this environment locally against the same schema.
+[env.development]
+name = "audio-underview-newscast-development-worker"
+
+[env.development.vars]
+ALLOWED_ORIGINS = "https://development.audio-underview.pages.dev,https://localhost:5173"
+SUPABASE_SCHEMA = "development"
+
+[[env.development.services]]
+binding = "USER_VAULT"
+service = "audio-underview-user-vault-development-worker"
+
+[[env.development.services]]
+binding = "CRAWLER_MANAGER"
+service = "audio-underview-crawler-manager-development-worker"
+
+[[env.development.services]]
+binding = "SCHEDULER_TASK_GROUP_REPORTS"
+service = "audio-underview-scheduler-manager-development-worker"
+entrypoint = "TaskGroupReports"
+
+[[env.development.r2_buckets]]
+binding = "NEWSCAST_AUDIO"
+bucket_name = "audio-underview-newscast-audio-development"
+
+[[env.development.kv_namespaces]]
+binding = "NEWSCAST_STATE"
+id = "af2881373e614451b7b309aca774af03"
+
+[[env.development.workflows]]
+name = "audio-underview-newscast-development-workflow"
+binding = "NEWSCAST_WORKFLOW"
+class_name = "NewscastWorkflow"
+
+# docker: runs only in the compose setup and is never deployed, so its data lives in the container
+# and the KV id is a fixed local string
+[env.docker]
+name = "audio-underview-newscast-docker-worker"
+
+[env.docker.vars]
+ALLOWED_ORIGINS = "https://localhost:5174"
+SUPABASE_SCHEMA = "public"
+
+[[env.docker.services]]
+binding = "USER_VAULT"
+service = "audio-underview-user-vault-docker-worker"
+
+[[env.docker.services]]
+binding = "CRAWLER_MANAGER"
+service = "audio-underview-crawler-manager-docker-worker"
+
+[[env.docker.services]]
+binding = "SCHEDULER_TASK_GROUP_REPORTS"
+service = "audio-underview-scheduler-manager-docker-worker"
+entrypoint = "TaskGroupReports"
+
+[[env.docker.r2_buckets]]
+binding = "NEWSCAST_AUDIO"
+bucket_name = "audio-underview-newscast-audio-docker"
+
+[[env.docker.kv_namespaces]]
+binding = "NEWSCAST_STATE"
+id = "docker-newscast-state"
+
+[[env.docker.workflows]]
+name = "audio-underview-newscast-docker-workflow"
+binding = "NEWSCAST_WORKFLOW"
+class_name = "NewscastWorkflow"

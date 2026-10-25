@@ -287,6 +287,121 @@ describe('StageEditDialog crawler stage', () => {
   });
 });
 
+function createFormStage(settings: Record<string, unknown>): SchedulerStageRow {
+  return createCrawlerStage({
+    id: 'stage-3',
+    stage_type: 'form',
+    crawler_id: null,
+    settings,
+    stage_order: 2,
+    input_schema: {},
+    fan_out_field: null,
+  });
+}
+
+describe('StageEditDialog form stage', () => {
+  const FORM_DEFINITION = {
+    type: 'object',
+    required: ['topic'],
+    properties: { topic: { type: 'string', title: 'Topic', 'x-widget': 'text' } },
+  };
+
+  test('opens with the form definition and the timeout the stage holds and no other fields', async () => {
+    startServer();
+    await renderDialog(createFormStage({ form: FORM_DEFINITION, timeout_minutes: 30 }));
+
+    await expect.element(page.getByLabelText('Form Definition')).toHaveValue(JSON.stringify(FORM_DEFINITION, null, 2));
+    await expect.element(page.getByLabelText('Timeout (minutes)')).toHaveValue(30);
+    await expect.element(page.getByText('Change the form definition and the timeout of this stage.')).toBeVisible();
+    await expect.element(page.getByLabelText('Crawler')).not.toBeInTheDocument();
+    await expect.element(page.getByLabelText('Version')).not.toBeInTheDocument();
+  });
+
+  test('shows the default timeout for a stage that stores none, and saving it unchanged sends nothing', async () => {
+    const server = startServer();
+    const onOpenChange = vi.fn();
+    await renderDialog(createFormStage({ form: FORM_DEFINITION }), onOpenChange);
+
+    await expect.element(page.getByLabelText('Timeout (minutes)')).toHaveValue(1440);
+    await saveButton().click();
+
+    await expect.poll(() => onOpenChange.mock.calls).toEqual([[false]]);
+    expect(server.updateRequests).toEqual([]);
+  });
+
+  test('closes without a request when the JSON only differs in the order of keys', async () => {
+    const server = startServer();
+    const onOpenChange = vi.fn();
+    await renderDialog(createFormStage({ form: FORM_DEFINITION, timeout_minutes: 30 }), onOpenChange);
+
+    await page.getByLabelText('Form Definition').fill(
+      JSON.stringify({ properties: FORM_DEFINITION.properties, required: ['topic'], type: 'object' }),
+    );
+    await saveButton().click();
+
+    await expect.poll(() => onOpenChange.mock.calls).toEqual([[false]]);
+    expect(server.updateRequests).toEqual([]);
+  });
+
+  test('sends the settings with the new form definition and the timeout it keeps', async () => {
+    const server = startServer();
+    await renderDialog(createFormStage({ form: FORM_DEFINITION, timeout_minutes: 30 }));
+
+    const changed = { ...FORM_DEFINITION, required: [] };
+    await page.getByLabelText('Form Definition').fill(JSON.stringify(changed));
+    await saveButton().click();
+
+    await expect.poll(() => server.updateRequests).toEqual([{ settings: { form: changed, timeout_minutes: 30 } }]);
+    await expect.element(page.getByText('Stage updated.')).toBeVisible();
+  });
+
+  test('sends the settings with the new timeout', async () => {
+    const server = startServer();
+    await renderDialog(createFormStage({ form: FORM_DEFINITION, timeout_minutes: 30 }));
+
+    await page.getByLabelText('Timeout (minutes)').fill('90');
+    await saveButton().click();
+
+    await expect.poll(() => server.updateRequests).toEqual([{ settings: { form: FORM_DEFINITION, timeout_minutes: 90 } }]);
+  });
+
+  test('sends the settings without a timeout when it is emptied, which leaves it to the default', async () => {
+    const server = startServer();
+    await renderDialog(createFormStage({ form: FORM_DEFINITION, timeout_minutes: 30 }));
+
+    await page.getByLabelText('Timeout (minutes)').fill('');
+    await saveButton().click();
+
+    await expect.poll(() => server.updateRequests).toEqual([{ settings: { form: FORM_DEFINITION } }]);
+  });
+
+  test('does not send JSON that cannot be read or a timeout out of range', async () => {
+    const server = startServer();
+    await renderDialog(createFormStage({ form: FORM_DEFINITION, timeout_minutes: 30 }));
+
+    await page.getByLabelText('Form Definition').fill('{"type": ');
+    await saveButton().click();
+    await expect.element(page.getByText('Invalid JSON in form definition.')).toBeVisible();
+
+    await page.getByLabelText('Form Definition').fill('{}');
+    await page.getByLabelText('Timeout (minutes)').fill('0');
+    await saveButton().click();
+    await expect.element(page.getByText('Timeout must be a whole number of minutes from 1 to 525600.')).toBeVisible();
+
+    expect(server.updateRequests).toEqual([]);
+  });
+
+  test('shows the reason the server gives for refusing the form definition', async () => {
+    startServer({ updateStatus: 400 });
+    await renderDialog(createFormStage({ form: FORM_DEFINITION, timeout_minutes: 30 }));
+
+    await page.getByLabelText('Timeout (minutes)').fill('90');
+    await saveButton().click();
+
+    await expect.element(page.getByText("Task group 'newscast' version 2 is not registered")).toBeVisible();
+  });
+});
+
 describe('StageEditDialog task group stage', () => {
   test('opens with the settings in the fields of its version and no crawler fields', async () => {
     startServer();

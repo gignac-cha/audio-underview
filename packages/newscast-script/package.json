@@ -1,0 +1,28 @@
+{
+  "name": "@audio-underview/newscast-script",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./sources/index.ts",
+  "types": "./sources/index.ts",
+  "exports": {
+    ".": {
+      "types": "./sources/index.ts",
+      "import": "./sources/index.ts"
+    },
+    "./verbatim-script.ts": {
+      "types": "./sources/verbatim-script.ts",
+      "import": "./sources/verbatim-script.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@audio-underview/newscast-core": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.5"
+  }
+}

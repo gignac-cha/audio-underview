@@ -18,13 +18,14 @@ import {
 } from '@audio-underview/supabase-connector';
 import { createWorkerLogger } from '@audio-underview/logger';
 import type { Environment } from '../index.ts';
+import { checkFormStageSettings } from '../form-definition.ts';
 import { UnsupportedSchemaError, validateAgainstSchema } from '../schema-validation.ts';
 import { verifySchedulerOwnership, UUID_PATTERN } from './tools.ts';
 
 type FanOutStrategy = 'compact' | 'preserve';
 
 interface CreateStageRequestBody {
-  stage_type?: 'crawler' | 'task_group';
+  stage_type?: 'crawler' | 'task_group' | 'form';
   crawler_id: string;
   stage_order: number;
   input_schema: Record<string, unknown>;
@@ -58,6 +59,9 @@ const logger = createWorkerLogger({
 const TASK_GROUP_STAGE_FIELDS = ['task_group_id', 'task_group_version', 'settings'] as const;
 // Fields of a crawler stage a task group stage does not have, in the order they are checked
 const CRAWLER_STAGE_FIELDS = ['crawler_id', 'input_schema', 'output_schema', 'fan_out_field', 'fan_out_strategy'] as const;
+// Fields of the other stage types a form stage does not have, in the order they are checked.
+// Its only field of its own is settings: the form definition and the timeout.
+const NOT_FORM_STAGE_FIELDS = [...CRAWLER_STAGE_FIELDS, 'task_group_id', 'task_group_version'] as const;
 
 const TASK_GROUP_ID_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 const MAXIMUM_TASK_GROUP_ID_LENGTH = 63;
@@ -187,6 +191,50 @@ async function createTaskGroupStage(
   }
 }
 
+async function createFormStage(
+  supabaseClient: SupabaseClient,
+  context: ResponseContext,
+  schedulerID: string,
+  body: CreateStageRequestBody,
+): Promise<Response> {
+  const otherField = findPresentField(body, NOT_FORM_STAGE_FIELDS);
+  if (otherField !== undefined) {
+    return errorResponse('invalid_request', `Field '${otherField}' is not allowed on a form stage`, 400, context);
+  }
+
+  if (typeof body.stage_order !== 'number' || !Number.isInteger(body.stage_order) || body.stage_order < 0) {
+    return errorResponse('invalid_request', "Field 'stage_order' is required and must be a non-negative integer", 400, context);
+  }
+
+  if (!isPlainObject(body.settings)) {
+    return errorResponse('invalid_request', "Field 'settings' is required and must be a JSON object", 400, context);
+  }
+
+  const settingsCheck = checkFormStageSettings(body.settings);
+  if (!settingsCheck.valid) {
+    return errorResponse('invalid_request', settingsCheck.description, 400, context);
+  }
+
+  try {
+    const stage = await createSchedulerStage(supabaseClient, {
+      scheduler_id: schedulerID,
+      stage_type: 'form',
+      crawler_id: null,
+      settings: body.settings,
+      stage_order: body.stage_order,
+      input_schema: {},
+    });
+
+    return jsonResponse(stage, 201, context);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    if (message.includes('unique') || message.includes('UNIQUE') || message.includes('23505')) {
+      return errorResponse('conflict', 'A stage with this order already exists', 409, context);
+    }
+    throw error;
+  }
+}
+
 export async function handleCreateStage(
   request: Request,
   environment: Environment,
@@ -214,12 +262,16 @@ export async function handleCreateStage(
     return errorResponse('invalid_request', 'Request body must be a JSON object', 400, context);
   }
 
-  if (body.stage_type !== undefined && body.stage_type !== 'crawler' && body.stage_type !== 'task_group') {
-    return errorResponse('invalid_request', "Field 'stage_type' must be 'crawler' or 'task_group'", 400, context);
+  if (body.stage_type !== undefined && body.stage_type !== 'crawler' && body.stage_type !== 'task_group' && body.stage_type !== 'form') {
+    return errorResponse('invalid_request', "Field 'stage_type' must be 'crawler', 'task_group' or 'form'", 400, context);
   }
 
   if (body.stage_type === 'task_group') {
     return await createTaskGroupStage(supabaseClient, context, schedulerID, body);
+  }
+
+  if (body.stage_type === 'form') {
+    return await createFormStage(supabaseClient, context, schedulerID, body);
   }
 
   const taskGroupField = findPresentField(body, TASK_GROUP_STAGE_FIELDS);
@@ -371,6 +423,10 @@ export async function handleUpdateStage(
     return await updateTaskGroupStage(supabaseClient, context, schedulerID, currentStage, body);
   }
 
+  if (currentStage.stage_type === 'form') {
+    return await updateFormStage(supabaseClient, context, schedulerID, currentStage, body);
+  }
+
   const taskGroupField = findPresentField(body, ['task_group_version', 'settings']);
   if (taskGroupField !== undefined) {
     return errorResponse('invalid_request', `Field '${taskGroupField}' is not allowed on a crawler stage`, 400, context);
@@ -500,6 +556,54 @@ async function updateTaskGroupStage(
     }
     if (message.includes('unique') || message.includes('UNIQUE') || message.includes('23505')) {
       return errorResponse('conflict', 'A stage with this configuration already exists', 409, context);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Changes the settings of a form stage: its form definition and its timeout. A run that waits for
+ * an answer keeps the form it showed.
+ */
+async function updateFormStage(
+  supabaseClient: SupabaseClient,
+  context: ResponseContext,
+  schedulerID: string,
+  currentStage: SchedulerStageRow,
+  body: UpdateStageRequestBody,
+): Promise<Response> {
+  // task_group_id was refused before the stage was read
+  const otherField = findPresentField(body, NOT_FORM_STAGE_FIELDS);
+  if (otherField !== undefined) {
+    return errorResponse('invalid_request', `Field '${otherField}' is not allowed on a form stage`, 400, context);
+  }
+
+  if (body.settings !== undefined && !isPlainObject(body.settings)) {
+    return errorResponse('invalid_request', "Field 'settings' must be a JSON object", 400, context);
+  }
+
+  if (body.settings === undefined) {
+    return errorResponse('invalid_request', 'At least one field must be provided for update', 400, context);
+  }
+
+  const settingsCheck = checkFormStageSettings(body.settings);
+  if (!settingsCheck.valid) {
+    return errorResponse('invalid_request', settingsCheck.description, 400, context);
+  }
+
+  try {
+    const stage = await updateSchedulerStage(supabaseClient, currentStage.id, schedulerID, { settings: body.settings });
+
+    if (!stage) {
+      return errorResponse('not_found', 'Stage not found', 404, context);
+    }
+
+    return jsonResponse(stage, 200, context);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    // The stage changed after it was read
+    if (message.includes(STAGE_TYPE_CONSTRAINT)) {
+      return errorResponse('invalid_request', 'Stage fields do not match the stage type', 400, context);
     }
     throw error;
   }

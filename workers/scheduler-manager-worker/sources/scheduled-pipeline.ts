@@ -28,6 +28,13 @@ import {
   startTaskGroupStage,
   settleTaskGroupStage,
 } from './task-group-stage.ts';
+import {
+  type FormStageContext,
+  type FormStageResult,
+  formAnsweredEventType,
+  startFormStage,
+  settleFormStage,
+} from './form-stage.ts';
 
 /**
  * The user the crawlers run for is known once begin-run read the scheduler, so it is not a dependency here.
@@ -152,8 +159,8 @@ async function beginScheduledRun(
 }
 
 /**
- * Starts the pending run a manual execution created for a scheduler with a task group stage, or
- * continues it when a previous attempt already started it. The scheduler runs whether or not it is
+ * Starts the pending run a manual execution created for a scheduler with a task group or form stage,
+ * or continues it when a previous attempt already started it. The scheduler runs whether or not it is
  * enabled or has a cron expression.
  */
 async function beginManualRun(
@@ -227,8 +234,47 @@ async function runTaskGroupStage(
 }
 
 /**
+ * Runs a form stage as three steps: show the form, wait for the answer, and read the result from
+ * the stage run. The stage run decides the result; the event only wakes the run. The run stays
+ * running while the stage run waits.
+ */
+async function runFormStage(
+  dependencies: ScheduledPipelineDependencies,
+  step: ScheduledPipelineStep,
+  context: FormStageContext,
+): Promise<FormStageResult> {
+  const { supabaseClient, logger } = dependencies;
+  const { runID, stage } = context;
+  const stepName = `stage-${stage.stage_order}`;
+
+  // Showing the form only reads and writes records, so the step is safe to repeat
+  const startResult = await step.do(stepName, RECORD_STEP_OPTIONS, () => startFormStage(supabaseClient, context));
+  if (startResult.status === 'failed') return startResult;
+  const { stageRunID } = startResult;
+
+  if (startResult.status === 'waiting') {
+    try {
+      await step.waitForEvent(`${stepName}-answered`, {
+        type: formAnsweredEventType(stageRunID),
+        timeout: `${startResult.waitMinutes} minutes` as const,
+      });
+    } catch (error: unknown) {
+      // Timed out or failed otherwise; the result step decides from the stage run either way
+      logger.warn('Form stage was not answered', {
+        runID,
+        stageRunID,
+        stageOrder: stage.stage_order,
+        error: errorMessageOf(error),
+      }, { function: 'runScheduledPipeline' });
+    }
+  }
+
+  return step.do(`${stepName}-result`, RECORD_STEP_OPTIONS, () => settleFormStage(supabaseClient, runID, stage, stageRunID));
+}
+
+/**
  * Runs one run of a scheduler pipeline as Workflow steps: a scheduled occurrence, or a manual
- * run of a scheduler with a task group stage. Every database access and crawler call happens
+ * run of a scheduler with a task group or form stage. Every database access and crawler call happens
  * inside a step, and no step result carries a stage output: the next step reads it from the stage run.
  */
 export async function runScheduledPipeline(
@@ -263,6 +309,16 @@ export async function runScheduledPipeline(
           break;
         }
         lastStageRunID = taskGroupStageResult.stageRunID;
+        continue;
+      }
+
+      if (stage.stage_type === 'form') {
+        const formStageResult = await runFormStage(dependencies, step, { runID, stage, previousStageRunID });
+        if (formStageResult.status === 'failed') {
+          failure = formStageResult.error;
+          break;
+        }
+        lastStageRunID = formStageResult.stageRunID;
         continue;
       }
 

@@ -1,0 +1,112 @@
+name: "Deploy: Share Viewer"
+
+on:
+  # Production deploys on main are started by deploy-affected-workspaces.yml.
+  # staging and development deploy the share viewer through deploy-environment.yml.
+  workflow_dispatch:
+
+# One group per branch, so a newer run cancels the one still running.
+concurrency:
+  group: deploy-share-viewer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    name: Quality check
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm --filter @audio-underview/share-viewer typecheck
+
+      - name: Run share viewer tests
+        run: pnpm --filter @audio-underview/share-viewer test
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: quality
+    name: Deploy to Cloudflare Pages
+    permissions:
+      contents: read
+      deployments: write
+      statuses: write
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.deployment-url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The Function reads the production worker address from the committed
+      # functions/worker-url.generated.ts, so only the client needs it here.
+      - name: Build share viewer
+        run: pnpm --filter @audio-underview/share-viewer build
+        env:
+          VITE_NEWSCAST_WORKER_URL: ${{ vars.VITE_NEWSCAST_WORKER_URL }}
+
+      # Deploys from the application directory, so wrangler compiles functions/ too.
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        id: deploy
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: applications/share-viewer
+          command: pages deploy outputs --project-name=audio-underview-share --branch=${{ github.ref_name }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set deployment status on commit
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deploymentURL = '${{ steps.deploy.outputs.deployment-url }}';
+            const success = '${{ steps.deploy.outcome }}' === 'success';
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: success ? 'success' : 'failure',
+              target_url: success ? deploymentURL : `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              context: 'Cloudflare Pages (share viewer)',
+              description: success ? deploymentURL : 'Deployment failed',
+            });
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "### Deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Key | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Environment | production |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| URL | ${{ steps.deploy.outputs.deployment-url }} |" >> "$GITHUB_STEP_SUMMARY"

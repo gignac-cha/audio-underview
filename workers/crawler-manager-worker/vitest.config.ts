@@ -3,9 +3,11 @@ import { defineConfig } from 'vitest/config';
 
 // Stands in for user-vault-worker. A test sets the answers of each route for a user with
 // POST /__test__/configure { userId, responses: { <route>: { status, body } } } and reads the
-// requests the vault received for a user with GET /__test__/requests?userId=<user>. A user
-// without configured answers resolves to no variables. Answers are kept per user, so test files
-// running side by side do not see each other's.
+// requests the vault received for a user with GET /__test__/requests?userId=<user>. A route is
+// named by what follows /internal/environment-variables/ (list, put, delete, resolve), or, for the
+// provider key routes, by what follows /internal/ (keys/status, keys/audit, keys/put, keys/delete).
+// A user without configured answers resolves to no variables. Answers are kept per user, so test
+// files running side by side do not see each other's.
 const USER_VAULT_SCRIPT = `
 const responsesByUser = new Map();
 const requests = [];
@@ -26,7 +28,9 @@ export default {
       body = await request.json();
     } catch {}
     const userId = body !== null && typeof body === 'object' ? body.userId : undefined;
-    const route = url.pathname.replace('/internal/environment-variables/', '');
+    const route = url.pathname.startsWith('/internal/keys/')
+      ? url.pathname.replace('/internal/', '')
+      : url.pathname.replace('/internal/environment-variables/', '');
     requests.push({ userId, route, method: request.method, token: request.headers.get('x-user-vault-token'), body });
     const response = (responsesByUser.get(userId) ?? {})[route];
     if (response === undefined) {

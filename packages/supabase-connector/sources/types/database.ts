@@ -109,14 +109,17 @@ export interface SchedulerRow {
 export type FanOutStrategy = 'compact' | 'preserve';
 
 /**
- * What a scheduler stage runs: a crawler, or a task group implemented by a worker outside the scheduler
+ * What a scheduler stage runs: a crawler, a task group implemented by a worker outside the scheduler,
+ * or a form that waits for the owner's answer
  */
-export type SchedulerStageType = 'crawler' | 'task_group';
+export type SchedulerStageType = 'crawler' | 'task_group' | 'form';
 
 /**
  * A crawler stage has crawler_id and no task group columns.
  * A task group stage has task_group_id, task_group_version and settings, no crawler,
  * no fan-out, and input_schema and output_schema of {}: its formats are those of the task group version.
+ * A form stage has settings { form, timeout_minutes? } and otherwise the columns of a task group stage
+ * without the group: form is the JSON Schema of the answer, with x-widget, x-options and x-order on its fields.
  */
 export interface SchedulerStageRow {
   [key: string]: unknown;
@@ -153,7 +156,8 @@ export interface TaskGroupRow {
 
 /**
  * Scheduler run status enum matching the database enum
- * 'skipped' marks a scheduled occurrence that did not start because the previous run was still in progress
+ * 'skipped' marks a scheduled occurrence that did not start because the previous run was still in progress.
+ * 'waiting' marks a form stage run that waits for its answer; its run stays 'running'.
  */
 export type SchedulerRunStatus =
   | 'pending'
@@ -161,7 +165,8 @@ export type SchedulerRunStatus =
   | 'completed'
   | 'failed'
   | 'partially_failed'
-  | 'skipped';
+  | 'skipped'
+  | 'waiting';
 
 /**
  * What started a scheduler run: an API call or a cron occurrence
@@ -198,10 +203,54 @@ export interface SchedulerStageRunProgress {
 }
 
 /**
+ * How a field of a form is drawn
+ */
+export type SchedulerFormWidget = 'checkboxes' | 'radio' | 'select' | 'text' | 'textarea' | 'number' | 'toggle';
+
+/**
+ * One choice of a form field, drawn as text only
+ */
+export interface SchedulerFormChoice {
+  label: string;
+  description?: string;
+}
+
+/**
+ * One field of the form a form stage run shows. A choice field (checkboxes, radio, select) has choices,
+ * and its answer is the number of a choice, or for checkboxes an array of them.
+ */
+export interface SchedulerFormField {
+  name: string;
+  title?: string;
+  description?: string;
+  widget: SchedulerFormWidget;
+  required: boolean;
+  choices?: SchedulerFormChoice[];
+  minItems?: number;
+  maxItems?: number;
+  maxLength?: number;
+  minimum?: number;
+  maximum?: number;
+  default?: unknown;
+}
+
+/**
+ * The form a form stage run shows, resolved from its input when it started.
+ * schema is the JSON Schema the answer must match, without the x- keys; the choices of a choice field
+ * are the integers 0 to n-1 in it. expires_at is when the run stops waiting.
+ */
+export interface SchedulerStageRunForm {
+  schema: Record<string, unknown>;
+  fields: SchedulerFormField[];
+  expires_at: string;
+}
+
+/**
  * Scheduler stage run table row type
  * Per-stage execution record within a run, for debugging and UI display.
  * task_group_id and task_group_version are the group and version a task group stage run
- * was started with; null for a crawler stage.
+ * was started with; null for a crawler stage. form is the form a form stage run shows; null for
+ * other stages.
  */
 export interface SchedulerStageRunRow {
   [key: string]: unknown;
@@ -221,13 +270,14 @@ export interface SchedulerStageRunRow {
   task_group_id: string | null;
   task_group_version: number | null;
   progress: SchedulerStageRunProgress | null;
+  form: SchedulerStageRunForm | null;
   logs: CrawlerRunLogEntry[] | null;
   logs_truncated: boolean;
   created_at: string;
 }
 
-/** A stage run without the input, the output and the logs, which can be large */
-export type SchedulerStageRunSummary = Omit<SchedulerStageRunRow, 'input' | 'output' | 'logs'>;
+/** A stage run without the input, the output, the form and the logs, which can be large */
+export type SchedulerStageRunSummary = Omit<SchedulerStageRunRow, 'input' | 'output' | 'form' | 'logs'>;
 
 /**
  * Log level of an entry the crawler code logged
@@ -582,6 +632,7 @@ export interface Database {
           task_group_id?: string | null;
           task_group_version?: number | null;
           progress?: SchedulerStageRunProgress | null;
+          form?: SchedulerStageRunForm | null;
           logs?: CrawlerRunLogEntry[] | null;
           logs_truncated?: boolean;
         };

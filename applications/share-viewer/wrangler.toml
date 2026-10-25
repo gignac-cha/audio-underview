@@ -1,0 +1,13 @@
+name = "audio-underview-share"
+compatibility_date = "2025-12-17"
+
+# Cloudflare Pages project. `functions/` sits next to this file and is compiled
+# by `wrangler pages deploy` automatically (it is NOT copied into the output
+# directory).
+pages_build_output_dir = "./outputs"
+
+# A Pages project that has a wrangler.toml treats this file as the source of
+# truth on EVERY deploy: variables set through the dashboard or API are wiped.
+# Pages also has only two variable sets (production and preview), so the
+# newscast worker origin is not a variable: the Function reads it from
+# functions/worker-url.generated.ts, which the deploy job writes per environment.

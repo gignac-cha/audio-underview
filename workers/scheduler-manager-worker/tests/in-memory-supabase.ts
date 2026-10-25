@@ -59,6 +59,7 @@ const TABLE_DEFAULTS: Record<string, () => Row> = {
     task_group_id: null,
     task_group_version: null,
     progress: null,
+    form: null,
   }),
 };
 

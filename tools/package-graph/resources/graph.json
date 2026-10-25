@@ -46,6 +46,14 @@
   ],
   "nodes": [
     {
+      "name": "@audio-underview/share-viewer",
+      "label": "share-viewer",
+      "path": "applications/share-viewer",
+      "kind": "pages",
+      "category": "web",
+      "depth": 2
+    },
+    {
       "name": "@audio-underview/web",
       "label": "web",
       "path": "applications/web",
@@ -172,6 +180,38 @@
       "kind": "library",
       "category": "provider-packages",
       "depth": 1
+    },
+    {
+      "name": "@audio-underview/newscast-audio",
+      "label": "newscast-audio",
+      "path": "packages/newscast-audio",
+      "kind": "library",
+      "category": "core",
+      "depth": 2
+    },
+    {
+      "name": "@audio-underview/newscast-core",
+      "label": "newscast-core",
+      "path": "packages/newscast-core",
+      "kind": "library",
+      "category": "core",
+      "depth": 1
+    },
+    {
+      "name": "@audio-underview/newscast-script",
+      "label": "newscast-script",
+      "path": "packages/newscast-script",
+      "kind": "library",
+      "category": "core",
+      "depth": 2
+    },
+    {
+      "name": "@audio-underview/newscast-tts",
+      "label": "newscast-tts",
+      "path": "packages/newscast-tts",
+      "kind": "library",
+      "category": "core",
+      "depth": 2
     },
     {
       "name": "@audio-underview/sign-provider",
@@ -356,6 +396,14 @@
       "kind": "worker",
       "category": "oauth-workers",
       "depth": 2
+    },
+    {
+      "name": "@audio-underview/newscast-worker",
+      "label": "newscast-worker",
+      "path": "workers/newscast-worker",
+      "kind": "worker",
+      "category": "platform-workers",
+      "depth": 3
     },
     {
       "name": "@audio-underview/scheduler-manager-worker",
@@ -841,6 +889,61 @@
       "development": false
     },
     {
+      "source": "@audio-underview/newscast-audio",
+      "target": "@audio-underview/newscast-core",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/newscast-core",
+      "target": "@audio-underview/logger",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/newscast-script",
+      "target": "@audio-underview/newscast-core",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/newscast-tts",
+      "target": "@audio-underview/newscast-core",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/newscast-worker",
+      "target": "@audio-underview/logger",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/newscast-worker",
+      "target": "@audio-underview/newscast-audio",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/newscast-worker",
+      "target": "@audio-underview/newscast-core",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/newscast-worker",
+      "target": "@audio-underview/newscast-script",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/newscast-worker",
+      "target": "@audio-underview/newscast-tts",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/newscast-worker",
+      "target": "@audio-underview/supabase-connector",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/newscast-worker",
+      "target": "@audio-underview/worker-tools",
+      "development": false
+    },
+    {
       "source": "@audio-underview/scheduler-manager-worker",
       "target": "@audio-underview/logger",
       "development": false
@@ -853,6 +956,11 @@
     {
       "source": "@audio-underview/scheduler-manager-worker",
       "target": "@audio-underview/worker-tools",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/share-viewer",
+      "target": "@audio-underview/newscast-core",
       "development": false
     },
     {
@@ -983,6 +1091,11 @@
     {
       "source": "@audio-underview/web",
       "target": "@audio-underview/logger",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/web",
+      "target": "@audio-underview/newscast-core",
       "development": false
     },
     {

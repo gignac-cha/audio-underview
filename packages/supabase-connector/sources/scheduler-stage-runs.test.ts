@@ -232,6 +232,7 @@ describe('listSchedulerStageRunSummaries', () => {
     expect(requestedColumns).not.toContain('*');
     expect(requestedColumns).not.toContain('input');
     expect(requestedColumns).not.toContain('output');
+    expect(requestedColumns).not.toContain('form');
     expect(requestedColumns).toEqual(expect.arrayContaining([
       'id', 'stage_order', 'status', 'error', 'task_group_id', 'task_group_version', 'progress',
     ]));
@@ -314,7 +315,7 @@ describe('setSchedulerStageRunProgress', () => {
 });
 
 describe('failActiveSchedulerStageRuns', () => {
-  test('fails the pending or running stage runs of the run with the time and message', async () => {
+  test('fails the pending, running or waiting stage runs of the run with the time and message', async () => {
     const client = createMockClient({ scheduler_stage_runs: { data: [{ id: 'stage-run-2' }], error: null } });
 
     await failActiveSchedulerStageRuns(client, 'run-1', '2026-10-05T22:00:00.000Z', 'Run ended before this stage finished');
@@ -327,7 +328,7 @@ describe('failActiveSchedulerStageRuns', () => {
       error: 'Run ended before this stage finished',
     });
     expect(chain.eq.mock.calls).toEqual([['run_id', 'run-1']]);
-    expect(chain.in).toHaveBeenCalledWith('status', ['pending', 'running']);
+    expect(chain.in).toHaveBeenCalledWith('status', ['pending', 'running', 'waiting']);
     expect(chain.single).not.toHaveBeenCalled();
   });
 

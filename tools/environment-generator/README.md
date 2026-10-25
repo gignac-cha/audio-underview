@@ -26,7 +26,7 @@ OP_SERVICE_ACCOUNT_TOKEN=$(pnpm run --silent environment:setup) pnpm run environ
 
 | 환경 | 파일 | 용도 |
 |------|------|------|
-| development | `workers/<워커>/.dev.vars.development` (워커 다섯 개) | `wrangler dev --env development`가 읽음. 이 파일이 있으면 `.dev.vars`는 읽지 않음 |
+| development | `workers/<워커>/.dev.vars.development` (워커 여섯 개) | `wrangler dev --env development`가 읽음. 이 파일이 있으면 `.dev.vars`는 읽지 않음 |
 | development | `applications/web/.env.development.local` | 웹 앱 로컬 개발(`VITE_GOOGLE_CLIENT_ID`) |
 | docker | `docker/.env.docker` | docker compose가 읽는 env file(`COMPOSE_ENV_FILES`). 서비스마다 필요한 값만 받음(`docker/README.md`) |
 

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!--
+    Shared newscasts are capability URLs — anyone with the link may read them,
+    but they must never enter a search index. `_headers` sends the same
+    directive as an HTTP header for non-HTML responses; this tag covers the
+    document itself. noindex does NOT block Open Graph scrapers, so messenger
+    link previews keep working.
+  -->
+  <meta name="robots" content="noindex" />
+  <!--
+    The two values are the `background` tokens from sources/themes/tokens.ts.
+    Messenger in-app browsers (KakaoTalk above all) paint their own top chrome
+    from this tag, so without it a dark-mode reader gets a white bar over a navy
+    page. Two media-scoped tags rather than one: the tag is read before the
+    bundle boots, so it can only follow the OS setting, not the in-page toggle.
+  -->
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#faf3ec" />
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#151d2a" />
+  <title>Audio Underview</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/sources/main.tsx"></script>
+</body>
+
+</html>

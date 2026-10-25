@@ -6,6 +6,8 @@ import { useAuthentication } from '../hooks/use-authentication.ts';
 import { NavigationLinks } from '../components/NavigationLinks.tsx';
 import { Header, LogoutButton } from '../components/PageHeader.tsx';
 import { EnvironmentVariablesSection } from '../components/settings/EnvironmentVariablesSection.tsx';
+import { ProviderKeysSection } from '../components/settings/ProviderKeysSection.tsx';
+import { ProviderKeyAuditList } from '../components/settings/ProviderKeyAuditList.tsx';
 
 const fadeIn = keyframes`
   from { opacity: 0; }
@@ -51,6 +53,8 @@ export function SettingsPage() {
       <Main>
         <PageTitle>Settings</PageTitle>
         <EnvironmentVariablesSection />
+        <ProviderKeysSection />
+        <ProviderKeyAuditList />
       </Main>
     </PageContainer>
   );

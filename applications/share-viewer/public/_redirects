@@ -1,0 +1,4 @@
+# Single-page-application fallback. Pages Functions (functions/share/[token].ts)
+# are matched BEFORE this rule, so the share route still gets its server-injected
+# Open Graph head; everything else boots the client router from index.html.
+/*    /index.html   200

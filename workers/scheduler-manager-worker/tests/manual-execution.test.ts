@@ -12,6 +12,7 @@ const USER_UUID = '00000000-0000-0000-0000-000000000001';
 const SCHEDULER_ID = '00000000-0000-0000-0000-000000000010';
 const STAGE_ID = '00000000-0000-0000-0000-000000000020';
 const TASK_GROUP_STAGE_ID = '00000000-0000-0000-0000-000000000022';
+const FORM_STAGE_ID = '00000000-0000-0000-0000-000000000023';
 const CRAWLER_ID = '00000000-0000-0000-0000-000000000030';
 const JWT_SECRET = 'test-jwt-secret-key-for-testing-only';
 
@@ -61,6 +62,21 @@ function taskGroupStageRow(): Row {
     settings: {},
     stage_order: 1,
     input_schema: {},
+  };
+}
+
+function formStageRow(): Row {
+  return {
+    ...taskGroupStageRow(),
+    id: FORM_STAGE_ID,
+    stage_type: 'form',
+    task_group_id: null,
+    task_group_version: null,
+    settings: {
+      form: { type: 'object', properties: { url: { type: 'string', 'x-widget': 'text', format: 'uri' } }, required: ['url'] },
+      timeout_minutes: 30,
+    },
+    stage_order: 0,
   };
 }
 
@@ -211,6 +227,25 @@ describe('handleExecuteScheduler', () => {
     expect(supabase.tables.scheduler_stage_runs ?? []).toEqual([]);
     expect(run).toMatchObject({ status: 'pending', started_at: null });
     expect(supabase.requestsOf('PATCH', 'scheduler_runs')).toHaveLength(0);
+  });
+
+  it('starts a Workflow instance and answers 202 at once when a stage is a form stage, which waits for the answer', async () => {
+    supabase.tables.schedulers = [schedulerRow()];
+    supabase.tables.scheduler_stages = [formStageRow(), { ...crawlerStageRow(), stage_order: 1 }];
+    const { environment, crawlerManager, workflow } = createEnvironment();
+
+    const response = await handleExecuteScheduler(environment, createContext(), SCHEDULER_ID, USER_UUID);
+
+    const run = onlyRun();
+    expect(response.status).toBe(202);
+    expect(await response.json()).toMatchObject({ run_id: run.id, status: 'pending', started_at: null });
+    expect(workflow.create).toHaveBeenCalledWith({
+      id: `manual-${run.id}`,
+      params: { schedulerID: SCHEDULER_ID, runID: run.id },
+    });
+    expect(crawlerManager.runCrawler).not.toHaveBeenCalled();
+    expect(supabase.tables.scheduler_stage_runs ?? []).toEqual([]);
+    expect(run).toMatchObject({ status: 'pending', started_at: null });
   });
 
   it('fails the run and throws when the instance cannot be created', async () => {

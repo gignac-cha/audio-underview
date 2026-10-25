@@ -1,11 +1,11 @@
 # docker 환경
 
-웹, 워커 다섯 개(Google·GitHub 로그인, crawler-manager, scheduler-manager, user-vault), 그리고 이 환경만의 DB를 compose 하나로 띄운다. 설계는 `documents/2026-10-19-staging-environment.md` 7절이다.
+웹, 워커 여섯 개(Google·GitHub 로그인, crawler-manager, scheduler-manager, user-vault, newscast), 그리고 이 환경만의 DB를 compose 하나로 띄운다. 설계는 `documents/2026-10-19-staging-environment.md` 7절이다.
 
 데이터는 클라우드에 두지 않는다. Supabase, R2, KV, Workflow, Axiom 모두 쓰지 않는다. 워커가 밖으로 보내는 요청은 아래뿐이다.
 - 로그인: Google·GitHub의 OAuth 주소. crawler-manager와 scheduler-manager도 로그인 토큰을 확인하러 Google(`www.googleapis.com/oauth2/v3/userinfo`)과 GitHub(`api.github.com/user`)를 부른다.
 - 크롤러 코드 실행: 코드 실행 Lambda(`CODE_RUNNER_FUNCTION_URL`, 데이터를 저장하지 않음). 크롤러 코드가 가져오는 주소와, 그 주소를 찾는 DNS over HTTPS(`cloudflare-dns.com`).
-- user-vault: 사용자가 provider key를 저장할 때 그 key를 확인하러 provider API(OpenAI, Anthropic, Gemini, xAI 등)를 부른다.
+- user-vault: 사용자가 provider key를 저장할 때 그 key를 확인하러 provider API(OpenAI, Anthropic, Gemini, xAI 등)를 부른다. newscast가 대본·음성을 만들 때도 사용자의 key로 같은 provider API를 user-vault가 대신 부른다.
 
 Axiom에는 아무것도 보내지 않는다. 로그인 워커는 trace를 늘 Axiom으로 보내는데(`packages/axiom-logger`에 끄는 설정이 없다), 이 환경에서는 진짜 token을 주지 않고, `workers` 컨테이너 안에서 `api.axiom.co`가 컨테이너 자신(`127.0.0.1`)을 가리키게 해 두었다. 그래서 보내기는 컨테이너를 나가기 전에 실패하고, 로그에 `exporting spans failed!`가 찍힌다. 그대로 두면 된다.
 
@@ -17,16 +17,18 @@ Axiom에는 아무것도 보내지 않는다. 로그인 워커는 trace를 늘 A
 | `migrate` | `packages/supabase-connector/migrations`를 번호 순서대로 `public`에 적용하고 끝난다. 적용한 파일은 `migration_history.applied_migrations`에 남겨 다음에는 건너뛴다 | 없음 |
 | `rest` | PostgREST v14. `authenticator`로 접속하고 `public`을 내보낸다 | 밖에 열지 않음 |
 | `gateway` | nginx. `<SUPABASE_URL>/rest/v1/…`을 PostgREST로 넘긴다 | 밖에 열지 않음(망 안에서 `http://gateway:8000`) |
-| `workers` | 워커 다섯 개를 `wrangler dev --env docker`로 한 컨테이너에서 띄운다 | 9787 Google, 9788 GitHub, 9789 crawler-manager, 9790 scheduler-manager, 9791 user-vault |
+| `workers` | 워커 여섯 개를 `wrangler dev --env docker`로 한 컨테이너에서 띄운다 | 9787 Google, 9788 GitHub, 9789 crawler-manager, 9790 scheduler-manager, 9791 user-vault, 9792 newscast |
 | `web` | Vite 개발 서버(https) | 5174 |
 
 포트는 Docker 호스트의 `127.0.0.1`에만 연다. 브라우저는 `localhost`로 붙는다. Google은 callback으로 IP 주소를 받지 않기 때문이다.
+
+`web`의 `VITE_*_WORKER_URL`은 위 포트의 `localhost` 주소다(`VITE_NEWSCAST_WORKER_URL`은 `http://localhost:9792`). share-viewer(공개 공유 화면)는 이 환경에 없다. 공유 링크를 열어 보려면 `applications/share-viewer`를 따로 띄우고 `VITE_SHARE_VIEWER_URL`을 그 주소로 준다.
 
 워커를 컨테이너 하나에 모은 이유: `wrangler dev`는 다른 `wrangler dev` 프로세스의 워커를 로컬 dev registry로 찾는다. registry에는 워커마다 `127.0.0.1:<포트>`(그 워커의 workerd debug port)가 적히는데, 컨테이너끼리는 `127.0.0.1`을 나눠 쓰지 않아서 컨테이너를 나누면 service binding이 이어지지 않는다.
 
 워커 컨테이너가 시작할 때 하는 일(`docker/workers/start-workers.ts`):
 - 워커마다 `.dev.vars.docker`를 컨테이너 안에 쓴다. 값은 `docker/.env.docker`에서 온다. 이미지에는 secret이 없다.
-- 워커 다섯 개가 모두 `SUPABASE_URL`과 `SUPABASE_SECRET_KEY`를 받는다. user-vault도 암호화한 provider key와 환경 변수를 이 환경의 DB에 둔다.
+- 워커 여섯 개가 모두 `SUPABASE_URL`과 `SUPABASE_SECRET_KEY`를 받는다. user-vault도 암호화한 provider key와 환경 변수를 이 환경의 DB에 둔다.
 - `SUPABASE_SECRET_KEY`는 `POSTGREST_JWT_SECRET`으로 서명한 `role: service_role` JWT다. `SUPABASE_URL`은 `http://gateway:8000`, 로그인 워커의 `FRONTEND_URL`은 `https://localhost:5174`다. 로그인 워커의 `AXIOM_API_TOKEN`은 Axiom이 받지 않는 고정값(`docker-environment-sends-no-traces`)이다.
 - R2·KV·Workflow 데이터는 `worker-state` 볼륨의 워커별 디렉터리(`/worker-state/<워커 디렉터리>`)에 둔다. 그래서 Google과 GitHub 워커는 같은 KV id(`docker-oauth-state`)를 써도 로컬 데이터는 따로다.
 
@@ -101,7 +103,7 @@ compose를 m6에서 띄웠으면 웹과 워커 포트를 한 번에 넘겨받는
 ssh -i ~/.ssh/mini.m6.id_rsa -o IdentitiesOnly=yes -o ExitOnForwardFailure=yes -N \
   -L 5174:127.0.0.1:5174 -L 9787:127.0.0.1:9787 -L 9788:127.0.0.1:9788 \
   -L 9789:127.0.0.1:9789 -L 9790:127.0.0.1:9790 -L 9791:127.0.0.1:9791 \
-  mini@192.168.100.4
+  -L 9792:127.0.0.1:9792 mini@192.168.100.4
 ```
 
 그다음 `https://localhost:5174`를 연다. 인증서는 Vite가 만든 자체 서명이라 처음 한 번 경고가 뜬다.
@@ -125,7 +127,7 @@ export COMPOSE_ENV_FILES="$PWD/docker/.env.docker"
 docker compose -p audio-underview-second -f docker/compose.yaml up --build
 ```
 
-`COMPOSE_ENV_FILES`는 절대 경로라서, 첫 checkout에서 설정한 셸을 그대로 쓰면 그 checkout의 `.env.docker`를 읽는다. 그래서 그 checkout의 루트에서 다시 설정하거나 새 셸을 연다. 그 checkout의 compose 명령마다 같은 `-p`를 붙인다. 포트(5174, 9787~9791)는 이름과 상관없이 같아서 둘을 동시에 띄울 수는 없다. 한쪽을 `stop`이나 `down`(볼륨은 남음)으로 내린 뒤 다른 쪽을 띄운다.
+`COMPOSE_ENV_FILES`는 절대 경로라서, 첫 checkout에서 설정한 셸을 그대로 쓰면 그 checkout의 `.env.docker`를 읽는다. 그래서 그 checkout의 루트에서 다시 설정하거나 새 셸을 연다. 그 checkout의 compose 명령마다 같은 `-p`를 붙인다. 포트(5174, 9787~9792)는 이름과 상관없이 같아서 둘을 동시에 띄울 수는 없다. 한쪽을 `stop`이나 `down`(볼륨은 남음)으로 내린 뒤 다른 쪽을 띄운다.
 
 ## 알아 둘 것
 

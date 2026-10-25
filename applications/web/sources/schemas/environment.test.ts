@@ -40,6 +40,27 @@ describe('environmentSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  test('validates the newscast worker and share viewer URLs', () => {
+    const result = environmentSchema.safeParse({
+      VITE_GOOGLE_CLIENT_ID: 'test-client-id',
+      VITE_NEWSCAST_WORKER_URL: 'http://localhost:8792',
+      VITE_SHARE_VIEWER_URL: 'https://audio-underview-share.pages.dev',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.VITE_NEWSCAST_WORKER_URL).toBe('http://localhost:8792');
+      expect(result.data.VITE_SHARE_VIEWER_URL).toBe('https://audio-underview-share.pages.dev');
+    }
+  });
+
+  test.each(['VITE_NEWSCAST_WORKER_URL', 'VITE_SHARE_VIEWER_URL'])('fails when %s is not a valid URL', (name) => {
+    const result = environmentSchema.safeParse({
+      VITE_GOOGLE_CLIENT_ID: 'test-client-id',
+      [name]: 'not-a-url',
+    });
+    expect(result.success).toBe(false);
+  });
+
   test('allows VITE_GITHUB_OAUTH_WORKER_URL to be omitted', () => {
     const result = environmentSchema.safeParse({
       VITE_GOOGLE_CLIENT_ID: 'test-client-id',
