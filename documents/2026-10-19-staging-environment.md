@@ -30,7 +30,7 @@ docker는 클라우드 없이 웹·워커·DB 전체를 compose 한 번으로 �
 
 ## 2. 구성
 
-환경을 나누는 워커는 웹이 부르는 다섯 개다: crawler-manager, scheduler-manager, user-vault(crawler-manager만 부름), Google·GitHub 로그인 워커.
+환경을 나누는 워커는 웹이 부르는 여섯 개다: crawler-manager, scheduler-manager, user-vault(crawler-manager와 newscast만 부름), newscast(작업 그룹 "뉴스캐스트". scheduler-manager가 단계로 부름), Google·GitHub 로그인 워커.
 
 | | production | staging | development |
 | -- | -- | -- | -- |
@@ -153,10 +153,10 @@ production 적용 기록이 파일과 맞지 않으면 staging이 production 행
 **`deploy-staging.yml`(새로).** `pull_request`(main 대상, opened·synchronize·reopened)에서 돈다. 문서만 바꾼 PR과 fork PR은 건너뛴다. concurrency group은 `deploy-staging` 하나다(fork PR은 따로 둬서 대기 중인 실행을 밀어내지 않게 한다). `cancel-in-progress: false`로 두어 배포가 반쯤 끝난 채 끊기지 않게 한다.
 1. schema: `build-environment-schema.ts staging`. `secrets.SUPABASE_ACCESS_TOKEN`, `vars.SUPABASE_PROJECT_ID`.
 2. (없앰) 처음에는 user-vault D1에 `schema.sql`을 적용했지만, user-vault가 Supabase를 쓰게 되면서 이 단계가 없어졌다. vault 테이블은 1번 schema 단계에서 migration 015로 생긴다. CI의 Cloudflare token에는 D1 권한이 필요 없다.
-3. 워커 다섯 개: `wrangler deploy --env staging`.
-   - service binding 대상이 먼저 있게 user-vault → crawler-manager → scheduler-manager 순서로, 로그인 워커 둘은 나란히 배포한다.
+3. 워커 여섯 개: `wrangler deploy --env staging`.
+   - service binding 대상이 먼저 있게 user-vault → crawler-manager → newscast → scheduler-manager 순서로, 로그인 워커 둘은 나란히 배포한다.
    - 로그인 워커는 지금 운영 job처럼 `secrets`로 client ID·secret과 `FRONTEND_URL`(그 환경의 웹 주소)을 올린다.
-   - PR이 워커를 바꾸지 않았어도 매번 다섯 개를 다 올린다. 다른 브랜치의 워커가 남아 있지 않게 하려는 것이다.
+   - PR이 워커를 바꾸지 않았어도 매번 여섯 개를 다 올린다. 다른 브랜치의 워커가 남아 있지 않게 하려는 것이다.
 4. 웹: staging 주소(`vars.STAGING_*`)로 build하고 `pages deploy --branch=staging`. PR에 staging 주소와 "이 PR이 staging에 올라감"을 댓글로 남긴다.
 
 **`deploy-development.yml`(새로).** `workflow_dispatch`로 돈다. 입력은 배포할 브랜치(Actions 화면의 "Use workflow from")와 `reset`(기본 false)이다. 순서는 staging과 같고, schema 단계가 `build-environment-schema.ts development`(`reset`이면 `--reset`)이다. 웹은 `pages deploy --branch=development`. concurrency group은 `deploy-development`. `workflow_dispatch` workflow는 파일이 main에 있어야 실행할 수 있으므로, development 배포는 이 작업을 머지한 뒤부터 쓴다. 이 PR의 확인은 staging으로 한다.
@@ -167,7 +167,7 @@ production 적용 기록이 파일과 맞지 않으면 staging이 production 행
 
 `--env`를 빠뜨리면 운영 워커를 덮어쓰므로, 아래로 막는다.
 - wrangler 단계마다 `cloudflare/wrangler-action`의 `environment` 입력과 명령의 `--env`를 함께 적는다. action은 명령에 `--env`가 없을 때만 붙이고, secret 업로드에는 `environment` 입력만 쓴다(v3.15.0 source에서 확인). 그래서 배포와 secret 업로드에 `--env`가 정확히 한 번씩 붙는다.
-- 첫 job(validate)이 배포 전에 확인한다: `<환경>_*` 변수가 비어 있지 않고 운영 변수와 다른지, 다섯 워커의 `wrangler.toml`에 `[env.<환경>]`과 `name = "audio-underview-<이름>-<환경>-worker"`가 있는지. wrangler는 설정에 없는 환경 이름을 받으면, 다른 환경이 하나도 없을 때 경고만 하고 운영 바인딩으로 배포하기 때문이다.
+- 첫 job(validate)이 배포 전에 확인한다: `<환경>_*` 변수가 비어 있지 않고 운영 변수와 다른지, 여섯 워커의 `wrangler.toml`에 `[env.<환경>]`과 `name = "audio-underview-<이름>-<환경>-worker"`가 있는지. wrangler는 설정에 없는 환경 이름을 받으면, 다른 환경이 하나도 없을 때 경고만 하고 운영 바인딩으로 배포하기 때문이다.
 - staging 웹 배포에는 `gitHubToken`을 넘기지 않는다. 넘기면 GitHub의 `preview` environment에 deployment가 생기는데, 이제 그것을 정리할 것이 없다. PR 댓글에는 고정 주소만 적는다. 배포마다 생기는 `<hash>.audio-underview.pages.dev`는 허용 목록에 없어 로그인이 안 된다.
 - 첫 배포 때 워커가 아직 없으면 `secret bulk`가 빈 워커를 먼저 만들고, 뒤의 배포가 그것을 바꾼다(wrangler 4.151 source에서 확인).
 
@@ -181,17 +181,18 @@ production 적용 기록이 파일과 맞지 않으면 staging이 production 행
 
 | | 로컬 |
 | -- | -- |
-| 띄우기 | 루트 `pnpm dev` 하나로 웹(Vite)과 워커 다섯 개를 함께 띄운다. 지금 `pnpm dev`는 turbo로 모든 패키지의 `dev`를 띄우므로(로그인 워커 15개 포함), 이 여섯 개만 띄우게 `--filter`를 단다. 다섯 워커의 `dev` script는 `wrangler dev --env development --port <포트> --inspector-port <포트>`로 바꾼다. 다섯을 한꺼번에 띄우면 모두 inspector 기본 포트 9229를 고르다 `Address already in use`로 죽기 때문에, inspector 포트를 9330~9334로 고정한다 |
-| 포트 | Google 8787, GitHub 8788, crawler-manager 8789, scheduler-manager 8790, user-vault 8791로 고정한다. 로그인 callback이 `http://localhost:<포트>/callback`이라, 바뀌면 다시 등록해야 한다 |
+| 띄우기 | 루트 `pnpm dev` 하나로 웹(Vite)과 워커 여섯 개를 함께 띄운다. 지금 `pnpm dev`는 turbo로 모든 패키지의 `dev`를 띄우므로(로그인 워커 15개 포함), 이 일곱 개만 띄우게 `--filter`를 단다. 여섯 워커의 `dev` script는 `wrangler dev --env development --port <포트> --inspector-port <포트>`로 바꾼다. 여섯을 한꺼번에 띄우면 모두 inspector 기본 포트 9229를 고르다 `Address already in use`로 죽기 때문에, inspector 포트를 9330~9335로 고정한다 |
+| 포트 | Google 8787, GitHub 8788, crawler-manager 8789, scheduler-manager 8790, user-vault 8791, newscast 8792로 고정한다. 로그인 callback이 `http://localhost:<포트>/callback`이라, 바뀌면 다시 등록해야 한다 |
 | Supabase | 클라우드의 `development` schema(클라우드 development 워커와 같은 데이터) |
 | R2·KV·Workflow | `wrangler dev`의 로컬 저장소(`.wrangler/state`). 클라우드 자원은 건드리지 않는다. user-vault의 테이블은 클라우드 `development` schema에 있다. 따로 띄운 워커끼리도 service binding이 이어지고, Dynamic Workers와 Workflow도 로컬에서 돈다(확인함). cron은 저절로 돌지 않아 wrangler가 알려 주는 주소로 직접 부른다 |
 | secret | 워커마다 `.dev.vars.development`. `--env development`로 띄우면 이 파일만 읽는다 |
 | 웹 주소 설정 | 로컬 워커 주소는 비밀이 아니므로 `applications/web/.env.development`에 적어 commit한다. Vite가 개발 서버에서만 읽는다. `VITE_GOOGLE_CLIENT_ID`는 `.env.development.local`(gitignore됨)에 둔다 |
 
 `.dev.vars.development`에 넣는 값:
-- crawler-manager, scheduler-manager, 로그인 워커 둘: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `JWT_SECRET`(development 값. 로컬 워커끼리 같아야 한다)
+- crawler-manager, scheduler-manager, newscast, 로그인 워커 둘: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `JWT_SECRET`(development 값. 로컬 워커끼리 같아야 한다)
 - 로그인 워커: client ID·secret, `FRONTEND_URL=https://localhost:5173`, `AXIOM_API_TOKEN`
 - crawler-manager: `CODE_RUNNER_FUNCTION_URL`, `VAULT_INTERNAL_TOKEN`
+- newscast: `VAULT_INTERNAL_TOKEN`
 - user-vault: `PROVIDER_KEY_KEK`, `VAULT_INTERNAL_TOKEN`
 
 이 파일들은 `tools/environment-generator`(`pnpm environment:generate [development|docker]`)가 1Password에서 만든다. 파일 권한은 600이다. 예전 출력(`applications/web/.env`, `.env.workers`, `.env.deploy`)은 읽는 곳이 없어서 없앴다. 1Password 참조:
@@ -215,13 +216,13 @@ docker compose -f docker/compose.yaml up --build
 | migrate | 한 번 돌고 끝나는 컨테이너. migration 파일을 001부터 `public`에 파일마다 한 transaction으로 적용한다. 적용 기록은 `migration_history.applied_migrations`에 두어 PostgREST에 드러나지 않게 하고, 이미 적용한 파일은 건너뛴다 |
 | rest | PostgREST v14(Supabase와 같은 major). `authenticator`로 접속하고 `public`을 노출한다. 한 번에 1000행까지(Supabase Data API 기본값) |
 | gateway | nginx. supabase-js는 `<SUPABASE_URL>/rest/v1/…`로 부르므로, `/rest/v1/`을 PostgREST로 넘긴다 |
-| workers | 한 컨테이너에서 다섯 워커를 각자 `wrangler dev --env docker --ip 0.0.0.0 --port <포트>`로 띄운다(`docker/workers/start-workers.ts`). 컨테이너를 나누면 dev registry가 `127.0.0.1`을 적어서 service binding이 이어지지 않는다. R2·KV·Workflow는 볼륨에 워커마다 따로 둔다(`--persist-to`). user-vault의 테이블은 migrate가 015로 컨테이너 Postgres에 만든다 |
+| workers | 한 컨테이너에서 여섯 워커를 각자 `wrangler dev --env docker --ip 0.0.0.0 --port <포트>`로 띄운다(`docker/workers/start-workers.ts`). 컨테이너를 나누면 dev registry가 `127.0.0.1`을 적어서 service binding이 이어지지 않는다. R2·KV·Workflow는 볼륨에 워커마다 따로 둔다(`--persist-to`). user-vault의 테이블은 migrate가 015로 컨테이너 Postgres에 만든다 |
 | web | Vite 개발 서버(`--host 0.0.0.0 --port 5174`) |
 
 - **Supabase 연결:** 워커의 `SUPABASE_URL`은 gateway 주소(`http://gateway:8000`)다. `SUPABASE_SECRET_KEY`는 시작할 때 PostgREST의 JWT secret으로 서명해 만든 `role: service_role` JWT다. supabase-js는 이 값을 header로 보내기만 하므로 클라우드 키 형식이 아니어도 된다. DB가 따로라 schema를 나눌 필요가 없어 `SUPABASE_SCHEMA`는 `public`이다.
 - **wrangler 설정:** 다섯 워커에 `[env.docker]`를 더한다. 이름은 다른 환경처럼 `…-docker-worker`이고, 허용 목록은 docker 웹 주소다. 배포하지 않으므로 KV ID는 로컬 이름(`docker-oauth-state`)이다.
 - **소스:** 원격 Docker에서는 bind mount가 m6의 경로를 본다. 그래서 소스를 이미지에 넣어 build한다. 고칠 때는 `compose watch`가 source 폴더를 컨테이너로 옮기고, `package.json`이나 lockfile이 바뀌면 다시 build한다. m6 원격 엔진에서 `watch`가 시작되는 것까지 확인했다.
-- **접속과 로그인:** Google은 callback으로 https나 `localhost`만 받고 IP 주소는 받지 않는다. 그래서 브라우저는 `localhost`로 붙는다. 포트는 m6의 `127.0.0.1`에만 열고, `ssh -N -L …` 한 줄로 이 컴퓨터의 localhost에 넘겨받는다. 웹은 5174, 워커는 9787~9791이다. Vite는 https로 뜨므로 허용 목록은 `https://localhost:5174`다. 로그인 워커는 요청 주소로 callback을 만들므로 `http://localhost:9787/callback`, `http://localhost:9788/callback`이 나간다.
+- **접속과 로그인:** Google은 callback으로 https나 `localhost`만 받고 IP 주소는 받지 않는다. 그래서 브라우저는 `localhost`로 붙는다. 포트는 m6의 `127.0.0.1`에만 열고, `ssh -N -L …` 한 줄로 이 컴퓨터의 localhost에 넘겨받는다. 웹은 5174, 워커는 9787~9792이다. Vite는 https로 뜨므로 허용 목록은 `https://localhost:5174`다. 로그인 워커는 요청 주소로 callback을 만들므로 `http://localhost:9787/callback`, `http://localhost:9788/callback`이 나간다.
 - **secret:** `docker/.env.docker`(gitignore)를 셸마다 한 번 `COMPOSE_ENV_FILES`로 정해 두고(`--env-file`로 넘겨도 된다), 서비스마다 필요한 값만 받는다. rest는 PostgREST JWT secret만, web은 Google client ID만, workers는 나머지(docker 전용 `JWT_SECRET`·`VAULT_INTERNAL_TOKEN`·`PROVIDER_KEY_KEK`, 로그인 client ID·secret, `CODE_RUNNER_FUNCTION_URL`)를 받는다. `tools/environment-generator`가 1Password에서 만든다. PostgREST JWT secret이 없으면 compose 명령이 바로 멈추므로, `down`·`logs`도 이 파일을 읽어야 한다. `COMPOSE_ENV_FILES`를 정해 둔 셸에서는 따로 붙일 것이 없다.
 - **Axiom:** `packages/axiom-logger`는 끌 수 없어서 요청마다 `api.axiom.co`로 trace를 보낸다. docker에는 진짜 토큰을 넘기지 않고(고정 placeholder), workers 컨테이너에서 `api.axiom.co`를 `127.0.0.1`로 돌려 밖으로 나가지 않게 한다. 로그에 요청마다 "exporting spans failed" 한 줄이 남는다.
 - **이미지:** m6는 arm64이고 Docker VMM이라 Rosetta가 없다. 쓰는 이미지(`node:26-trixie-slim`, `postgres:17-trixie`, `postgrest/postgrest:v14.18`, `nginx:1.30-alpine`)는 모두 arm64 판이 있다. workerd는 운영체제 인증서를 쓰므로 node 이미지에 `ca-certificates`를 넣는다(없으면 밖으로 나가는 https가 모두 실패한다). 워커·웹 이미지는 1.5GB쯤이다.
@@ -273,9 +274,9 @@ docker compose -f docker/compose.yaml up --build
 - SQL 실행 API는 문서상 beta·experimental이다. 바뀌면 같은 일을 DB 직접 연결(`psql`)로 한다.
 - 구현하며 확인한 것(2026-10-19~20):
   - 따로 띄운 `wrangler dev`끼리 service binding이 이어진다. 시작 순서는 상관없다. Dynamic Workers와 Workflow도 로컬에서 돈다.
-  - docker: 컨테이너가 다르면 service binding이 이어지지 않는다. dev registry가 워커 주소를 `127.0.0.1:<포트>`로 적기 때문이다. 그래서 다섯 워커를 한 컨테이너에서 띄운다(7절). linux/arm64에서 workerd가 돌고, m6 원격 엔진에서 `compose watch`가 시작된다.
+  - docker: 컨테이너가 다르면 service binding이 이어지지 않는다. dev registry가 워커 주소를 `127.0.0.1:<포트>`로 적기 때문이다. 그래서 여섯 워커를 한 컨테이너에서 띄운다(7절). linux/arm64에서 workerd가 돌고, m6 원격 엔진에서 `compose watch`가 시작된다.
   - 여러 문장을 한 번에 보낸 `BEGIN … COMMIT`은 중간에 실패하면 아무것도 남지 않는다(Postgres 17에서 확인. Supabase API로는 아직 안 해 봄).
-  - service binding 대상이 먼저 있게 CI가 user-vault → crawler-manager → scheduler-manager 순서로 배포한다.
+  - service binding 대상이 먼저 있게 CI가 user-vault → crawler-manager → newscast → scheduler-manager 순서로 배포한다.
 - 첫 staging 배포 때 확인할 것:
   - SQL 실행 API가 `BEGIN … COMMIT`이 든 큰 SQL(지금 약 50KB)을 한 번에 받는지, 시간 안에 끝나는지
   - `read_only: true`로 metadata를 읽을 수 있는지. 안 되면 그 읽기에서 `read_only`를 뺀다
