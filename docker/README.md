@@ -22,6 +22,8 @@ Axiom에는 아무것도 보내지 않는다. 로그인 워커는 trace를 늘 A
 
 포트는 Docker 호스트의 `127.0.0.1`에만 연다. 브라우저는 `localhost`로 붙는다. Google은 callback으로 IP 주소를 받지 않기 때문이다.
 
+`web`의 `VITE_*_WORKER_URL`은 위 포트의 `localhost` 주소다(`VITE_NEWSCAST_WORKER_URL`은 `http://localhost:9792`). share-viewer(공개 공유 화면)는 이 환경에 없다. 공유 링크를 열어 보려면 `applications/share-viewer`를 따로 띄우고 `VITE_SHARE_VIEWER_URL`을 그 주소로 준다.
+
 워커를 컨테이너 하나에 모은 이유: `wrangler dev`는 다른 `wrangler dev` 프로세스의 워커를 로컬 dev registry로 찾는다. registry에는 워커마다 `127.0.0.1:<포트>`(그 워커의 workerd debug port)가 적히는데, 컨테이너끼리는 `127.0.0.1`을 나눠 쓰지 않아서 컨테이너를 나누면 service binding이 이어지지 않는다.
 
 워커 컨테이너가 시작할 때 하는 일(`docker/workers/start-workers.ts`):

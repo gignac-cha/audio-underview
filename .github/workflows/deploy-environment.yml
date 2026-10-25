@@ -1,7 +1,8 @@
 name: "Deploy: Environment"
 
 # Deploys one whole non-production environment (staging or development):
-# the Supabase schema, the six workers the web calls, and the web.
+# the Supabase schema, the six workers the web calls, the web, and the share
+# viewer.
 # Called by deploy-staging.yml and deploy-development.yml. Production keeps its
 # own workflows.
 #
@@ -61,15 +62,19 @@ jobs:
           VITE_GITHUB_OAUTH_WORKER_URL: ${{ vars[format('{0}_VITE_GITHUB_OAUTH_WORKER_URL', steps.environment.outputs.prefix)] }}
           VITE_CRAWLER_MANAGER_WORKER_URL: ${{ vars[format('{0}_VITE_CRAWLER_MANAGER_WORKER_URL', steps.environment.outputs.prefix)] }}
           VITE_SCHEDULER_MANAGER_WORKER_URL: ${{ vars[format('{0}_VITE_SCHEDULER_MANAGER_WORKER_URL', steps.environment.outputs.prefix)] }}
+          VITE_NEWSCAST_WORKER_URL: ${{ vars[format('{0}_VITE_NEWSCAST_WORKER_URL', steps.environment.outputs.prefix)] }}
+          VITE_SHARE_VIEWER_URL: ${{ vars[format('{0}_VITE_SHARE_VIEWER_URL', steps.environment.outputs.prefix)] }}
           FRONTEND_URL: ${{ vars[format('{0}_FRONTEND_URL', steps.environment.outputs.prefix)] }}
           PRODUCTION_VITE_GOOGLE_OAUTH_WORKER_URL: ${{ vars.VITE_GOOGLE_OAUTH_WORKER_URL }}
           PRODUCTION_VITE_GITHUB_OAUTH_WORKER_URL: ${{ vars.VITE_GITHUB_OAUTH_WORKER_URL }}
           PRODUCTION_VITE_CRAWLER_MANAGER_WORKER_URL: ${{ vars.VITE_CRAWLER_MANAGER_WORKER_URL }}
           PRODUCTION_VITE_SCHEDULER_MANAGER_WORKER_URL: ${{ vars.VITE_SCHEDULER_MANAGER_WORKER_URL }}
+          PRODUCTION_VITE_NEWSCAST_WORKER_URL: ${{ vars.VITE_NEWSCAST_WORKER_URL }}
+          PRODUCTION_VITE_SHARE_VIEWER_URL: ${{ vars.VITE_SHARE_VIEWER_URL }}
           PRODUCTION_FRONTEND_URL: ${{ vars.FRONTEND_URL }}
         run: |
           failed=0
-          for name in VITE_GOOGLE_OAUTH_WORKER_URL VITE_GITHUB_OAUTH_WORKER_URL VITE_CRAWLER_MANAGER_WORKER_URL VITE_SCHEDULER_MANAGER_WORKER_URL FRONTEND_URL; do
+          for name in VITE_GOOGLE_OAUTH_WORKER_URL VITE_GITHUB_OAUTH_WORKER_URL VITE_CRAWLER_MANAGER_WORKER_URL VITE_SCHEDULER_MANAGER_WORKER_URL VITE_NEWSCAST_WORKER_URL VITE_SHARE_VIEWER_URL FRONTEND_URL; do
             production="PRODUCTION_${name}"
             if [ -z "${!name}" ]; then
               echo "::error::Repository variable ${PREFIX}_${name} is not set"
@@ -384,6 +389,8 @@ jobs:
           VITE_GITHUB_OAUTH_WORKER_URL: ${{ vars[format('{0}_VITE_GITHUB_OAUTH_WORKER_URL', needs.validate.outputs.prefix)] }}
           VITE_CRAWLER_MANAGER_WORKER_URL: ${{ vars[format('{0}_VITE_CRAWLER_MANAGER_WORKER_URL', needs.validate.outputs.prefix)] }}
           VITE_SCHEDULER_MANAGER_WORKER_URL: ${{ vars[format('{0}_VITE_SCHEDULER_MANAGER_WORKER_URL', needs.validate.outputs.prefix)] }}
+          VITE_NEWSCAST_WORKER_URL: ${{ vars[format('{0}_VITE_NEWSCAST_WORKER_URL', needs.validate.outputs.prefix)] }}
+          VITE_SHARE_VIEWER_URL: ${{ vars[format('{0}_VITE_SHARE_VIEWER_URL', needs.validate.outputs.prefix)] }}
 
       # No gitHubToken: with it the action would record a GitHub deployment in
       # the preview environment, which nothing deactivates anymore.
@@ -425,5 +432,73 @@ jobs:
             echo "|---|---|"
             echo "| Environment | ${ENVIRONMENT} |"
             echo "| URL | https://${ENVIRONMENT}.audio-underview.pages.dev |"
+            echo "| Commit | ${HEAD_SHA} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  # The public page of a shared newscast. It follows the newscast job so the
+  # worker it reads from exists, and the web only links to it by address.
+  share-viewer:
+    runs-on: ubuntu-latest
+    needs: [validate, newscast]
+    name: Deploy Share Viewer to Cloudflare Pages
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # A Pages project has only a production and a preview set of variables, so
+      # the Function cannot read this environment's worker address from one.
+      # The file replaces the production address that the repository holds, in
+      # this runner only. The pattern keeps a quote out of the generated source.
+      - name: Write newscast worker address for the Function
+        env:
+          NEWSCAST_WORKER_URL: ${{ vars[format('{0}_VITE_NEWSCAST_WORKER_URL', needs.validate.outputs.prefix)] }}
+        run: |
+          if ! [[ "${NEWSCAST_WORKER_URL}" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?/?$ ]]; then
+            echo "::error::The newscast worker address is not an https origin: '${NEWSCAST_WORKER_URL}'"
+            exit 1
+          fi
+          printf "export const NEWSCAST_WORKER_URL: string = '%s';\n" "${NEWSCAST_WORKER_URL}" > applications/share-viewer/functions/worker-url.generated.ts
+
+      - name: Build share viewer
+        run: pnpm --filter @audio-underview/share-viewer build
+        env:
+          VITE_NEWSCAST_WORKER_URL: ${{ vars[format('{0}_VITE_NEWSCAST_WORKER_URL', needs.validate.outputs.prefix)] }}
+
+      # Deploys from the application directory, so wrangler compiles functions/ too.
+      # No gitHubToken, for the same reason as the web.
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: applications/share-viewer
+          command: pages deploy outputs --project-name=audio-underview-share --branch=${{ inputs.environment }}
+
+      - name: Deployment summary
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          {
+            echo "### Share viewer deployment"
+            echo "| Key | Value |"
+            echo "|---|---|"
+            echo "| Environment | ${ENVIRONMENT} |"
+            echo "| URL | https://${ENVIRONMENT}.audio-underview-share.pages.dev |"
             echo "| Commit | ${HEAD_SHA} |"
           } >> "${GITHUB_STEP_SUMMARY}"

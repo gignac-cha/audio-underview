@@ -53,4 +53,5 @@ export const DEPLOYMENT_TARGETS: ReadonlyMap<string, DeploymentTarget> = new Map
   ['@audio-underview/newscast-worker', { workflow: 'deploy-newscast-worker.yml' }],
   ['@audio-underview/crawler-code-runner-function', { workflow: 'deploy-crawler-functions.yml', input: 'crawler_code_runner' }],
   ['@audio-underview/web', { workflow: 'deploy-web.yml' }],
+  ['@audio-underview/share-viewer', { workflow: 'deploy-share-viewer.yml' }],
 ]);

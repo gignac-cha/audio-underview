@@ -154,6 +154,7 @@ services:
       VITE_GITHUB_OAUTH_WORKER_URL: http://localhost:9788
       VITE_CRAWLER_MANAGER_WORKER_URL: http://localhost:9789
       VITE_SCHEDULER_MANAGER_WORKER_URL: http://localhost:9790
+      VITE_NEWSCAST_WORKER_URL: http://localhost:9792
     ports:
       - '127.0.0.1:5174:5174'
     develop:
