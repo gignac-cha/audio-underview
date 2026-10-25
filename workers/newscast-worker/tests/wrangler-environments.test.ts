@@ -130,6 +130,7 @@ function resourcesOf(name: EnvironmentName): Record<string, string | undefined> 
     'vault worker': bindingOf(worker.services, 'USER_VAULT')?.service,
     'crawler manager worker': bindingOf(worker.services, 'CRAWLER_MANAGER')?.service,
     'scheduler manager worker': bindingOf(worker.services, 'SCHEDULER_TASK_GROUP_REPORTS')?.service,
+    'scheduler manager API worker': bindingOf(worker.services, 'SCHEDULER_MANAGER')?.service,
     'audio bucket': bindingOf(worker.r2_buckets, 'NEWSCAST_AUDIO')?.bucket_name,
     'state namespace id': bindingOf(worker.kv_namespaces, 'NEWSCAST_STATE')?.id,
     'workflow name': bindingOf(worker.workflows, 'NEWSCAST_WORKFLOW')?.name,
@@ -162,17 +163,25 @@ describe('wrangler.toml environments', () => {
 
     it('calls the vault, the crawler manager and the scheduler manager of its own environment', () => {
       const services = configurationOf(name).services;
-      expect(services?.map((service) => service.binding).sort()).toEqual(['CRAWLER_MANAGER', 'SCHEDULER_TASK_GROUP_REPORTS', 'USER_VAULT']);
+      expect(services?.map((service) => service.binding).sort()).toEqual([
+        'CRAWLER_MANAGER',
+        'SCHEDULER_MANAGER',
+        'SCHEDULER_TASK_GROUP_REPORTS',
+        'USER_VAULT',
+      ]);
       expect(bindingOf(services, 'USER_VAULT')?.service).toBe(expected.vault);
       expect(bindingOf(services, 'CRAWLER_MANAGER')?.service).toBe(expected.crawlerManager);
       expect(bindingOf(services, 'SCHEDULER_TASK_GROUP_REPORTS')?.service).toBe(expected.schedulerManager);
+      expect(bindingOf(services, 'SCHEDULER_MANAGER')?.service).toBe(expected.schedulerManager);
     });
 
-    it('reports to the TaskGroupReports entrypoint, and binds the other two workers by their default', () => {
+    it('reports to the TaskGroupReports entrypoint, and binds the other workers by their default', () => {
       const services = configurationOf(name).services;
       expect(bindingOf(services, 'SCHEDULER_TASK_GROUP_REPORTS')?.entrypoint).toBe('TaskGroupReports');
       expect(bindingOf(services, 'USER_VAULT')?.entrypoint).toBeUndefined();
       expect(bindingOf(services, 'CRAWLER_MANAGER')?.entrypoint).toBeUndefined();
+      // The public API of the scheduler, which the newscast templates call with the Authorization of the caller
+      expect(bindingOf(services, 'SCHEDULER_MANAGER')?.entrypoint).toBeUndefined();
     });
 
     it('keeps the audio in the bucket of its own', () => {

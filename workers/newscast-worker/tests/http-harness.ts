@@ -5,8 +5,9 @@ import { network, requestMatching } from '@audio-underview/worker-tools/tests/ne
 import { signJWT } from '@audio-underview/worker-tools';
 
 /**
- * What the route tests share: an in-memory PostgREST for `newscasts` and `newscast_shares` behind MSW
- * handlers, newscast and share rows shaped as migration 016 makes them, session JWTs, and the audio bucket.
+ * What the route tests share: an in-memory PostgREST for `newscasts`, `newscast_shares` and the tables the
+ * templates read (`newscast_schedulers`, `crawlers`, `crawler_permissions`) behind MSW handlers, newscast and
+ * share rows shaped as migration 016 makes them, session JWTs, and the audio bucket.
  */
 
 export const SUPABASE_ORIGIN = 'https://supabase.example.com';
@@ -64,6 +65,9 @@ const TABLE_DEFAULTS: Record<string, () => Row> = {
   }),
   newscast_shares: () => ({ included_metadata: {} }),
 };
+
+// The tables whose rows get an `id` from the database when they are inserted
+const TABLES_WITH_GENERATED_ID = new Set(['newscasts', 'crawler_permissions']);
 
 // The PRIMARY KEY and UNIQUE columns of migration 016 that the tests write
 const UNIQUE_COLUMNS: Record<string, string[]> = {
@@ -205,11 +209,19 @@ export function useInMemorySupabase(): InMemorySupabase {
 
     if (method === 'POST') {
       const row: Row = {
-        ...(tableName === 'newscasts' ? { id: crypto.randomUUID() } : {}),
+        ...(TABLES_WITH_GENERATED_ID.has(tableName) ? { id: crypto.randomUUID() } : {}),
         ...TABLE_DEFAULTS[tableName]?.(),
         created_at: new Date().toISOString(),
         ...(body as Row),
       };
+      // An upsert names the columns that decide whether the row is taken; it ignores the new row or merges it
+      const conflictColumns = url.searchParams.get('on_conflict')?.split(',');
+      const taken = conflictColumns === undefined ? undefined : rows.find((existing) => conflictColumns.every((column) => existing[column] === row[column]));
+      if (taken !== undefined) {
+        if (!(headers.get('prefer') ?? '').includes('resolution=merge-duplicates')) return { statusCode: 201, data: [] };
+        Object.assign(taken, body);
+        return { statusCode: 201, data: single ? projectRow(taken, select) : [projectRow(taken, select)] };
+      }
       for (const column of UNIQUE_COLUMNS[tableName] ?? []) {
         if (rows.some((existing) => existing[column] === row[column])) return uniqueViolation(tableName, column);
       }

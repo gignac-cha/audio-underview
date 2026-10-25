@@ -13,6 +13,8 @@
  *   PUT    /newscasts/:id/share        -> 200 { token } (409 unless the newscast is done)
  *   GET    /newscasts/:id/share        -> 200 { shared, token?, metadata? }
  *   DELETE /newscasts/:id/share        -> 200 { removed } (idempotent revoke)
+ *   POST   /newscasts/schedulers { source } -> 200 { scheduler_id, form_stage_id, newscast_stage_id, source },
+ *                                         the scheduler of a newscast template (see `templates.ts`)
  *
  * plus PUBLIC SHARE PERMALINKS, the only unauthenticated routes in the worker:
  *
@@ -66,6 +68,7 @@ import {
   newscastExistsForUser,
   setNewscastTitleForUser,
 } from './storage.ts';
+import { handleCreateNewscastScheduler } from './templates.ts';
 
 const logger = createWorkerLogger({
   defaultContext: { module: 'newscast-worker-http' },
@@ -78,6 +81,7 @@ const NEWSCAST_LIST_LIMIT = 20;
 const MAX_TITLE_OVERRIDE_LENGTH = 200;
 
 const NEWSCASTS_PATHNAME = '/newscasts';
+const NEWSCAST_SCHEDULERS_PATHNAME = '/newscasts/schedulers';
 const NEWSCAST_PATTERN = /^\/newscasts\/([^/]+)$/;
 const NEWSCAST_TITLE_PATTERN = /^\/newscasts\/([^/]+)\/title$/;
 const NEWSCAST_MEDIA_TOKEN_PATTERN = /^\/newscasts\/([^/]+)\/media-token$/;
@@ -677,6 +681,27 @@ async function routeNewscasts(
       return methodNotAllowed(context, 'GET');
     }
     return handleListNewscasts(client, userUUID, context);
+  }
+
+  // POST /newscasts/schedulers — ahead of the `:id` routes, which would read "schedulers" as an id
+  if (pathname === NEWSCAST_SCHEDULERS_PATHNAME) {
+    if (request.method !== 'POST') {
+      return methodNotAllowed(context, 'POST');
+    }
+    // A session always has the header (only the audio route reads a token from the query), which the
+    // scheduler gets again unchanged
+    const authorization = request.headers.get('Authorization');
+    if (authorization === null) {
+      return unauthorizedResponse(context);
+    }
+    return handleCreateNewscastScheduler(
+      await readJSONBody(request),
+      authorization,
+      client,
+      environment,
+      userUUID,
+      context,
+    );
   }
 
   // An `:id` that is not a UUID needs no check here: the storage reads answer it

@@ -108,6 +108,12 @@ export interface Environment {
   USER_VAULT: Fetcher;
   CRAWLER_MANAGER: CrawlerManagerService;
   SCHEDULER_TASK_GROUP_REPORTS: TaskGroupReportsService;
+  /**
+   * Service binding to the default entrypoint of `scheduler-manager-worker`, its public HTTP API. The
+   * newscast templates (`templates.ts`) make their schedulers through it with the `Authorization` of the
+   * caller, so the scheduler does the checks and the permissions of a scheduler the user made.
+   */
+  SCHEDULER_MANAGER: Fetcher;
   /** The audio of each newscast: `<newscastID>/part-<N>` and `<newscastID>/signal` */
   NEWSCAST_AUDIO: R2Bucket;
   /** TTS chunk PCM (`seg/...`) and step checkpoints (`chk/...`), both with a 7-day TTL */

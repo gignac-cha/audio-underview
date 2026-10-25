@@ -2,11 +2,11 @@ import { cloudflareTest } from '@cloudflare/vitest-plugin';
 import { defineConfig } from 'vitest/config';
 
 // The three workers this worker is bound to are stood in for by the scripts below. A test reaches each
-// through its binding (env.USER_VAULT, env.CRAWLER_MANAGER, env.SCHEDULER_TASK_GROUP_REPORTS from
-// cloudflare:test), and configures it and reads what it received with fetch() on that binding, to
-// a path under /__test__/ (the host of the URL is ignored). The stand-ins keep their state for as long as
-// the test run lives and hold no state per test, so a test uses IDs of its own (a user UUID, a stage run ID,
-// a URL) and test files running side by side do not see each other's answers.
+// through its binding (env.USER_VAULT, env.CRAWLER_MANAGER, env.SCHEDULER_TASK_GROUP_REPORTS and
+// env.SCHEDULER_MANAGER from cloudflare:test), and configures it and reads what it received with fetch() on
+// that binding, to a path under /__test__/ (the host of the URL is ignored). The stand-ins keep their state
+// for as long as the test run lives and hold no state per test, so a test uses IDs of its own (a user UUID,
+// a stage run ID, a URL) and test files running side by side do not see each other's answers.
 //
 // An answer can be a list instead: each request takes the next one, and the last one repeats.
 
@@ -124,8 +124,12 @@ export default class CrawlerManagerStandIn extends WorkerEntrypoint {
 }
 `;
 
-// Stands in for scheduler-manager-worker, with the TaskGroupReports entrypoint this worker reports to.
-// Each method records its call and answers { accepted: true }, unless the test sets another answer.
+// Stands in for scheduler-manager-worker, with two parts: the TaskGroupReports entrypoint this worker
+// reports to (binding SCHEDULER_TASK_GROUP_REPORTS), and the public HTTP API its default entrypoint serves
+// (binding SCHEDULER_MANAGER), which the newscast templates call.
+//
+// TaskGroupReports: each method records its call and answers { accepted: true }, unless the test sets another
+// answer.
 //
 // POST /__test__/configure { stageRunID, answers: { reportProgress?, complete?, fail? } } sets the answers
 //   for a stage run. <answer> is { accepted: false }, or { error: '<message>' }, which makes the call reject
@@ -134,6 +138,25 @@ export default class CrawlerManagerStandIn extends WorkerEntrypoint {
 // GET /__test__/calls?stageRunID=<stage run> answers the calls received for the stage run, oldest first, as
 //   [{ method: 'reportProgress', stageRunID, progress }],
 //   [{ method: 'complete', stageRunID, output }] and [{ method: 'fail', stageRunID, errorMessage }].
+//
+// HTTP API: schedulers and their stages live in memory for the user the Authorization header names (the sub
+// of the JWT, which is read and not verified; a request without a Bearer token gets 401). It answers
+//   POST /schedulers -> 201 the scheduler (400 without a name)    GET /schedulers/:id -> 200, or 404
+//   DELETE /schedulers/:id -> 200 { deleted: true }, or 404       GET /schedulers/:id/stages -> 200 { data }
+//   POST /schedulers/:id/stages -> 201 the stage, 404 for a scheduler of another user, 409 for a stage order taken
+// A scheduler is { id, user_uuid, name, cron_expression, is_enabled }, and a stage has the fields of the request
+// (stage_type 'crawler' when the request names none) plus id, scheduler_id and stage_order.
+//
+// POST /__test__/configure { userID, failures: { '<METHOD> <route>': <answer> } } makes requests of the user fail.
+//   <route> is the path with :id, as in 'POST /schedulers/:id/stages'. <answer> is { status, body? }, which is the
+//   answer instead of the normal one, { status: 'unreachable' }, which makes the request fail as a scheduler
+//   that is down does, or null, which lets the request through. A list gives each request the next answer, and
+//   the last one repeats, so [null, { status: 500 }] fails every request but the first.
+// GET /__test__/requests?userID=<user> answers the requests the user made, oldest first, as
+//   [{ method, route, schedulerID, authorization, body }]. authorization is the Authorization header as received.
+// GET /__test__/schedulers?userID=<user> answers the schedulers of the user with their stages, oldest first.
+// POST /__test__/forget { schedulerID } removes a scheduler and its stages, as if the user deleted it elsewhere.
+// POST /__test__/remove-stage { stageID } removes a stage from its scheduler.
 const SCHEDULER_MANAGER_SCRIPT = `
 import { WorkerEntrypoint } from 'cloudflare:workers';
 
@@ -181,9 +204,132 @@ export class TaskGroupReports extends WorkerEntrypoint {
   }
 }
 
+const schedulers = new Map();
+const failuresByUser = new Map();
+const apiRequests = [];
+
+function subjectOf(request) {
+  const header = request.headers.get('authorization') ?? '';
+  if (!header.startsWith('Bearer ')) return undefined;
+  try {
+    const payload = header.slice('Bearer '.length).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(payload)).sub;
+  } catch {
+    return undefined;
+  }
+}
+
+function jsonAnswer(body, status) {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+}
+
+function notFound() {
+  return jsonAnswer({ error: 'not_found', error_description: 'Scheduler not found' }, 404);
+}
+
+function routeOf(method, pathname) {
+  let match;
+  if (pathname === '/schedulers') return { route: method + ' /schedulers' };
+  if ((match = /^\\/schedulers\\/([^/]+)$/.exec(pathname)) !== null) return { route: method + ' /schedulers/:id', schedulerID: match[1] };
+  if ((match = /^\\/schedulers\\/([^/]+)\\/stages$/.exec(pathname)) !== null) return { route: method + ' /schedulers/:id/stages', schedulerID: match[1] };
+  return { route: method + ' ' + pathname };
+}
+
+function withoutStages(scheduler) {
+  const { stages, ...fields } = scheduler;
+  return fields;
+}
+
+async function serveTestRoute(request, url) {
+  if (url.pathname === '/__test__/configure') {
+    const { userID, failures } = await request.json();
+    failuresByUser.set(userID, failures);
+    return Response.json({ configured: true });
+  }
+  if (url.pathname === '/__test__/requests') {
+    const userID = url.searchParams.get('userID');
+    return Response.json(apiRequests.filter((entry) => entry.user === userID).map(({ user, ...entry }) => entry));
+  }
+  if (url.pathname === '/__test__/schedulers') {
+    const userID = url.searchParams.get('userID');
+    return Response.json([...schedulers.values()].filter((scheduler) => scheduler.user_uuid === userID));
+  }
+  if (url.pathname === '/__test__/forget') {
+    const { schedulerID } = await request.json();
+    return Response.json({ forgotten: schedulers.delete(schedulerID) });
+  }
+  if (url.pathname === '/__test__/remove-stage') {
+    const { stageID } = await request.json();
+    for (const scheduler of schedulers.values()) {
+      scheduler.stages = scheduler.stages.filter((stage) => stage.id !== stageID);
+    }
+    return Response.json({ removed: true });
+  }
+  return Response.json({ error: 'not_found' }, { status: 404 });
+}
+
+async function serveApi(request, url) {
+  const user = subjectOf(request);
+  const { route, schedulerID } = routeOf(request.method, url.pathname);
+  let body = null;
+  if (request.method === 'POST') {
+    try {
+      body = await request.json();
+    } catch {}
+  }
+  apiRequests.push({ user, method: request.method, route, schedulerID, authorization: request.headers.get('authorization'), body });
+  if (user === undefined) return jsonAnswer({ error: 'unauthorized', error_description: 'Valid authentication is required' }, 401);
+
+  const failure = takeAnswer((failuresByUser.get(user) ?? {})[route]);
+  if (failure !== undefined && failure !== null) {
+    if (failure.status === 'unreachable') throw new Error('scheduler is down');
+    return jsonAnswer(failure.body ?? { error: 'failed' }, failure.status);
+  }
+
+  if (route === 'POST /schedulers') {
+    if (body === null || typeof body.name !== 'string' || body.name.trim() === '') {
+      return jsonAnswer({ error: 'invalid_request', error_description: "Field 'name' is required and must be a non-empty string" }, 400);
+    }
+    const scheduler = {
+      id: crypto.randomUUID(),
+      user_uuid: user,
+      name: body.name,
+      cron_expression: body.cron_expression ?? null,
+      is_enabled: body.is_enabled ?? true,
+      stages: [],
+    };
+    schedulers.set(scheduler.id, scheduler);
+    return jsonAnswer(withoutStages(scheduler), 201);
+  }
+
+  const scheduler = schedulers.get(schedulerID);
+  if (scheduler === undefined || scheduler.user_uuid !== user) return notFound();
+  if (route === 'GET /schedulers/:id') return jsonAnswer(withoutStages(scheduler), 200);
+  if (route === 'DELETE /schedulers/:id') {
+    schedulers.delete(schedulerID);
+    return jsonAnswer({ deleted: true }, 200);
+  }
+  if (route === 'GET /schedulers/:id/stages') {
+    return jsonAnswer({ data: [...scheduler.stages].sort((left, right) => left.stage_order - right.stage_order) }, 200);
+  }
+  if (route === 'POST /schedulers/:id/stages') {
+    if (body === null || !Number.isInteger(body.stage_order) || body.stage_order < 0) {
+      return jsonAnswer({ error: 'invalid_request', error_description: "Field 'stage_order' is required and must be a non-negative integer" }, 400);
+    }
+    if (scheduler.stages.some((stage) => stage.stage_order === body.stage_order)) {
+      return jsonAnswer({ error: 'conflict', error_description: 'A stage with this order already exists' }, 409);
+    }
+    const stage = { stage_type: 'crawler', ...body, id: crypto.randomUUID(), scheduler_id: schedulerID };
+    scheduler.stages.push(stage);
+    return jsonAnswer(stage, 201);
+  }
+  return jsonAnswer({ error: 'not_found', error_description: 'Endpoint not found' }, 404);
+}
+
 export default {
-  async fetch() {
-    return Response.json({ error: 'not_found' }, { status: 404 });
+  async fetch(request) {
+    const url = new URL(request.url);
+    return url.pathname.startsWith('/__test__/') ? serveTestRoute(request, url) : serveApi(request, url);
   },
 };
 `;

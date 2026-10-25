@@ -28,6 +28,12 @@ binding = "SCHEDULER_TASK_GROUP_REPORTS"
 service = "audio-underview-scheduler-manager-worker"
 entrypoint = "TaskGroupReports"
 
+# The public API of the scheduler (default entrypoint). The newscast templates make their schedulers
+# through it, with the Authorization header of the caller, so the scheduler checks and permits them
+[[services]]
+binding = "SCHEDULER_MANAGER"
+service = "audio-underview-scheduler-manager-worker"
+
 # The audio of each newscast: <newscast ID>/part-<N> and <newscast ID>/signal
 [[r2_buckets]]
 binding = "NEWSCAST_AUDIO"
@@ -81,6 +87,10 @@ binding = "SCHEDULER_TASK_GROUP_REPORTS"
 service = "audio-underview-scheduler-manager-staging-worker"
 entrypoint = "TaskGroupReports"
 
+[[env.staging.services]]
+binding = "SCHEDULER_MANAGER"
+service = "audio-underview-scheduler-manager-staging-worker"
+
 [[env.staging.r2_buckets]]
 binding = "NEWSCAST_AUDIO"
 bucket_name = "audio-underview-newscast-audio-staging"
@@ -116,6 +126,10 @@ binding = "SCHEDULER_TASK_GROUP_REPORTS"
 service = "audio-underview-scheduler-manager-development-worker"
 entrypoint = "TaskGroupReports"
 
+[[env.development.services]]
+binding = "SCHEDULER_MANAGER"
+service = "audio-underview-scheduler-manager-development-worker"
+
 [[env.development.r2_buckets]]
 binding = "NEWSCAST_AUDIO"
 bucket_name = "audio-underview-newscast-audio-development"
@@ -150,6 +164,10 @@ service = "audio-underview-crawler-manager-docker-worker"
 binding = "SCHEDULER_TASK_GROUP_REPORTS"
 service = "audio-underview-scheduler-manager-docker-worker"
 entrypoint = "TaskGroupReports"
+
+[[env.docker.services]]
+binding = "SCHEDULER_MANAGER"
+service = "audio-underview-scheduler-manager-docker-worker"
 
 [[env.docker.r2_buckets]]
 binding = "NEWSCAST_AUDIO"

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
+import { signJWT } from '@audio-underview/worker-tools';
 
 // The stand-in workers of vitest.config.ts, used the way their comments describe
 
@@ -17,7 +18,9 @@ const bindings = env as unknown as {
   USER_VAULT: Fetcher;
   CRAWLER_MANAGER: CrawlerManagerBinding;
   SCHEDULER_TASK_GROUP_REPORTS: TaskGroupReportsBinding;
+  SCHEDULER_MANAGER: Fetcher;
   VAULT_INTERNAL_TOKEN: string;
+  JWT_SECRET: string;
 };
 
 async function post(binding: Fetcher, path: string, body: unknown): Promise<Response> {
@@ -159,5 +162,106 @@ describe('scheduler manager stand-in', () => {
     await expect(reports.complete(stageRunID, {})).resolves.toEqual({ accepted: false });
     await expect(() => reports.fail(stageRunID, 'message')).rejects.toThrow(TypeError);
     await expect(reports.complete(crypto.randomUUID(), {})).resolves.toEqual({ accepted: true });
+  });
+});
+
+describe('scheduler manager API stand-in', () => {
+  const api = bindings.SCHEDULER_MANAGER;
+
+  async function authorizationOf(userUUID: string): Promise<string> {
+    const now = Math.floor(Date.now() / 1000);
+    return `Bearer ${await signJWT({ sub: userUUID, iat: now, exp: now + 3600 }, bindings.JWT_SECRET)}`;
+  }
+
+  async function call(authorization: string | undefined, method: string, path: string, body?: unknown): Promise<Response> {
+    return api.fetch(`https://scheduler-manager.internal${path}`, {
+      method,
+      headers: authorization === undefined ? {} : { Authorization: authorization },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  }
+
+  it('makes a scheduler and its stages for the user of the token, and lists the stages in order', async () => {
+    const authorization = await authorizationOf(crypto.randomUUID());
+
+    const created = await call(authorization, 'POST', '/schedulers', { name: 'Newscast', is_enabled: false });
+    expect(created.status).toBe(201);
+    const scheduler = (await created.json()) as { id: string; name: string; is_enabled: boolean; cron_expression: null };
+    expect(scheduler).toMatchObject({ name: 'Newscast', is_enabled: false, cron_expression: null });
+    expect((await call(authorization, 'GET', `/schedulers/${scheduler.id}`)).status).toBe(200);
+
+    expect((await call(authorization, 'POST', `/schedulers/${scheduler.id}/stages`, { stage_type: 'form', stage_order: 1, settings: { form: {} } })).status).toBe(201);
+    expect((await call(authorization, 'POST', `/schedulers/${scheduler.id}/stages`, { crawler_id: crypto.randomUUID(), stage_order: 0 })).status).toBe(201);
+    expect((await call(authorization, 'POST', `/schedulers/${scheduler.id}/stages`, { stage_order: 1 })).status).toBe(409);
+
+    const stages = (await (await call(authorization, 'GET', `/schedulers/${scheduler.id}/stages`)).json()) as { data: Array<{ stage_type: string; stage_order: number }> };
+    expect(stages.data.map((stage) => [stage.stage_order, stage.stage_type])).toEqual([[0, 'crawler'], [1, 'form']]);
+  });
+
+  it('answers 401 without a Bearer token, and 404 for a scheduler of another user', async () => {
+    const owner = await authorizationOf(crypto.randomUUID());
+    const created = (await (await call(owner, 'POST', '/schedulers', { name: 'Newscast' })).json()) as { id: string };
+
+    expect((await call(undefined, 'GET', `/schedulers/${created.id}`)).status).toBe(401);
+    expect((await call(await authorizationOf(crypto.randomUUID()), 'GET', `/schedulers/${created.id}`)).status).toBe(404);
+    expect((await call(await authorizationOf(crypto.randomUUID()), 'DELETE', `/schedulers/${created.id}`)).status).toBe(404);
+    expect((await call(owner, 'DELETE', `/schedulers/${created.id}`)).status).toBe(200);
+    expect((await call(owner, 'GET', `/schedulers/${created.id}`)).status).toBe(404);
+  });
+
+  it('records the requests of a user with the Authorization header as it came', async () => {
+    const user = crypto.randomUUID();
+    const authorization = await authorizationOf(user);
+    await call(authorization, 'POST', '/schedulers', { name: 'Newscast' });
+    await call(authorization, 'GET', `/schedulers/${crypto.randomUUID()}`);
+
+    const requests = (await (await api.fetch(`https://stand-in.example.com/__test__/requests?userID=${user}`)).json()) as Array<{
+      method: string;
+      route: string;
+      authorization: string;
+      body: unknown;
+    }>;
+    expect(requests.map((request) => [request.method, request.route])).toEqual([
+      ['POST', 'POST /schedulers'],
+      ['GET', 'GET /schedulers/:id'],
+    ]);
+    expect(requests.every((request) => request.authorization === authorization)).toBe(true);
+    expect(requests[0].body).toEqual({ name: 'Newscast' });
+  });
+
+  it('fails the requests the test configures, by list in order, and lets the others through', async () => {
+    const user = crypto.randomUUID();
+    const authorization = await authorizationOf(user);
+    await post(api, '/__test__/configure', {
+      userID: user,
+      failures: {
+        'POST /schedulers': [{ status: 500, body: { error: 'server_error' } }, null],
+        'GET /schedulers/:id/stages': { status: 'unreachable' },
+      },
+    });
+
+    const first = await call(authorization, 'POST', '/schedulers', { name: 'Newscast' });
+    expect([first.status, await first.json()]).toEqual([500, { error: 'server_error' }]);
+    const second = await call(authorization, 'POST', '/schedulers', { name: 'Newscast' });
+    expect(second.status).toBe(201);
+    const scheduler = (await second.json()) as { id: string };
+    await expect(call(authorization, 'GET', `/schedulers/${scheduler.id}/stages`)).rejects.toThrow();
+    expect((await call(authorization, 'GET', `/schedulers/${scheduler.id}`)).status).toBe(200);
+  });
+
+  it('forgets a scheduler and removes a stage without a request of the user', async () => {
+    const user = crypto.randomUUID();
+    const authorization = await authorizationOf(user);
+    const scheduler = (await (await call(authorization, 'POST', '/schedulers', { name: 'Newscast' })).json()) as { id: string };
+    const stage = (await (await call(authorization, 'POST', `/schedulers/${scheduler.id}/stages`, { stage_type: 'form', stage_order: 0 })).json()) as { id: string };
+
+    await post(api, '/__test__/remove-stage', { stageID: stage.id });
+    const stages = (await (await call(authorization, 'GET', `/schedulers/${scheduler.id}/stages`)).json()) as { data: unknown[] };
+    expect(stages.data).toEqual([]);
+
+    await post(api, '/__test__/forget', { schedulerID: scheduler.id });
+    expect((await call(authorization, 'GET', `/schedulers/${scheduler.id}`)).status).toBe(404);
+    const schedulers = await (await api.fetch(`https://stand-in.example.com/__test__/schedulers?userID=${user}`)).json();
+    expect(schedulers).toEqual([]);
   });
 });
