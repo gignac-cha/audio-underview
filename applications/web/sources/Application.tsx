@@ -8,6 +8,7 @@ import { CrawlerEditorPage } from './pages/CrawlerEditorPage.tsx';
 import { SchedulersPage } from './pages/SchedulersPage.tsx';
 import { SchedulerDetailPage } from './pages/SchedulerDetailPage.tsx';
 import { SettingsPage } from './pages/SettingsPage.tsx';
+import { NewscastPage } from './pages/NewscastPage.tsx';
 import { AuthenticationCallbackPage } from './pages/AuthenticationCallbackPage.tsx';
 import { ProtectedRoute } from './components/ProtectedRoute.tsx';
 import { AVAILABLE_PROVIDERS } from './constants/provider-statuses.ts';
@@ -73,6 +74,14 @@ function ApplicationRoutes() {
         element={
           <ProtectedRoute>
             <SchedulerDetailPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/newscasts"
+        element={
+          <ProtectedRoute>
+            <NewscastPage />
           </ProtectedRoute>
         }
       />

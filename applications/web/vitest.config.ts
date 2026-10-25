@@ -35,6 +35,7 @@ export default defineConfig({
       '@fortawesome/react-fontawesome',
       '@fortawesome/free-solid-svg-icons',
       '@tanstack/react-query',
+      'd3',
     ],
   },
   define: {
