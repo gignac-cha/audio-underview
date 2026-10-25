@@ -43,7 +43,7 @@ bucket_name = "audio-underview-newscast-audio"
 # The id is filled in when the namespace is created.
 [[kv_namespaces]]
 binding = "NEWSCAST_STATE"
-id = "REPLACE_WITH_NEWSCAST_STATE_PRODUCTION_NAMESPACE_ID"
+id = "d39b668ad59d486fb33379070e4d8866"
 
 # One instance makes one newscast
 [[workflows]]
@@ -97,7 +97,7 @@ bucket_name = "audio-underview-newscast-audio-staging"
 
 [[env.staging.kv_namespaces]]
 binding = "NEWSCAST_STATE"
-id = "REPLACE_WITH_NEWSCAST_STATE_STAGING_NAMESPACE_ID"
+id = "989226f9e7ce4cdf85a876b8a6cf5534"
 
 [[env.staging.workflows]]
 name = "audio-underview-newscast-staging-workflow"
@@ -136,7 +136,7 @@ bucket_name = "audio-underview-newscast-audio-development"
 
 [[env.development.kv_namespaces]]
 binding = "NEWSCAST_STATE"
-id = "REPLACE_WITH_NEWSCAST_STATE_DEVELOPMENT_NAMESPACE_ID"
+id = "af2881373e614451b7b309aca774af03"
 
 [[env.development.workflows]]
 name = "audio-underview-newscast-development-workflow"
