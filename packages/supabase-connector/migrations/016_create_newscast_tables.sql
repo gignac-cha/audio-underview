@@ -1,9 +1,10 @@
 -- Migration: Newscast tables and the newscast task group
 -- The newscast worker makes one newscast for each source article of a task group
 -- stage run. This adds the newscasts and the share links of the finished ones,
--- and registers the task group the scheduler runs to make them. The audio is in
--- an R2 bucket of the environment (<newscast id>/part-<N> and <newscast id>/signal),
--- so a copy of these rows to another environment would point at audio it does not have.
+-- the schedulers it made from its templates, and registers the task group the
+-- scheduler runs to make them. The audio is in an R2 bucket of the environment
+-- (<newscast id>/part-<N> and <newscast id>/signal), so a copy of the newscast
+-- rows to another environment would point at audio it does not have.
 
 -- One row per newscast. A stage run makes one for each of its sources, numbered by
 -- source_index, and the pair is unique so a retried start does not make a second.
@@ -57,14 +58,30 @@ COMMENT ON TABLE newscast_shares IS 'Share links of newscasts, one per newscast'
 COMMENT ON COLUMN newscast_shares.token IS 'Secret in the share link';
 COMMENT ON COLUMN newscast_shares.included_metadata IS 'What the owner chose to show on the shared page, next to the newscast';
 
+-- The scheduler the newscast worker made for a user from the template of a source
+-- (geeknews, url or text). The worker makes one for each user and source and uses
+-- it again; the row goes with the scheduler when the user deletes it.
+CREATE TABLE newscast_schedulers (
+  user_uuid UUID NOT NULL REFERENCES users(uuid) ON DELETE CASCADE,
+  source TEXT NOT NULL CHECK (source IN ('geeknews', 'url', 'text')),
+  scheduler_id UUID NOT NULL REFERENCES schedulers(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_uuid, source)
+);
+
+COMMENT ON TABLE newscast_schedulers IS 'Schedulers made from the newscast templates, one per user and source';
+COMMENT ON COLUMN newscast_schedulers.source IS 'Where the articles of the template come from: geeknews, url or text';
+
 -- Only the newscast worker (service role) uses these tables.
 ALTER TABLE newscasts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE newscast_shares ENABLE ROW LEVEL SECURITY;
+ALTER TABLE newscast_schedulers ENABLE ROW LEVEL SECURITY;
 
 -- Supabase gives tables created from here on no privileges, so the worker's role
 -- gets them here, one GRANT for each table.
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE newscasts TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE newscast_shares TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE newscast_schedulers TO service_role;
 
 -- The public anon and authenticated keys must never reach these rows, whatever
 -- the default privileges of the schema gave them. The roles exist on Supabase
@@ -72,7 +89,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE newscast_shares TO service_role;
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
-    REVOKE ALL ON TABLE newscasts, newscast_shares FROM anon, authenticated;
+    REVOKE ALL ON TABLE newscasts, newscast_shares, newscast_schedulers FROM anon, authenticated;
   END IF;
 END;
 $$;
