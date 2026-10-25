@@ -209,7 +209,7 @@ export async function listSchedulerStageRunsByRun(
   );
 }
 
-// Every column except input, output and logs, which can be large
+// Every column except input, output, form and logs, which can be large
 const STAGE_RUN_SUMMARY_COLUMNS = [
   'id',
   'run_id',
@@ -230,7 +230,7 @@ const STAGE_RUN_SUMMARY_COLUMNS = [
 ].join(',');
 
 /**
- * Lists the stage runs of a run without their input, output and logs, by stage order.
+ * Lists the stage runs of a run without their input, output, form and logs, by stage order.
  */
 export async function listSchedulerStageRunSummaries(
   client: SupabaseClientType,
@@ -297,7 +297,7 @@ export async function setSchedulerStageRunProgress(
 }
 
 /**
- * Closes the stage runs of a run that are still pending or running as failed.
+ * Closes the stage runs of a run that are still pending, running or waiting for an answer as failed.
  * No stage run to close is not an error.
  *
  * @param failedAt - ISO timestamp stored as completed_at
@@ -319,7 +319,7 @@ export async function failActiveSchedulerStageRuns(
         .from('scheduler_stage_runs')
         .update({ status: 'failed', completed_at: failedAt, error: failureMessage })
         .eq('run_id', runID)
-        .in('status', ['pending', 'running'])
+        .in('status', ['pending', 'running', 'waiting'])
         .select('id');
 
       if (error) {
