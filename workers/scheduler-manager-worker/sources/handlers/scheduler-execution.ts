@@ -74,7 +74,7 @@ export async function handleExecuteScheduler(
     throw error;
   }
 
-  // A failed read counts as no task group stage: the request then runs as before, and
+  // A failed read counts as no task group or form stage: the request then runs as before, and
   // executeScheduler reads the stages again and records its own failure
   let stages: SchedulerStageRow[] | undefined;
   try {
@@ -86,8 +86,9 @@ export async function handleExecuteScheduler(
     });
   }
 
-  // A task group stage can take tens of minutes, so a Workflow instance runs the whole run
-  if (stages !== undefined && stages.some((stage) => stage.stage_type === 'task_group')) {
+  // A task group stage can take tens of minutes and a form stage waits for the owner's answer,
+  // so a Workflow instance runs the whole run
+  if (stages !== undefined && stages.some((stage) => stage.stage_type === 'task_group' || stage.stage_type === 'form')) {
     try {
       await environment.SCHEDULER_RUN_WORKFLOW.create({
         id: manualRunInstanceID(run.id),

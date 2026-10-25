@@ -14,7 +14,7 @@ export type SchedulerRunParameters =
   }
   | {
     schedulerID: string;
-    /** The pending run a manual execution created for a scheduler with a task group stage */
+    /** The pending run a manual execution created for a scheduler with a task group or form stage */
     runID: string;
   };
 
@@ -26,7 +26,7 @@ const logger = createWorkerLogger({
 
 /**
  * Runs one scheduled occurrence of a scheduler, or a manual run of a scheduler with a task group
- * stage. The logic lives in runScheduledPipeline.
+ * or form stage. The logic lives in runScheduledPipeline.
  */
 export class SchedulerRunWorkflow extends WorkflowEntrypoint<Environment, SchedulerRunParameters> {
   async run(event: WorkflowEvent<SchedulerRunParameters>, step: WorkflowStep): Promise<ScheduledPipelineResult> {

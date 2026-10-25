@@ -28,6 +28,10 @@ import {
   handleGetRun,
   handleGetStageRun,
 } from './handlers/scheduler-runs.ts';
+import {
+  handleAnswerFormStageRun,
+  handleCancelFormStageRun,
+} from './handlers/form-stage-runs.ts';
 import { handleExecuteScheduler } from './handlers/scheduler-execution.ts';
 import { handleListTaskGroups } from './handlers/task-groups.ts';
 import { UUID_PATTERN } from './handlers/tools.ts';
@@ -73,6 +77,8 @@ const HELP = {
     { method: 'GET', path: '/schedulers/:id/runs', description: 'List runs for a scheduler' },
     { method: 'GET', path: '/schedulers/:id/runs/:runID', description: 'Get a run by ID' },
     { method: 'GET', path: '/schedulers/:id/runs/:runID/stage-runs/:stageRunID', description: 'Get a stage run with its input, output and logs' },
+    { method: 'POST', path: '/schedulers/:id/runs/:runID/stage-runs/:stageRunID/answer', description: 'Answer a form stage run that waits for an answer' },
+    { method: 'POST', path: '/schedulers/:id/runs/:runID/stage-runs/:stageRunID/cancel', description: 'Cancel a form stage run that waits for an answer, which fails its run' },
     { method: 'POST', path: '/schedulers/:id/execute', description: 'Execute a scheduler pipeline' },
     { method: 'GET', path: '/task-groups', description: 'List registered task groups and their formats' },
   ],
@@ -88,6 +94,8 @@ interface ParsedRoute {
     | 'runs_collection'
     | 'run_single'
     | 'stage_run_single'
+    | 'stage_run_answer'
+    | 'stage_run_cancel'
     | 'task_groups_collection'
     | null;
   schedulerID?: string;
@@ -154,6 +162,14 @@ function parseRoute(pathname: string): ParsedRoute {
     const [, schedulerID, runID, stageRunID] = stageRunMatch;
     if (!UUID_PATTERN.test(schedulerID) || !UUID_PATTERN.test(runID) || !UUID_PATTERN.test(stageRunID)) return { type: null };
     return { type: 'stage_run_single', schedulerID, runID, stageRunID };
+  }
+
+  // /schedulers/:id/runs/:runID/stage-runs/:stageRunID/answer and /cancel
+  const stageRunActionMatch = pathname.match(/^\/schedulers\/([0-9a-f-]+)\/runs\/([0-9a-f-]+)\/stage-runs\/([0-9a-f-]+)\/(answer|cancel)$/i);
+  if (stageRunActionMatch) {
+    const [, schedulerID, runID, stageRunID, action] = stageRunActionMatch;
+    if (!UUID_PATTERN.test(schedulerID) || !UUID_PATTERN.test(runID) || !UUID_PATTERN.test(stageRunID)) return { type: null };
+    return { type: action.toLowerCase() === 'answer' ? 'stage_run_answer' : 'stage_run_cancel', schedulerID, runID, stageRunID };
   }
 
   // /schedulers/:id/runs/:runID
@@ -347,6 +363,24 @@ export default {
             }
             const response = errorResponse('method_not_allowed', 'Method not allowed', 405, context);
             response.headers.set('Allow', 'GET');
+            return response;
+          }
+
+          case 'stage_run_answer': {
+            if (request.method === 'POST') {
+              return await handleAnswerFormStageRun(request, environment, context, route.schedulerID!, route.runID!, route.stageRunID!, userUUID);
+            }
+            const response = errorResponse('method_not_allowed', 'Method not allowed', 405, context);
+            response.headers.set('Allow', 'POST');
+            return response;
+          }
+
+          case 'stage_run_cancel': {
+            if (request.method === 'POST') {
+              return await handleCancelFormStageRun(environment, context, route.schedulerID!, route.runID!, route.stageRunID!, userUUID);
+            }
+            const response = errorResponse('method_not_allowed', 'Method not allowed', 405, context);
+            response.headers.set('Allow', 'POST');
             return response;
           }
 

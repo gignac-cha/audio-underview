@@ -9,13 +9,14 @@ import type { ExecutorDependencies } from '../sources/scheduler-executor.ts';
 import { type Row, useInMemorySupabase } from './in-memory-supabase.ts';
 
 // The cases the protected executor test files cannot hold: what the direct execution does with
-// a task group stage, a stage without a crawler and a list of stages it is given.
+// a task group stage, a form stage, a stage without a crawler and a list of stages it is given.
 
 const SUPABASE_ORIGIN = 'https://supabase.example.com';
 const USER_UUID = '00000000-0000-0000-0000-000000000001';
 const SCHEDULER_ID = '00000000-0000-0000-0000-000000000010';
 const CRAWLER_STAGE_ID = '00000000-0000-0000-0000-000000000020';
 const TASK_GROUP_STAGE_ID = '00000000-0000-0000-0000-000000000021';
+const FORM_STAGE_ID = '00000000-0000-0000-0000-000000000022';
 const CRAWLER_ID = '00000000-0000-0000-0000-000000000030';
 const RUN_ID = '00000000-0000-0000-0000-000000000040';
 
@@ -48,6 +49,18 @@ function taskGroupStage(overrides: Partial<SchedulerStageRow> = {}): SchedulerSt
     task_group_id: 'newscast',
     task_group_version: 1,
     settings: { topic: 'tech' },
+    stage_order: 1,
+    input_schema: {},
+    ...overrides,
+  });
+}
+
+function formStage(overrides: Partial<SchedulerStageRow> = {}): SchedulerStageRow {
+  return crawlerStage({
+    id: FORM_STAGE_ID,
+    stage_type: 'form',
+    crawler_id: null,
+    settings: { form: { type: 'object', properties: { text: { type: 'string', 'x-widget': 'textarea' } } } },
     stage_order: 1,
     input_schema: {},
     ...overrides,
@@ -121,6 +134,18 @@ describe('executePipelineStage', () => {
     await expect(
       executePipelineStage(dependencies, RUN_ID, taskGroupStage(), {}),
     ).rejects.toThrow('Stage 1: a task group stage cannot run in a direct execution');
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(supabase.requests).toEqual([]);
+  });
+
+  it('throws for a form stage, which only a Workflow instance runs, and records nothing', async () => {
+    seed();
+    const { dependencies, execute } = createDependencies();
+
+    await expect(
+      executePipelineStage(dependencies, RUN_ID, formStage(), {}),
+    ).rejects.toThrow('Stage 1: a form stage cannot run in a direct execution');
 
     expect(execute).not.toHaveBeenCalled();
     expect(supabase.requests).toEqual([]);
@@ -218,6 +243,21 @@ describe('executeScheduler', () => {
       completed_at: expect.any(String),
     });
     // Only the crawler stage has a stage run
+    expect(supabase.tables.scheduler_stage_runs.map((stageRun) => stageRun.stage_id)).toEqual([CRAWLER_STAGE_ID]);
+  });
+
+  it('fails the run when a form stage is in the list it is given, after the stages before it ran', async () => {
+    seed();
+    const { dependencies, execute } = createDependencies();
+
+    await executeScheduler(dependencies, SCHEDULER_ID, USER_UUID, RUN_ID, undefined, [crawlerStage(), formStage()]);
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(run()).toMatchObject({
+      status: 'failed',
+      error: 'Stage 1: a form stage cannot run in a direct execution',
+      completed_at: expect.any(String),
+    });
     expect(supabase.tables.scheduler_stage_runs.map((stageRun) => stageRun.stage_id)).toEqual([CRAWLER_STAGE_ID]);
   });
 });

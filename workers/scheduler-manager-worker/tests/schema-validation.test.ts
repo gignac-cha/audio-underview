@@ -36,6 +36,13 @@ describe('validateAgainstSchema', () => {
     ['NaN with maximum and no type', { maximum: 10 }, Number.NaN],
     // The inherited function is not the field's value, so it is not validated
     ['an object that only inherits a field in properties', { type: 'object', properties: { toString: { type: 'string' } } }, {}],
+    // Keys that start with x- are passed over like annotations, whatever they hold
+    ['x- keys of any value', { type: 'string', 'x-widget': 'text', 'x-options': { from: '$' }, 'x-anything': [1, null] }, 'a'],
+    ['x- keys inside properties and items', { properties: { a: { 'x-widget': 'checkboxes', items: { 'x-note': 1 } } } }, { a: [] }],
+    ['an http URL for format uri', { type: 'string', format: 'uri' }, 'http://example.com/a?b=1'],
+    ['an https URL for format uri', { type: 'string', format: 'uri' }, 'https://news.hada.io/'],
+    // Like the other string keywords, format applies to strings only
+    ['a number for format uri without a type', { format: 'uri' }, 3],
   ])('passes %s', (_, schema, value) => {
     expect(validateAgainstSchema(schema, value)).toEqual({ valid: true });
   });
@@ -103,6 +110,18 @@ describe('validateAgainstSchema', () => {
       { items: [{ url: 'a' }, { url: 'b' }, { url: 3 }] },
       '$.items[2].url',
       'must be of type string',
+    ],
+    ['a string that is not a URL for format uri', { type: 'string', format: 'uri' }, 'news.hada.io', '$', 'must be an http or https URL'],
+    ['an empty string for format uri', { type: 'string', format: 'uri' }, '', '$', 'must be an http or https URL'],
+    ['an ftp URL for format uri', { type: 'string', format: 'uri' }, 'ftp://example.com/a', '$', 'must be an http or https URL'],
+    ['a javascript URL for format uri', { type: 'string', format: 'uri' }, 'javascript:alert(1)', '$', 'must be an http or https URL'],
+    ['maxLength before format uri', { type: 'string', format: 'uri', maxLength: 3 }, 'not a URL', '$', 'must be at most 3 characters long'],
+    [
+      'a field of format uri inside properties',
+      { type: 'object', properties: { url: { type: 'string', format: 'uri', 'x-widget': 'text' } } },
+      { url: 'mailto:a@example.com' },
+      '$.url',
+      'must be an http or https URL',
     ],
   ])('reports %s', (_, schema, value, path, message) => {
     expect(validateAgainstSchema(schema, value)).toEqual({ valid: false, path, message });
@@ -190,7 +209,12 @@ describe('validateAgainstSchema', () => {
     ['a non-string in required', { required: [1] }],
     ['an array for properties', { properties: [] }],
     ['an unknown keyword inside properties', { properties: { a: { pattern: 'x' } } }],
-    ['an unknown keyword inside items', { items: { format: 'uri' } }],
+    ['an unknown keyword inside items', { items: { pattern: 'x' } }],
+    ['a format other than uri', { type: 'string', format: 'date-time' }],
+    ['a format other than uri inside items', { items: { format: 'email' } }],
+    ['a format that is not a string', { format: 1 }],
+    ['a format in upper case', { format: 'URI' }],
+    ['a key that only looks like an extension key', { X_widget: 'text' }],
     ['null', null],
     ['a string', 'string'],
     ['an array', []],

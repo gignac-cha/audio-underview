@@ -298,7 +298,7 @@ describe('POST /schedulers/:id/stages with stage types', () => {
   });
 
   it.each([
-    ['stage_type is neither crawler nor task_group', { stage_type: 'other' }, "Field 'stage_type' must be 'crawler' or 'task_group'"],
+    ['stage_type is neither crawler, task_group nor form', { stage_type: 'other' }, "Field 'stage_type' must be 'crawler', 'task_group' or 'form'"],
     ['a crawler stage has task_group_id', { crawler_id: CRAWLER_ID, task_group_id: 'newscast' }, "Field 'task_group_id' is not allowed on a crawler stage"],
     ['a crawler stage has task_group_version', { stage_type: 'crawler', task_group_version: 1 }, "Field 'task_group_version' is not allowed on a crawler stage"],
     ['a crawler stage has settings, before crawler_id is checked', { settings: {} }, "Field 'settings' is not allowed on a crawler stage"],
@@ -402,7 +402,7 @@ describe('POST /schedulers/:id/stages with stage types', () => {
 
       const response = await send('POST', path, { ...everythingInvalid, stage_type: 'other', crawler_id: CRAWLER_ID });
 
-      await expectError(response, 400, 'invalid_request', "Field 'stage_type' must be 'crawler' or 'task_group'");
+      await expectError(response, 400, 'invalid_request', "Field 'stage_type' must be 'crawler', 'task_group' or 'form'");
       expectNothingLookedUp();
     });
 

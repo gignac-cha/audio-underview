@@ -1345,7 +1345,7 @@ describe('runScheduledPipeline with task group stages', () => {
     const closeRequests = requestsOf('PATCH', 'scheduler_stage_runs').filter((request) => request.step === 'finish-run');
     expect(closeRequests).toHaveLength(1);
     expect(closeRequests[0].query.get('run_id')).toBe(`eq.${database.scheduler_runs[0].id}`);
-    expect(closeRequests[0].query.get('status')).toBe('in.(pending,running)');
+    expect(closeRequests[0].query.get('status')).toBe('in.(pending,running,waiting)');
     expect(database.scheduler_stage_runs.find((stageRun) => stageRun.id === EXISTING_STAGE_RUN_ID)).toMatchObject({
       status: 'failed',
       error: 'Run ended before this stage finished',

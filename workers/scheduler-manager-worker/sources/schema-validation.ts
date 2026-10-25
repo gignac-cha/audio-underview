@@ -1,7 +1,8 @@
 /**
- * Validation of values against the JSON Schema subset task groups use for their formats.
- * Only the keywords below are understood; a schema with anything else is rejected as a whole,
- * so a format the scheduler cannot read never passes by accident.
+ * Validation of values against the JSON Schema subset task groups use for their formats, and form
+ * stages for their answers. Only the keywords below are understood; a schema with anything else is
+ * rejected as a whole, so a format the scheduler cannot read never passes by accident. Keys that start
+ * with x- are passed over like annotations: the form check reads the ones a form uses (form-definition.ts).
  */
 
 export type SchemaValidationResult =
@@ -28,6 +29,12 @@ const NON_NEGATIVE_INTEGER_KEYWORDS: ReadonlySet<string> = new Set(['minLength',
 
 const FINITE_NUMBER_KEYWORDS: ReadonlySet<string> = new Set(['minimum', 'maximum']);
 
+const EXTENSION_KEY_PREFIX = 'x-';
+
+// The only format understood: an http or https URL
+const URI_FORMAT = 'uri';
+const URL_PROTOCOLS: ReadonlySet<string> = new Set(['http:', 'https:']);
+
 // The top-level schema is depth 1; each properties or items schema is one deeper.
 const MAXIMUM_SCHEMA_DEPTH = 32;
 
@@ -35,6 +42,21 @@ const IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Whether a schema key is an extension key (x-...), which validation passes over.
+ */
+export function isExtensionKey(key: string): boolean {
+  return key.startsWith(EXTENSION_KEY_PREFIX);
+}
+
+function isHTTPURL(value: string): boolean {
+  try {
+    return URL_PROTOCOLS.has(new URL(value).protocol);
+  } catch {
+    return false;
+  }
 }
 
 function isNonNegativeInteger(value: unknown): boolean {
@@ -48,7 +70,10 @@ function isEnumValue(value: unknown): boolean {
     || (typeof value === 'number' && Number.isFinite(value));
 }
 
-function propertyPath(path: string, name: string): string {
+/**
+ * The path of a property below `path`, as validation results write it.
+ */
+export function propertyPath(path: string, name: string): string {
   return IDENTIFIER_PATTERN.test(name) ? `${path}.${name}` : `${path}[${JSON.stringify(name)}]`;
 }
 
@@ -67,7 +92,7 @@ function assertSupportedSchema(schema: unknown, location: string, depth: number)
   }
 
   for (const [keyword, value] of Object.entries(schema)) {
-    if (ANNOTATION_KEYWORDS.has(keyword)) continue;
+    if (ANNOTATION_KEYWORDS.has(keyword) || isExtensionKey(keyword)) continue;
 
     if (keyword === 'type') {
       const names = Array.isArray(value) ? value : [value];
@@ -105,6 +130,10 @@ function assertSupportedSchema(schema: unknown, location: string, depth: number)
     } else if (keyword === 'additionalProperties') {
       if (typeof value !== 'boolean') {
         throw new UnsupportedSchemaError(`Schema keyword 'additionalProperties' at ${location} must be a boolean`);
+      }
+    } else if (keyword === 'format') {
+      if (value !== URI_FORMAT) {
+        throw new UnsupportedSchemaError(`Schema keyword 'format' at ${location} has an unsupported value`);
       }
     } else {
       throw new UnsupportedSchemaError(`Schema keyword '${keyword}' at ${location} is not supported`);
@@ -171,6 +200,9 @@ function validateValue(schema: Schema, value: unknown, path: string): SchemaVali
     if (Object.hasOwn(schema, 'maxLength') && length > (schema.maxLength as number)) {
       return failure(path, `must be at most ${schema.maxLength} characters long`);
     }
+    if (schema.format === URI_FORMAT && !isHTTPURL(value)) {
+      return failure(path, 'must be an http or https URL');
+    }
   }
 
   // Infinity and NaN are not numbers here, as for the type number
@@ -225,6 +257,15 @@ function validateValue(schema: Schema, value: unknown, path: string): SchemaVali
   }
 
   return VALID;
+}
+
+/**
+ * Checks that a schema is inside the supported subset, without a value.
+ *
+ * @throws UnsupportedSchemaError
+ */
+export function assertSchemaSupported(schema: unknown): asserts schema is Record<string, unknown> {
+  assertSupportedSchema(schema, '$', 1);
 }
 
 /**
