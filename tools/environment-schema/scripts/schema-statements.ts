@@ -19,13 +19,18 @@ export interface ProductionMetadata {
  * (KEK) of the environment that wrote them, and staging has its own, so
  * production's provider keys and environment variables could not be read
  * there; their audit log describes those keys and stays behind with them. The
- * tables are still made and get production's privileges like any other.
+ * newscasts' audio is in the production R2 bucket, which staging's newscast
+ * worker does not read, so a copied newscast could not play there; its share
+ * links go with it. The tables are still made and get production's privileges
+ * like any other.
  */
 export const UNCOPIED_TABLES: ReadonlySet<string> = new Set([
   'crawler_file_deletions',
   'provider_keys',
   'key_audit_log',
   'environment_variables',
+  'newscasts',
+  'newscast_shares',
 ]);
 
 /** Where development records the migrations it has applied. */

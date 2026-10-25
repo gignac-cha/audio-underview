@@ -301,6 +301,60 @@ describe('planStaging and the user vault tables', () => {
   });
 });
 
+describe('planStaging and the newscast tables', () => {
+  const newscastTables = ['newscast_shares', 'newscasts'];
+
+  it('leaves out the tables the connector migrations create for the newscasts, whose audio is in the production bucket', () => {
+    const created = collectCreatedTables(readMigrationFiles(fileURLToPath(new URL('../../../packages/supabase-connector/migrations', import.meta.url))));
+    for (const table of newscastTables) {
+      expect(created, `${table} is created by a migration`).toContain(table);
+      expect(UNCOPIED_TABLES.has(table), `${table} is not copied`).toBe(true);
+    }
+  });
+
+  const newscastFile = file(
+    '016_create_newscast_tables.sql',
+    [
+      'CREATE TABLE newscasts (id UUID PRIMARY KEY, user_uuid UUID REFERENCES users(uuid));',
+      'CREATE TABLE newscast_shares (token TEXT PRIMARY KEY, newscast_id UUID REFERENCES newscasts(id));',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE newscasts TO service_role;',
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE newscast_shares TO service_role;',
+      '',
+    ].join('\n'),
+  );
+  const withNewscasts = [...files, newscastFile];
+  const namesWithNewscasts = ['create_users', 'create_crawlers', 'create_deletions', 'add_cleanup', 'create_newscast_tables'];
+  const productionWithNewscasts = {
+    tables: ['crawler_file_deletions', 'crawlers', 'newscast_shares', 'newscasts', 'users'],
+    foreignKeys: [
+      ...production.foreignKeys,
+      { table: 'newscasts', references: 'users' },
+      { table: 'newscast_shares', references: 'newscasts' },
+    ],
+  };
+
+  it('does not copy their rows, but makes the tables and fails the run if one is missing', () => {
+    const plan = planStaging(withNewscasts, namesWithNewscasts, productionWithNewscasts);
+    expect(plan.copiedTables).toEqual(['users', 'crawlers']);
+    expect(plan.skippedTables).toEqual([]);
+    expect(plan.uncopiedTables).toEqual(['crawler_file_deletions', ...newscastTables]);
+    expect(plan.sql).toContain('-- 016_create_newscast_tables.sql\nSET LOCAL search_path TO staging;\nCREATE TABLE newscasts');
+    for (const table of newscastTables) {
+      expect(plan.sql).not.toMatch(new RegExp(`\\b(?:INSERT\\s+INTO|FROM)\\s+(?:staging|public)\\.${table}\\b`));
+    }
+    const check = plan.sql.slice(indexOf(plan.sql, '-- Check that staging does not reach production'));
+    expect(check).toContain("unnest(ARRAY['users', 'crawlers', 'crawler_file_deletions', 'newscasts', 'newscast_shares']::TEXT[])");
+  });
+
+  it('creates them after the copy with only their own grants while production does not have them yet', () => {
+    const plan = planStaging(withNewscasts, ['create_users', 'create_crawlers', 'create_deletions', 'add_cleanup'], production);
+    expect(plan.copiedTables).toEqual(['users', 'crawlers']);
+    expect(plan.afterCopy).toEqual(['016_create_newscast_tables.sql']);
+    expect(indexOf(plan.sql, "-- Give staging production's privileges")).toBeLessThan(indexOf(plan.sql, '-- 016_create_newscast_tables.sql'));
+    expect(plan.sql).toContain('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE newscast_shares TO service_role;');
+  });
+});
+
 describe('planDevelopment', () => {
   it('applies only the files not recorded, records them and keeps the data', () => {
     const plan = planDevelopment(files, ['create_users', 'create_crawlers'], false);
