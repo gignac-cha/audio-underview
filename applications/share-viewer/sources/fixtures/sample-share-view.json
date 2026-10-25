@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "title": "이해가 새로운 병목이다",
+  "parts": [
+    {
+      "index": 1,
+      "durationMs": 12000,
+      "script": [
+        { "speaker": 1, "text": "안녕하세요 오늘의 소식입니다" },
+        { "speaker": 2, "text": "첫 소식부터 살펴보죠" },
+        { "speaker": 1, "text": "이해가 새로운 병목이라는 주장입니다" }
+      ],
+      "segments": [
+        {
+          "index": 0,
+          "startMs": 0,
+          "durationMs": 4000,
+          "words": [
+            { "text": "안녕하세요", "startMs": 0, "endMs": 1200 },
+            { "text": "오늘의", "startMs": 1200, "endMs": 2400 },
+            { "text": "소식입니다", "startMs": 2400, "endMs": 4000 }
+          ]
+        },
+        {
+          "index": 1,
+          "startMs": 4000,
+          "durationMs": 3500,
+          "words": [
+            { "text": "첫", "startMs": 4000, "endMs": 4600 },
+            { "text": "소식부터", "startMs": 4600, "endMs": 6200 },
+            { "text": "살펴보죠", "startMs": 6200, "endMs": 7500 }
+          ]
+        },
+        { "index": 2, "startMs": 7500, "durationMs": 4500 }
+      ]
+    },
+    {
+      "index": 2,
+      "durationMs": 9000,
+      "script": [
+        { "speaker": 2, "text": "두 번째 파트를 시작합니다" },
+        { "speaker": 1, "text": "여기까지 듣겠습니다" }
+      ],
+      "segments": [
+        {
+          "index": 0,
+          "startMs": 0,
+          "durationMs": 5000,
+          "words": [
+            { "text": "두", "startMs": 0, "endMs": 700 },
+            { "text": "번째", "startMs": 700, "endMs": 1900 },
+            { "text": "파트를", "startMs": 1900, "endMs": 3300 },
+            { "text": "시작합니다", "startMs": 3300, "endMs": 5000 }
+          ]
+        },
+        { "index": 1, "startMs": 5000, "durationMs": 4000 }
+      ]
+    }
+  ],
+  "hasSignalAudio": true,
+  "metadata": {
+    "sharedBy": { "displayName": "차진혁", "email": "sharer@example.com" },
+    "model": { "provider": "anthropic", "model": "claude-sonnet-5", "effort": "high" },
+    "sources": [
+      {
+        "title": "Understanding is the new bottleneck",
+        "originalUrl": "https://example.com/understanding",
+        "discussionUrl": "https://news.hada.io/topic?id=1"
+      }
+    ],
+    "createdAt": "2026-08-01T00:00:00.000Z"
+  }
+}

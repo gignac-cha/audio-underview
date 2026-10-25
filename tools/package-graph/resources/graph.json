@@ -46,12 +46,20 @@
   ],
   "nodes": [
     {
+      "name": "@audio-underview/share-viewer",
+      "label": "share-viewer",
+      "path": "applications/share-viewer",
+      "kind": "pages",
+      "category": "web",
+      "depth": 2
+    },
+    {
       "name": "@audio-underview/web",
       "label": "web",
       "path": "applications/web",
       "kind": "pages",
       "category": "web",
-      "depth": 2
+      "depth": 3
     },
     {
       "name": "@audio-underview/crawler-code-runner-function",
@@ -951,6 +959,11 @@
       "development": false
     },
     {
+      "source": "@audio-underview/share-viewer",
+      "target": "@audio-underview/newscast-core",
+      "development": false
+    },
+    {
       "source": "@audio-underview/supabase-connector",
       "target": "@audio-underview/axiom-logger",
       "development": false
@@ -1078,6 +1091,16 @@
     {
       "source": "@audio-underview/web",
       "target": "@audio-underview/logger",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/web",
+      "target": "@audio-underview/newscast-core",
+      "development": false
+    },
+    {
+      "source": "@audio-underview/web",
+      "target": "@audio-underview/newscast-script",
       "development": false
     },
     {
