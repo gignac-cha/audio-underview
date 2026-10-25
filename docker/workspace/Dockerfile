@@ -24,7 +24,7 @@ RUN pnpm fetch
 COPY . .
 RUN pnpm install --frozen-lockfile --offline
 
-# Five wrangler dev processes in one container (see docker/workers/start-workers.ts)
+# Six wrangler dev processes in one container (see docker/workers/start-workers.ts)
 FROM workspace AS workers
 ENV WRANGLER_SEND_METRICS=false \
     WRANGLER_SEND_ERROR_REPORTS=false

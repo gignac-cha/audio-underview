@@ -65,6 +65,7 @@ function defineDevelopmentFiles(): EnvironmentFileDefinition[] {
       secretVariable('CODE_RUNNER_FUNCTION_URL', REFERENCES.codeRunnerFunctionURL),
       vaultInternalToken,
     ]),
+    createWorkerFile('newscast-worker', [supabaseURL, supabaseSecretKey, jwtSecret, vaultInternalToken]),
     createWorkerFile('scheduler-manager-worker', [supabaseURL, supabaseSecretKey, jwtSecret]),
     createWorkerFile('user-vault-worker', [supabaseURL, supabaseSecretKey, providerKeyKEK, vaultInternalToken]),
     createWorkerFile('google-oauth-provider-worker', [
