@@ -166,8 +166,6 @@ export async function fetchJobStatus(jobID: string): Promise<JobStatus> {
 }
 
 interface NewscastListOptions {
-  /** True while a run that makes newscasts is in progress, before its newscasts are listed. */
-  isRunInProgress?: boolean;
   refreshIntervalMilliseconds?: number;
 }
 
@@ -176,7 +174,6 @@ interface NewscastListOptions {
  * progress strip stays live; pauses entirely once the list is settled.
  */
 export function useNewscastJobs(options: NewscastListOptions = {}) {
-  const isRunInProgress = options.isRunInProgress ?? false;
   const refreshIntervalMilliseconds = options.refreshIntervalMilliseconds ?? LIST_REFRESH_INTERVAL_MILLISECONDS;
 
   const query = useQuery<NewscastJobSummary[], Error>({
@@ -186,7 +183,7 @@ export function useNewscastJobs(options: NewscastListOptions = {}) {
     refetchInterval: (activeQuery) => {
       const jobs = activeQuery.state.data;
       const anyRunning = jobs !== undefined && jobs.some((job) => job.status === 'running');
-      return anyRunning || isRunInProgress ? refreshIntervalMilliseconds : false;
+      return anyRunning ? refreshIntervalMilliseconds : false;
     },
   });
 

@@ -6,8 +6,8 @@
  * Everything here is stored with the newscast, so what the user sees is exactly
  * what a later investigation would find.
  *
- * A failed newscast is not resumed or re-created from here: a new one is started
- * from the New newscast panel.
+ * A failed newscast is not resumed or re-created from here: a new one is made by
+ * running its schedule again in Schedulers.
  */
 
 import styled from '@emotion/styled';
@@ -225,7 +225,7 @@ export function NewscastErrorPanel({ status }: NewscastErrorPanelProps) {
           </BlockedKeyIcon>
           <BlockedKeyText>
             {blockedProvider !== undefined ? `The ${PROVIDER_LABELS[blockedProvider]} key` : 'A provider key'}
-            {' is missing or was rejected. Register the key in Settings, then start a new newscast.'}
+            {' is missing or was rejected. Register the key in Settings, then run the schedule again.'}
           </BlockedKeyText>
           <BlockedKeyButton type="button" onClick={() => navigate('/settings')}>
             Go to Settings

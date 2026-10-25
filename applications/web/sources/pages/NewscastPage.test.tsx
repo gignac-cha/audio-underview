@@ -12,8 +12,6 @@ import { clearMediaTokens } from '../hooks/use-newscast-jobs.ts';
 import { NewscastPage } from './NewscastPage.tsx';
 
 const NEWSCAST_URL = 'http://localhost:6666';
-const SCHEDULER_MANAGER_URL = 'http://localhost:7777';
-const CRAWLER_MANAGER_URL = 'http://localhost:8888';
 const USER = { id: 'u1', name: 'Test', email: 'test@example.com', provider: 'google' as const };
 
 vi.mock('@audio-underview/sign-provider', async (importOriginal) => {
@@ -89,6 +87,7 @@ async function renderPage() {
           <MemoryRouter initialEntries={['/newscasts']}>
             <Routes>
               <Route path="/newscasts" element={<NewscastPage />} />
+              <Route path="/schedulers" element={<div>Schedulers screen</div>} />
             </Routes>
           </MemoryRouter>
         </ToastProvider>
@@ -99,23 +98,7 @@ async function renderPage() {
 
 beforeEach(() => {
   vi.stubEnv('VITE_NEWSCAST_WORKER_URL', NEWSCAST_URL);
-  vi.stubEnv('VITE_SCHEDULER_MANAGER_WORKER_URL', SCHEDULER_MANAGER_URL);
-  try {
-    localStorage.removeItem('newscast-create-collapsed');
-  } catch {
-    // Nothing stored
-  }
   worker.use(
-    http.get(`${CRAWLER_MANAGER_URL}/provider-keys`, () =>
-      HttpResponse.json({
-        data: (['anthropic', 'openai', 'google', 'xai'] as const).map((provider) => ({
-          provider,
-          configured: provider === 'google',
-          last4: null,
-          validated_at: null,
-        })),
-      }),
-    ),
     http.get(`${NEWSCAST_URL}/newscasts`, () => HttpResponse.json({ data: [RUNNING_SUMMARY, DONE_SUMMARY] })),
     http.get(`${NEWSCAST_URL}/newscasts/job-done`, () => HttpResponse.json(DONE_STATUS)),
     http.post(`${NEWSCAST_URL}/newscasts/job-done/media-token`, () => HttpResponse.json({ token: 'media-token', expiresIn: 3600 })),
@@ -130,15 +113,23 @@ afterEach(async () => {
 });
 
 describe('NewscastPage', () => {
-  test('shows the navigation, the New newscast panel and the newscasts', async () => {
+  test('shows the navigation and the newscasts', async () => {
     await renderPage();
 
     await expect.element(page.getByRole('link', { name: 'Newscasts' })).toHaveAttribute('href', '/newscasts');
-    await expect.element(page.getByRole('button', { name: /New newscast/ })).toBeInTheDocument();
     await expect.element(page.getByText('A running newscast')).toBeInTheDocument();
     await expect.element(page.getByText('A finished newscast')).toBeInTheDocument();
-    // The list is not empty, so the panel starts folded away
-    await expect.element(page.getByRole('button', { name: /New newscast/ })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('points to Schedulers, where newscasts are made, when there are none', async () => {
+    worker.use(http.get(`${NEWSCAST_URL}/newscasts`, () => HttpResponse.json({ data: [] })));
+    await renderPage();
+
+    const emptyState = page.getByText('Newscasts are made by a schedule. Add a newscast stage to a schedule in Schedulers.');
+    await expect.element(emptyState).toBeInTheDocument();
+    await emptyState.getByRole('link', { name: 'Schedulers' }).click();
+
+    await expect.element(page.getByText('Schedulers screen')).toBeInTheDocument();
   });
 
   test('plays a selected newscast in the floating player with the media token of its part', async () => {

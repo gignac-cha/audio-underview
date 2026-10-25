@@ -59,7 +59,7 @@
       "path": "applications/web",
       "kind": "pages",
       "category": "web",
-      "depth": 3
+      "depth": 2
     },
     {
       "name": "@audio-underview/crawler-code-runner-function",
@@ -1096,11 +1096,6 @@
     {
       "source": "@audio-underview/web",
       "target": "@audio-underview/newscast-core",
-      "development": false
-    },
-    {
-      "source": "@audio-underview/web",
-      "target": "@audio-underview/newscast-script",
       "development": false
     },
     {

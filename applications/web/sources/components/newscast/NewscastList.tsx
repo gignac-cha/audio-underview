@@ -1,10 +1,12 @@
 /**
- * The master list of newscasts — loading skeletons, an empty state, and one
- * {@link NewscastListItem} per newscast. On narrow screens the page passes the
- * selected newscast's detail via `inlineDetail`, rendered inside the selected row.
+ * The master list of newscasts — loading skeletons, an empty state that points
+ * to Schedulers (where newscasts are made), and one {@link NewscastListItem} per
+ * newscast. On narrow screens the page passes the selected newscast's detail via
+ * `inlineDetail`, rendered inside the selected row.
  */
 
 import type { ReactNode } from 'react';
+import { Link } from 'react-router';
 import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
 import type { NewscastJobSummary } from '@audio-underview/newscast-core';
@@ -43,6 +45,10 @@ const EmptyState = styled.p`
   background: var(--bg-surface);
   border: 1px dashed var(--border-subtle);
   border-radius: 12px;
+
+  a {
+    color: var(--accent-primary);
+  }
 `;
 
 const ErrorNote = styled.p`
@@ -93,7 +99,8 @@ export function NewscastList({
   if (jobs.length === 0) {
     return (
       <EmptyState>
-        No newscasts yet — start one above and it appears here.
+        Newscasts are made by a schedule. Add a newscast stage to a schedule in{' '}
+        <Link to="/schedulers">Schedulers</Link>.
       </EmptyState>
     );
   }

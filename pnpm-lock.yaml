@@ -105,9 +105,6 @@ importers:
       '@audio-underview/newscast-core':
         specifier: workspace:*
         version: link:../../packages/newscast-core
-      '@audio-underview/newscast-script':
-        specifier: workspace:*
-        version: link:../../packages/newscast-script
       '@audio-underview/sign-provider':
         specifier: workspace:*
         version: link:../../packages/sign-provider

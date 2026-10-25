@@ -33,19 +33,19 @@ describe('newscast-request', () => {
     vi.stubEnv('VITE_NEWSCAST_WORKER_URL', NEWSCAST_URL);
     const received: { authorization: string | null; contentType: string | null; body: unknown }[] = [];
     worker.use(
-      http.post(`${NEWSCAST_URL}/newscasts/schedulers`, async ({ request }) => {
+      http.post(`${NEWSCAST_URL}/newscasts/job-1/title`, async ({ request }) => {
         received.push({
           authorization: request.headers.get('Authorization'),
           contentType: request.headers.get('Content-Type'),
           body: await request.json(),
         });
-        return HttpResponse.json({ error: 'invalid_source', error_description: "source must be 'geeknews', 'url' or 'text'." }, { status: 400 });
+        return HttpResponse.json({ error: 'invalid_title', error_description: 'title must be a non-empty string.' }, { status: 400 });
       }),
     );
 
-    await expect(requestNewscastWorkerJSON('/newscasts/schedulers', { method: 'POST', body: { source: 'rss' } })).rejects.toThrow(
-      "source must be 'geeknews', 'url' or 'text'.",
+    await expect(requestNewscastWorkerJSON('/newscasts/job-1/title', { method: 'POST', body: { title: ' ' } })).rejects.toThrow(
+      'title must be a non-empty string.',
     );
-    expect(received).toEqual([{ authorization: 'Bearer test-access-token', contentType: 'application/json', body: { source: 'rss' } }]);
+    expect(received).toEqual([{ authorization: 'Bearer test-access-token', contentType: 'application/json', body: { title: ' ' } }]);
   });
 });

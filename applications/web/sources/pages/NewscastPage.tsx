@@ -7,12 +7,12 @@
  * below.
  *
  * LISTENING is a separate, independent axis: `playingJobID` binds a done newscast to the floating
- * player bar docked at the bottom, so audio keeps playing while the user browses other newscasts,
- * watches progress, or folds the New newscast panel away. Selection never changes playback; only an
- * explicit Play does.
+ * player bar docked at the bottom, so audio keeps playing while the user browses other newscasts or
+ * watches progress. Selection never changes playback; only an explicit Play does.
  *
- * A newscast started from the panel appears in the list once its run has made it: the list is read
- * every 2s while the run is in progress and while any newscast is running.
+ * This page does not make newscasts: a schedule in Schedulers does, with a newscast stage. A newscast
+ * appears in the list once its run has made it, and the list is read every 2s while any newscast is
+ * running.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -22,8 +22,6 @@ import { faSignOutAlt } from '@fortawesome/free-solid-svg-icons';
 
 import { useAuthentication } from '../hooks/use-authentication.ts';
 import { useMediaQuery } from '../hooks/use-media-query.ts';
-import { useToast } from '../hooks/use-toast.ts';
-import { useNewNewscast } from '../hooks/use-new-newscast.ts';
 import {
   audioURLForJobPart,
   signalAudioURLForJob,
@@ -32,8 +30,6 @@ import {
 } from '../hooks/use-newscast-jobs.ts';
 import { NavigationLinks } from '../components/NavigationLinks.tsx';
 import { Header, LogoutButton } from '../components/PageHeader.tsx';
-import { CollapsibleSection } from '../components/newscast/CollapsibleSection.tsx';
-import { NewNewscastPanel } from '../components/newscast/NewNewscastPanel.tsx';
 import { NewscastDetail } from '../components/newscast/NewscastDetail.tsx';
 import {
   NewscastFloatingPlayer,
@@ -42,26 +38,6 @@ import {
 import { NewscastList } from '../components/newscast/NewscastList.tsx';
 
 const DESKTOP_QUERY = '(min-width: 900px)';
-
-/** Persisted manual choice for the New newscast section; overrides the heuristic. */
-const CREATE_COLLAPSED_STORAGE_KEY = 'newscast-create-collapsed';
-
-function readStoredCreateCollapsed(): boolean | undefined {
-  try {
-    const raw = localStorage.getItem(CREATE_COLLAPSED_STORAGE_KEY);
-    return raw === null ? undefined : raw === 'true';
-  } catch {
-    return undefined;
-  }
-}
-
-function writeStoredCreateCollapsed(collapsed: boolean): void {
-  try {
-    localStorage.setItem(CREATE_COLLAPSED_STORAGE_KEY, String(collapsed));
-  } catch {
-    // Storage unavailable (private mode) — the toggle still works per-session.
-  }
-}
 
 const PageContainer = styled.div`
   min-height: 100vh;
@@ -114,7 +90,6 @@ const SectionHeading = styled.h2`
 
 export function NewscastPage() {
   const { logout } = useAuthentication();
-  const { showSuccess } = useToast();
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
   const [selectedJobID, setSelectedJobID] = useState<string>();
 
@@ -125,16 +100,7 @@ export function NewscastPage() {
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const playerRef = useRef<NewscastFloatingPlayerHandle>(null);
 
-  // New newscast fold: stored manual choice wins; before any choice exists a
-  // one-time heuristic applies once the list loads (empty list → expanded).
-  const [isCreateCollapsed, setIsCreateCollapsed] = useState<boolean | undefined>(
-    readStoredCreateCollapsed,
-  );
-
-  const newNewscast = useNewNewscast();
-  const { jobs, isLoading: isJobsLoading, error: jobsError } = useNewscastJobs({
-    isRunInProgress: newNewscast.step.kind === 'making',
-  });
+  const { jobs, isLoading: isJobsLoading, error: jobsError } = useNewscastJobs();
   const {
     status: selectedStatus,
     audioURL,
@@ -146,15 +112,6 @@ export function NewscastPage() {
   const { status: playingStatus, audioURL: playingAudioURL } =
     useNewscastJobDetail(playingJobID);
 
-  const heuristicApplied = useRef(false);
-  useEffect(() => {
-    if (heuristicApplied.current || isCreateCollapsed !== undefined || isJobsLoading) {
-      return;
-    }
-    heuristicApplied.current = true;
-    setIsCreateCollapsed(jobs.length > 0);
-  }, [isCreateCollapsed, isJobsLoading, jobs.length]);
-
   // Shared wall-clock tick for relative times + the elapsed timer: every second
   // while anything is running, lazily (every 30s) otherwise.
   const anyRunning = jobs.some((job) => job.status === 'running');
@@ -163,12 +120,6 @@ export function NewscastPage() {
     const timer = setInterval(() => setNowMilliseconds(Date.now()), anyRunning ? 1000 : 30_000);
     return () => clearInterval(timer);
   }, [anyRunning]);
-
-  const handleToggleCreateSection = () => {
-    const next = !(isCreateCollapsed ?? false);
-    setIsCreateCollapsed(next);
-    writeStoredCreateCollapsed(next);
-  };
 
   // Accordion semantics on mobile: tapping the selected row again collapses it.
   const handleSelect = (jobID: string) => {
@@ -218,13 +169,6 @@ export function NewscastPage() {
     playingResult !== undefined &&
     playingAudioURL !== undefined;
 
-  const createBadge =
-    newNewscast.step.kind === 'choosing'
-      ? 'Waiting for your pick'
-      : newNewscast.step.kind === 'making'
-        ? 'Making'
-        : undefined;
-
   return (
     <PageContainer>
       <Header>
@@ -238,18 +182,6 @@ export function NewscastPage() {
       <Main withPlayer={showFloatingPlayer}>
         <Layout desktop={isDesktop}>
           <Rail>
-            <CollapsibleSection
-              title="New newscast"
-              badge={createBadge}
-              collapsed={isCreateCollapsed ?? false}
-              onToggle={handleToggleCreateSection}
-              contentID="new-newscast-section"
-            >
-              <NewNewscastPanel
-                newNewscast={newNewscast}
-                onCancelled={() => showSuccess('Cancelled', 'The waiting newscast was cancelled.')}
-              />
-            </CollapsibleSection>
             <SectionHeading>Newscasts</SectionHeading>
             <NewscastList
               jobs={jobs}

@@ -102,7 +102,7 @@ describe('NewscastErrorPanel — blocked_no_key', () => {
     await renderPanel(BLOCKED_JOB);
 
     await expect
-      .element(page.getByText('The xAI (Grok) key is missing or was rejected. Register the key in Settings, then start a new newscast.'))
+      .element(page.getByText('The xAI (Grok) key is missing or was rejected. Register the key in Settings, then run the schedule again.'))
       .toBeInTheDocument();
     // The raw provider error still renders underneath
     await expect.element(page.getByText(/provider rejected the credential/)).toBeInTheDocument();

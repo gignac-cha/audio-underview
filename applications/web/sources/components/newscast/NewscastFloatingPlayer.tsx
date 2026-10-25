@@ -1,8 +1,8 @@
 /**
  * The floating playback bar — the page's ONE audio surface, docked to the
- * bottom of the viewport so listening survives list browsing, detail switching,
- * and the New newscast panel. Listening is decoupled from inspection: the bar
- * binds to `playingJobID` and only an explicit Play elsewhere rebinds it.
+ * bottom of the viewport so listening survives list browsing and detail
+ * switching. Listening is decoupled from inspection: the bar binds to
+ * `playingJobID` and only an explicit Play elsewhere rebinds it.
  *
  * Anatomy: a caption strip (current spoken line, word spotlight — tap to open
  * the full-script dialog) above a transport row (play/pause · title, which

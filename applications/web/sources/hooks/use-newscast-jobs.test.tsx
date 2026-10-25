@@ -128,24 +128,6 @@ describe('useNewscastJobs', () => {
     expect(reads).toBe(readsWhenSettled);
   });
 
-  test('reads the list again while a run that makes newscasts is in progress, before they are listed', async () => {
-    let reads = 0;
-    worker.use(
-      http.get(`${NEWSCAST_URL}/newscasts`, () => {
-        reads += 1;
-        return HttpResponse.json({ data: [] });
-      }),
-    );
-    const { wrapper } = createWrapper();
-
-    await renderHook(
-      () => useNewscastJobs({ isRunInProgress: true, refreshIntervalMilliseconds: REFRESH_INTERVAL_MILLISECONDS }),
-      { wrapper },
-    );
-
-    await vi.waitFor(() => expect(reads).toBeGreaterThanOrEqual(3));
-  });
-
   test('reports a list it cannot read', async () => {
     worker.use(http.get(`${NEWSCAST_URL}/newscasts`, () => HttpResponse.json([summary()])));
     const { wrapper } = createWrapper();
