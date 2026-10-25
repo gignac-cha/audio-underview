@@ -8,6 +8,7 @@ import { useCreateStage, type CreateStageInput } from '../../hooks/use-scheduler
 import { useListCrawlers } from '../../hooks/use-crawler-manager.ts';
 import { groupTaskGroupVersions, useListTaskGroups } from '../../hooks/use-task-groups.ts';
 import { CrawlerStageFields, EMPTY_CRAWLER_STAGE_VALUE, readInputSchema, type CrawlerStageValue } from './CrawlerStageFields.tsx';
+import { EMPTY_FORM_STAGE_VALUE, FormStageFields, readFormStageSettings, type FormStageValue } from './FormStageFields.tsx';
 import { TaskGroupSettingsFields } from './TaskGroupSettingsFields.tsx';
 import {
   buildSettingsFields,
@@ -179,6 +180,7 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
   const [taskGroupID, setTaskGroupID] = useState('');
   const [taskGroupVersion, setTaskGroupVersion] = useState<number | undefined>(undefined);
   const [settingsState, setSettingsState] = useState<SettingsEditorState>(EMPTY_SETTINGS_EDITOR_STATE);
+  const [formValue, setFormValue] = useState<FormStageValue>(EMPTY_FORM_STAGE_VALUE);
 
   const isSubmitting = status === 'pending';
 
@@ -214,6 +216,7 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
       setTaskGroupID('');
       setTaskGroupVersion(undefined);
       setSettingsState(EMPTY_SETTINGS_EDITOR_STATE);
+      setFormValue(EMPTY_FORM_STAGE_VALUE);
     }
     onOpenChange(nextOpen);
   };
@@ -264,8 +267,27 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
     };
   };
 
+  const buildFormStageInput = (): CreateStageInput | undefined => {
+    const settings = readFormStageSettings(formValue);
+    if (!settings.ok) {
+      showToast('Validation Error', settings.error, 'error');
+      return undefined;
+    }
+
+    return {
+      scheduler_id: schedulerID,
+      stage_type: 'form',
+      settings: settings.settings,
+      stage_order: nextOrder,
+    };
+  };
+
   const handleSubmit = async () => {
-    const input = stageType === 'task_group' ? buildTaskGroupStageInput() : buildCrawlerStageInput();
+    const input = stageType === 'task_group'
+      ? buildTaskGroupStageInput()
+      : stageType === 'form'
+        ? buildFormStageInput()
+        : buildCrawlerStageInput();
     if (!input) return;
 
     try {
@@ -279,7 +301,9 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
   };
 
   const hasTaskGroups = taskGroups.length > 0;
-  const canSubmit = stageType === 'task_group' ? taskGroupID !== '' : crawlerValue.crawlerID !== '';
+  const canSubmit = stageType === 'task_group'
+    ? taskGroupID !== ''
+    : stageType === 'form' || crawlerValue.crawlerID !== '';
 
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
@@ -287,7 +311,7 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
         <Overlay />
         <Content>
           <Title>Add Stage</Title>
-          <Description>Add a crawler or a task group as a new stage in this pipeline.</Description>
+          <Description>Add a crawler, a task group or a form as a new stage in this pipeline.</Description>
 
           <FieldGroup>
             <FieldLabel htmlFor="stage-type">Stage Type</FieldLabel>
@@ -299,6 +323,7 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
             >
               <option value="crawler">Crawler</option>
               <option value="task_group" disabled={!hasTaskGroups}>Task group</option>
+              <option value="form">Form</option>
             </Select>
             {taskGroupsError ? (
               <ErrorHint>{`Failed to load task groups: ${taskGroupsError.message}`}</ErrorHint>
@@ -349,6 +374,8 @@ export function StageCreateDialog({ open, onOpenChange, schedulerID, nextOrder }
                 </>
               )}
             </>
+          ) : stageType === 'form' ? (
+            <FormStageFields value={formValue} onChange={setFormValue} disabled={isSubmitting} />
           ) : (
             <CrawlerStageFields value={crawlerValue} onChange={setCrawlerValue} disabled={isSubmitting} />
           )}

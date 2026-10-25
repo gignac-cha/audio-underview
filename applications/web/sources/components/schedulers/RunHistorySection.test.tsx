@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { render } from 'vitest-browser-react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import type { CrawlerRow, SchedulerRunRow, SchedulerStageRow } from '@audio-underview/supabase-connector';
 import { test, expect } from '../../tests/extensions.ts';
 import { worker } from '../../tests/mocks/browser.ts';
+import { ToastProvider } from '../../contexts/ToastContext.tsx';
 import { useGetScheduler } from '../../hooks/use-scheduler-manager.ts';
 import type { StageRunSummary } from '../../hooks/use-scheduler-runs.ts';
 import { RunHistorySection } from './RunHistorySection.tsx';
@@ -147,7 +148,9 @@ function renderSection(
 ) {
   return render(
     <QueryClientProvider client={queryClient}>
-      <Harness stages={stages} initialExpandedRunID={initialExpandedRunID} showsScheduler={showsScheduler} />
+      <ToastProvider>
+        <Harness stages={stages} initialExpandedRunID={initialExpandedRunID} showsScheduler={showsScheduler} />
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }
@@ -921,5 +924,210 @@ describe('RunHistorySection refresh', () => {
 
     await expect.element(page.getByText('Headline Crawler')).toBeVisible();
     await expect.element(page.getByRole('button', { name: /Manual/ })).toHaveAttribute('aria-expanded', 'true');
+  });
+});
+
+describe('RunHistorySection form stage run', () => {
+  const FORM = {
+    schema: { type: 'object', properties: {} },
+    fields: [
+      {
+        name: 'articles',
+        title: 'Articles',
+        widget: 'checkboxes',
+        required: true,
+        minItems: 1,
+        maxItems: 3,
+        choices: [{ label: 'First story' }, { label: 'Second story' }],
+      },
+    ],
+    expires_at: '2026-10-27T09:00:00.000Z',
+  };
+
+  function createFormStage(): SchedulerStageRow {
+    return createStage({
+      id: 'stage-1',
+      stage_type: 'form',
+      crawler_id: null,
+      settings: { form: {}, timeout_minutes: 30 },
+    });
+  }
+
+  function createWaitingStageRun(overrides: Partial<StageRunSummary> = {}): StageRunSummary {
+    return createStageRun({ status: 'waiting', completed_at: null, ...overrides });
+  }
+
+  interface FormServerState {
+    answerRequests: unknown[];
+    detailRequests: number;
+    stageRunRequests: number;
+  }
+
+  // The run goes on while its form stage run waits; answering ends the stage run alone
+  function startFormServer(): FormServerState {
+    const runningRun = createRun({ status: 'running', completed_at: null });
+    const state: FormServerState = { answerRequests: [], detailRequests: 0, stageRunRequests: 0 };
+    let isAnswered = false;
+    worker.use(
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs`, () => {
+        return HttpResponse.json({ data: [runningRun], total: 1, offset: 0, limit: 20 });
+      }),
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs/run-1`, () => {
+        state.detailRequests += 1;
+        return HttpResponse.json({
+          ...runningRun,
+          stage_runs: [isAnswered ? createStageRun() : createWaitingStageRun()],
+        });
+      }),
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs/run-1/stage-runs/stage-run-1`, () => {
+        state.stageRunRequests += 1;
+        return HttpResponse.json({
+          ...(isAnswered ? createStageRun() : createWaitingStageRun()),
+          input: {},
+          output: isAnswered ? { articles: ['First story'] } : null,
+          logs: null,
+          form: FORM,
+        });
+      }),
+      http.post(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs/run-1/stage-runs/stage-run-1/answer`, async ({ request }) => {
+        state.answerRequests.push(await request.json());
+        isAnswered = true;
+        return HttpResponse.json({ status: 'completed' });
+      }),
+    );
+    return state;
+  }
+
+  test('names the stage Form and its stage run Waiting for answer', async () => {
+    startFormServer();
+
+    await renderSection([createFormStage()]);
+    await page.getByRole('button', { name: /Manual/ }).click();
+
+    await expect.element(page.getByText('Form', { exact: true })).toBeVisible();
+    await expect.element(page.getByText('Waiting for answer', { exact: true })).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Answer', exact: true })).toBeVisible();
+  });
+
+  test('offers Answer only on the stage run that waits', async () => {
+    const run = createRun({ status: 'running', completed_at: null });
+    respondWithRuns([run]);
+    respondWithRun(run, [
+      createStageRun({ id: 'sr-1', stage_order: 0 }),
+      createStageRun({ id: 'sr-2', stage_order: 1, status: 'running', completed_at: null }),
+      createStageRun({ id: 'sr-3', stage_order: 2, status: 'failed' }),
+    ]);
+
+    await renderSection();
+    await page.getByRole('button', { name: /Manual/ }).click();
+    await expect.element(page.getByText('Failed', { exact: true })).toBeVisible();
+
+    expect(page.getByRole('button', { name: 'Answer', exact: true }).elements()).toHaveLength(0);
+  });
+
+  test('Answer opens the form without opening the stage run', async () => {
+    startFormServer();
+
+    await renderSection([createFormStage()]);
+    await page.getByRole('button', { name: /Manual/ }).click();
+    await page.getByRole('button', { name: 'Answer', exact: true }).click();
+
+    await expect.element(page.getByRole('dialog')).toBeVisible();
+    await expect.element(page.getByRole('checkbox', { name: 'First story' })).toBeVisible();
+    await page.getByRole('button', { name: 'Close' }).click();
+    await expect.element(page.getByRole('dialog')).not.toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: /Form/ })).toHaveAttribute('aria-expanded', 'false');
+    await expect.element(page.getByText('Input', { exact: true })).not.toBeInTheDocument();
+  });
+
+  test('Answer opens with the keyboard without opening the stage run', async () => {
+    startFormServer();
+
+    await renderSection([createFormStage()]);
+    await page.getByRole('button', { name: /Manual/ }).click();
+    await expect.element(page.getByRole('button', { name: 'Answer', exact: true })).toBeVisible();
+    page.getByRole('button', { name: 'Answer', exact: true }).element().focus();
+    await userEvent.keyboard('{Enter}');
+
+    await expect.element(page.getByRole('dialog')).toBeVisible();
+    await userEvent.keyboard('{Escape}');
+    await expect.element(page.getByRole('dialog')).not.toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: /Form/ })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('sends the answer, and the stage run shows as answered with its output', async () => {
+    const server = startFormServer();
+
+    await renderSection([createFormStage()]);
+    await page.getByRole('button', { name: /Manual/ }).click();
+    await page.getByRole('button', { name: 'Answer', exact: true }).click();
+    await page.getByRole('checkbox', { name: 'First story' }).click();
+    await page.getByRole('button', { name: 'Send answer' }).click();
+
+    await expect.poll(() => server.answerRequests).toEqual([{ answer: { articles: [0] } }]);
+    await expect.element(page.getByRole('dialog')).not.toBeInTheDocument();
+    await expect.element(page.getByText('Waiting for answer', { exact: true })).not.toBeInTheDocument();
+    await expect.element(page.getByText('Completed', { exact: true })).toBeVisible();
+    expect(page.getByRole('button', { name: 'Answer', exact: true }).elements()).toHaveLength(0);
+  });
+
+  test('reads the open stage run once more when its form ends without this page answering it', async () => {
+    const runningRun = createRun({ status: 'running', completed_at: null });
+    let hasTimedOut = false;
+    let stageRunRequests = 0;
+    worker.use(
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs`, () => {
+        return HttpResponse.json({ data: [runningRun], total: 1, offset: 0, limit: 20 });
+      }),
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs/run-1`, () => {
+        const stageRun = hasTimedOut
+          ? createStageRun({ status: 'failed', error: 'Stage 0: no answer within 30 minutes' })
+          : createWaitingStageRun();
+        return HttpResponse.json({ ...runningRun, stage_runs: [stageRun] });
+      }),
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs/run-1/stage-runs/stage-run-1`, () => {
+        stageRunRequests += 1;
+        return HttpResponse.json({
+          ...(hasTimedOut ? createStageRun({ status: 'failed' }) : createWaitingStageRun()),
+          input: { source: 'geeknews' },
+          output: hasTimedOut ? { timedOut: true } : null,
+          logs: null,
+          form: FORM,
+        });
+      }),
+    );
+
+    await renderSection([createFormStage()]);
+    await page.getByRole('button', { name: /Manual/ }).click();
+    await page.getByText('Form', { exact: true }).click();
+    await expect.element(page.getByText(/"source": "geeknews"/)).toBeVisible();
+    expect(stageRunRequests).toBe(1);
+
+    hasTimedOut = true;
+
+    await expect.element(page.getByText(/"timedOut": true/)).toBeVisible();
+    await expect.element(page.getByText('Waiting for answer', { exact: true })).not.toBeInTheDocument();
+    expect(stageRunRequests).toBe(2);
+  });
+
+  test('keeps reading the run while the form waits, and its stage run once more when it is answered', async () => {
+    const server = startFormServer();
+
+    await renderSection([createFormStage()]);
+    await page.getByRole('button', { name: /Manual/ }).click();
+    await page.getByText('Form', { exact: true }).click();
+
+    await expect.element(page.getByText('None', { exact: true }).first()).toBeVisible();
+    await vi.waitFor(() => expect(server.detailRequests).toBeGreaterThanOrEqual(3));
+    // The stage run is not read again while its form waits
+    expect(server.stageRunRequests).toBe(1);
+
+    await page.getByRole('button', { name: 'Answer', exact: true }).click();
+    await page.getByRole('checkbox', { name: 'First story' }).click();
+    await page.getByRole('button', { name: 'Send answer' }).click();
+
+    await expect.element(page.getByText(/"articles"/)).toBeVisible();
+    await expect.element(page.getByText(/First story/)).toBeVisible();
+    expect(server.answerRequests).toHaveLength(1);
   });
 });

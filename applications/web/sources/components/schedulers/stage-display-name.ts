@@ -2,12 +2,15 @@ import type { SchedulerStageRow, CrawlerRow } from '@audio-underview/supabase-co
 import type { StageRunSummary } from '../../hooks/use-scheduler-runs.ts';
 
 /**
- * What the stage runs: the task group and its version, or the crawler's name
- * (the start of its ID while the crawlers are loading).
+ * What the stage runs: the task group and its version, "Form" for a form that waits for an answer,
+ * or the crawler's name (the start of its ID while the crawlers are loading).
  */
 export function resolveStageDisplayName(stage: SchedulerStageRow, crawlerMap: Map<string, CrawlerRow>): string {
   if (stage.stage_type === 'task_group') {
     return `Task group ${stage.task_group_id} v${stage.task_group_version}`;
+  }
+  if (stage.stage_type === 'form') {
+    return 'Form';
   }
   if (stage.crawler_id === null) {
     return 'Unknown stage';

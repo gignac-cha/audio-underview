@@ -4,7 +4,16 @@ import { http, HttpResponse } from 'msw';
 import { test, expect } from '../tests/extensions.ts';
 import { worker } from '../tests/mocks/browser.ts';
 import { RUN_TIMEOUT_MILLISECONDS } from './scheduler-manager-request.ts';
-import { useExecuteScheduler, useGetRun, useGetStageRun, useListRuns } from './use-scheduler-runs.ts';
+import {
+  isInProgress,
+  readStageRunForm,
+  useAnswerStageRun,
+  useCancelStageRun,
+  useExecuteScheduler,
+  useGetRun,
+  useGetStageRun,
+  useListRuns,
+} from './use-scheduler-runs.ts';
 import type { ReactNode } from 'react';
 
 const SCHEDULER_MANAGER_URL = 'http://localhost:7777';
@@ -262,5 +271,188 @@ describe('useGetStageRun', () => {
     await vi.waitFor(() => expect(result.current.refreshError?.message).toBe('Service unavailable'));
     expect(result.current.error).toBeUndefined();
     expect(result.current.stageRun?.input).toEqual({ url: 'https://example.com' });
+  });
+});
+
+describe('isInProgress', () => {
+  test.each(['pending', 'running', 'waiting'] as const)('says %s is in progress', (status) => {
+    expect(isInProgress(status)).toBe(true);
+  });
+
+  test.each(['completed', 'failed', 'partially_failed', 'skipped', undefined] as const)('says %s is not', (status) => {
+    expect(isInProgress(status)).toBe(false);
+  });
+});
+
+describe('useExecuteScheduler with a form', () => {
+  test('answers the status of a run that waits', async () => {
+    respondToExecute(202, { run_id: 'run-1', status: 'waiting', result: null, error: null });
+    const { wrapper } = createWrapper();
+    const { result } = await renderHook(() => useExecuteScheduler(), { wrapper });
+
+    const execution = await result.current.executeScheduler('s1');
+
+    expect(execution).toEqual({ run_id: 'run-1', status: 'waiting', error: null });
+  });
+});
+
+describe('useListRuns with a waiting run', () => {
+  test('reads the list again while a run is waiting', async () => {
+    let requests = 0;
+    worker.use(
+      http.get(`${SCHEDULER_MANAGER_URL}/schedulers/s1/runs`, () => {
+        requests += 1;
+        return HttpResponse.json({
+          data: [{ id: 'run-1', status: 'waiting' }],
+          total: 1,
+          offset: 0,
+          limit: 20,
+        });
+      }),
+    );
+    const { wrapper } = createWrapper();
+    await renderHook(() => useListRuns('s1', { refreshIntervalMilliseconds: 30 }), { wrapper });
+
+    await vi.waitFor(() => expect(requests).toBeGreaterThanOrEqual(3));
+  });
+});
+
+describe('useAnswerStageRun', () => {
+  const ANSWER_URL = `${SCHEDULER_MANAGER_URL}/schedulers/s1/runs/run-1/stage-runs/stage-run-1/answer`;
+  const input = { scheduler_id: 's1', run_id: 'run-1', stage_run_id: 'stage-run-1', answer: { articles: [0, 2] } };
+
+  test('posts the answer to the stage run and answers its status', async () => {
+    let body: unknown;
+    let authorization: string | null = null;
+    worker.use(
+      http.post(ANSWER_URL, async ({ request }) => {
+        body = await request.json();
+        authorization = request.headers.get('Authorization');
+        return HttpResponse.json({ status: 'completed' });
+      }),
+    );
+    const { wrapper } = createWrapper();
+    const { result } = await renderHook(() => useAnswerStageRun(), { wrapper });
+
+    const answered = await result.current.answerStageRun(input);
+
+    expect(answered).toEqual({ status: 'completed' });
+    expect(body).toEqual({ answer: { articles: [0, 2] } });
+    expect(authorization).toBe('Bearer test-access-token');
+  });
+
+  test.each([
+    [409, 'not_waiting', 'This stage is not waiting for an answer'],
+    [400, 'invalid_answer', '$.articles must have at most 1 items'],
+  ])('throws the server text of status %i', async (status, error, description) => {
+    worker.use(http.post(ANSWER_URL, () => HttpResponse.json({ error, error_description: description }, { status })));
+    const { wrapper } = createWrapper();
+    const { result } = await renderHook(() => useAnswerStageRun(), { wrapper });
+
+    await expect(result.current.answerStageRun(input)).rejects.toThrow(description);
+  });
+
+  test('reads the runs again, whether the answer was taken or not', async () => {
+    worker.use(http.post(ANSWER_URL, () => HttpResponse.json({ error: 'not_waiting', error_description: 'Late' }, { status: 409 })));
+    const { queryClient, wrapper } = createWrapper();
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+    const { result } = await renderHook(() => useAnswerStageRun(), { wrapper });
+
+    await result.current.answerStageRun(input).catch(() => undefined);
+
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['schedulers', 's1', 'runs'] }));
+  });
+});
+
+describe('useCancelStageRun', () => {
+  const CANCEL_URL = `${SCHEDULER_MANAGER_URL}/schedulers/s1/runs/run-1/stage-runs/stage-run-1/cancel`;
+  const input = { scheduler_id: 's1', run_id: 'run-1', stage_run_id: 'stage-run-1' };
+
+  test('posts the cancel to the stage run without a body and answers its status', async () => {
+    let contentType: string | null = 'unset';
+    worker.use(
+      http.post(CANCEL_URL, ({ request }) => {
+        contentType = request.headers.get('Content-Type');
+        return HttpResponse.json({ status: 'failed' });
+      }),
+    );
+    const { queryClient, wrapper } = createWrapper();
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+    const { result } = await renderHook(() => useCancelStageRun(), { wrapper });
+
+    const cancelled = await result.current.cancelStageRun(input);
+
+    expect(cancelled).toEqual({ status: 'failed' });
+    expect(contentType).toBeNull();
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['schedulers', 's1', 'runs'] }));
+  });
+
+  test('throws the server text of a stage run that is not waiting', async () => {
+    worker.use(
+      http.post(CANCEL_URL, () => {
+        return HttpResponse.json(
+          { error: 'not_waiting', error_description: 'This stage is not waiting for an answer' },
+          { status: 409 },
+        );
+      }),
+    );
+    const { wrapper } = createWrapper();
+    const { result } = await renderHook(() => useCancelStageRun(), { wrapper });
+
+    await expect(result.current.cancelStageRun(input)).rejects.toThrow('This stage is not waiting for an answer');
+  });
+});
+
+describe('readStageRunForm', () => {
+  const form = {
+    schema: { type: 'object' },
+    fields: [
+      {
+        name: 'articles',
+        title: 'Articles',
+        description: 'Pick some',
+        widget: 'checkboxes',
+        required: true,
+        choices: [{ label: 'First', description: 'https://example.com' }, { label: 'Second' }],
+        minItems: 1,
+        maxItems: 10,
+      },
+      { name: 'note', widget: 'text', required: false, maxLength: 200, default: 'Hi' },
+      { name: 'length', widget: 'number', required: false, minimum: 1, maximum: 9 },
+    ],
+    expires_at: '2026-10-27T09:00:00.000Z',
+  };
+
+  test('reads the fields, their choices and when the form expires', async () => {
+    expect(readStageRunForm(form)).toEqual({
+      schema: { type: 'object' },
+      fields: [
+        {
+          name: 'articles',
+          title: 'Articles',
+          description: 'Pick some',
+          widget: 'checkboxes',
+          required: true,
+          choices: [{ label: 'First', description: 'https://example.com' }, { label: 'Second' }],
+          minItems: 1,
+          maxItems: 10,
+        },
+        { name: 'note', widget: 'text', required: false, maxLength: 200, default: 'Hi' },
+        { name: 'length', widget: 'number', required: false, minimum: 1, maximum: 9 },
+      ],
+      expires_at: '2026-10-27T09:00:00.000Z',
+    });
+  });
+
+  test.each([
+    ['null', null],
+    ['no fields', { schema: {}, expires_at: '2026-10-27T09:00:00.000Z' }],
+    ['no expiry', { schema: {}, fields: [] }],
+    ['a field with an unknown widget', { ...form, fields: [{ name: 'a', widget: 'carousel', required: false }] }],
+    ['a field without a name', { ...form, fields: [{ widget: 'text', required: false }] }],
+    ['a choice field without choices', { ...form, fields: [{ name: 'a', widget: 'radio', required: true }] }],
+    ['a choice without a label', { ...form, fields: [{ name: 'a', widget: 'radio', required: true, choices: [{}] }] }],
+  ])('reads nothing from %s', (_name, value) => {
+    expect(readStageRunForm(value)).toBeUndefined();
   });
 });

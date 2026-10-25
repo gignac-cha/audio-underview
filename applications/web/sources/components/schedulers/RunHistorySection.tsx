@@ -26,7 +26,7 @@ const TableRow = styled('div', {
   shouldForwardProp: (prop) => prop !== 'clickable',
 })<{ clickable?: boolean }>`
   display: grid;
-  grid-template-columns: 100px 100px 1fr 120px;
+  grid-template-columns: 140px 100px 1fr 120px;
   gap: 0.5rem;
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--border-subtle);

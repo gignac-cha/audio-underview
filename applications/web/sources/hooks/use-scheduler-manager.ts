@@ -46,9 +46,18 @@ interface CreateTaskGroupStageInput {
   stage_order: number;
 }
 
-export type CreateStageInput = CreateCrawlerStageInput | CreateTaskGroupStageInput;
+// A form stage asks the person for an answer; the form definition and the minutes it waits are its settings
+interface CreateFormStageInput {
+  scheduler_id: string;
+  stage_type: 'form';
+  settings: { form: Record<string, unknown>; timeout_minutes?: number };
+  stage_order: number;
+}
 
-// The crawler fields apply to a crawler stage and the task group fields to a task group stage
+export type CreateStageInput = CreateCrawlerStageInput | CreateTaskGroupStageInput | CreateFormStageInput;
+
+// The crawler fields apply to a crawler stage, the task group fields to a task group stage and settings
+// to a task group or a form stage
 export interface UpdateStageInput {
   scheduler_id: string;
   stage_id: string;

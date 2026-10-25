@@ -4,6 +4,7 @@ import type { SchedulerRunStatus } from '@audio-underview/supabase-connector';
 const STATUS_COLORS: Record<SchedulerRunStatus, string> = {
   pending: 'var(--text-muted)',
   running: '#60a5fa',
+  waiting: 'var(--accent-secondary)',
   completed: 'var(--color-success)',
   failed: 'var(--color-error)',
   partially_failed: '#f59e0b',
@@ -33,6 +34,7 @@ const Dot = styled('span', {
 const LABELS: Record<SchedulerRunStatus, string> = {
   pending: 'Pending',
   running: 'Running',
+  waiting: 'Waiting for answer',
   completed: 'Completed',
   failed: 'Failed',
   partially_failed: 'Partial',

@@ -8,6 +8,13 @@ import { useUpdateStage, type UpdateStageInput } from '../../hooks/use-scheduler
 import { useListCrawlers } from '../../hooks/use-crawler-manager.ts';
 import { groupTaskGroupVersions, useListTaskGroups, type TaskGroup } from '../../hooks/use-task-groups.ts';
 import { CrawlerStageFields, crawlerStageValueFromStage, readInputSchema, type CrawlerStageValue } from './CrawlerStageFields.tsx';
+import {
+  FormStageFields,
+  formStageValueFromStage,
+  normalizeFormStageSettings,
+  readFormStageSettings,
+  type FormStageValue,
+} from './FormStageFields.tsx';
 import { TaskGroupSettingsFields } from './TaskGroupSettingsFields.tsx';
 import {
   buildSettingsFields,
@@ -269,6 +276,39 @@ function CrawlerStageForm({ stage, crawlerMap, isSubmitting, onSave }: CrawlerSt
   );
 }
 
+interface FormStageFormProperties {
+  stage: SchedulerStageRow;
+  isSubmitting: boolean;
+  onSave: (changes: StageChanges) => void;
+}
+
+function FormStageForm({ stage, isSubmitting, onSave }: FormStageFormProperties) {
+  const { showToast } = useToast();
+  const [value, setValue] = useState<FormStageValue>(() => formStageValueFromStage(stage));
+
+  const handleSubmit = () => {
+    const result = readFormStageSettings(value);
+    if (!result.ok) {
+      showToast('Validation Error', result.error, 'error');
+      return;
+    }
+
+    // A stage that stores no timeout runs with the default, so the default typed back is no change
+    const isUnchanged = isSameJSONValue(
+      normalizeFormStageSettings(result.settings),
+      normalizeFormStageSettings(stage.settings ?? {}),
+    );
+    onSave(isUnchanged ? {} : { settings: result.settings });
+  };
+
+  return (
+    <form noValidate onSubmit={(event) => { event.preventDefault(); handleSubmit(); }}>
+      <FormStageFields value={value} onChange={setValue} disabled={isSubmitting} />
+      <SaveButtons isSubmitting={isSubmitting} canSave />
+    </form>
+  );
+}
+
 function fieldsOfVersion(versions: TaskGroup[], version: number): SettingsField[] | undefined {
   const taskGroup = versions.find((candidate) => candidate.version === version);
   // A version that is not listed has no known format, so its settings are written as JSON
@@ -375,6 +415,7 @@ export function StageEditDialog({ schedulerID, stage, crawlerMap, onOpenChange }
 
   const isSubmitting = status === 'pending';
   const isTaskGroupStage = stage.stage_type === 'task_group';
+  const isFormStage = stage.stage_type === 'form';
   // The form of a task group stage starts from the registered formats, so it waits for them
   const isWaitingForTaskGroups = isTaskGroupStage && !taskGroupsLoaded && (taskGroupsLoading || taskGroupsError !== undefined);
 
@@ -412,10 +453,14 @@ export function StageEditDialog({ schedulerID, stage, crawlerMap, onOpenChange }
           <Description>
             {isTaskGroupStage
               ? `Change the version and settings of task group ${stage.task_group_id}.`
-              : 'Change the crawler, input schema and fan-out of this stage.'}
+              : isFormStage
+                ? 'Change the form definition and the timeout of this stage.'
+                : 'Change the crawler, input schema and fan-out of this stage.'}
           </Description>
 
-          {!isTaskGroupStage ? (
+          {isFormStage ? (
+            <FormStageForm stage={stage} isSubmitting={isSubmitting} onSave={handleSave} />
+          ) : !isTaskGroupStage ? (
             <CrawlerStageForm stage={stage} crawlerMap={crawlerMap} isSubmitting={isSubmitting} onSave={handleSave} />
           ) : isWaitingForTaskGroups ? (
             <>

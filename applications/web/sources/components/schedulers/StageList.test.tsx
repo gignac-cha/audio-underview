@@ -159,4 +159,24 @@ describe('StageList', () => {
 
     await expect.element(page.getByText('v2 available')).toBeVisible();
   });
+
+  test('a form stage is named Form and its edit button opens the form definition', async () => {
+    startServer();
+    await renderList([
+      {
+        ...createCrawlerStage(),
+        id: 'stage-3',
+        stage_type: 'form',
+        crawler_id: null,
+        settings: { form: { type: 'object', properties: {} }, timeout_minutes: 30 },
+        fan_out_field: null,
+      },
+    ]);
+
+    await expect.element(page.getByText('Form', { exact: true })).toBeVisible();
+    await page.getByTitle('Edit stage').click();
+
+    await expect.element(page.getByRole('heading', { name: 'Edit Stage' })).toBeVisible();
+    await expect.element(page.getByLabelText('Timeout (minutes)')).toHaveValue(30);
+  });
 });

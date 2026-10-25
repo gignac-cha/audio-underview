@@ -471,3 +471,117 @@ describe('StageCreateDialog task group stage', () => {
     await expect.element(page.getByText('This version has no settings.')).toBeVisible();
   });
 });
+
+describe('StageCreateDialog form stage', () => {
+  async function chooseForm() {
+    await page.getByLabelText('Stage Type').selectOptions('Form');
+  }
+
+  const FORM_DEFINITION = {
+    type: 'object',
+    required: ['topic'],
+    properties: { topic: { type: 'string', title: 'Topic', 'x-widget': 'text' } },
+  };
+
+  test('is offered even when no task groups are registered, without crawler or task group fields', async () => {
+    startServer({ taskGroups: [] });
+    await renderDialog();
+
+    await chooseForm();
+
+    await expect.element(page.getByLabelText('Form Definition')).toBeVisible();
+    await expect.element(page.getByLabelText('Timeout (minutes)')).toHaveValue(1440);
+    await expect.element(page.getByLabelText('Crawler')).not.toBeInTheDocument();
+    await expect.element(page.getByLabelText('Task Group')).not.toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Add Stage' })).toBeEnabled();
+  });
+
+  test('starts from an example form definition that uses the widgets', async () => {
+    startServer();
+    await renderDialog();
+
+    await chooseForm();
+
+    const definition = JSON.parse((page.getByLabelText('Form Definition').element() as HTMLTextAreaElement).value);
+    expect(definition.type).toBe('object');
+    expect(definition.required).toEqual(['topic']);
+    expect(Object.values(definition.properties).map((property) => (property as Record<string, unknown>)['x-widget']))
+      .toEqual(['text', 'radio', 'textarea']);
+    // The database does not keep the order of the keys, so the example sets the order of its fields
+    expect(Object.values(definition.properties).map((property) => (property as Record<string, unknown>)['x-order']))
+      .toEqual([0, 1, 2]);
+  });
+
+  test('sends the example as it is with the default timeout', async () => {
+    const server = startServer();
+    await renderDialog();
+
+    await chooseForm();
+    const definition = JSON.parse((page.getByLabelText('Form Definition').element() as HTMLTextAreaElement).value);
+    await page.getByRole('button', { name: 'Add Stage' }).click();
+
+    await expect.poll(() => server.createRequests).toEqual([
+      { stage_type: 'form', settings: { form: definition, timeout_minutes: 1440 }, stage_order: 2 },
+    ]);
+    await expect.element(page.getByText('Stage added to pipeline.')).toBeVisible();
+  });
+
+  test('sends the form definition and the timeout that were written', async () => {
+    const server = startServer();
+    await renderDialog();
+
+    await chooseForm();
+    await page.getByLabelText('Form Definition').fill(JSON.stringify(FORM_DEFINITION));
+    await page.getByLabelText('Timeout (minutes)').fill('30');
+    await page.getByRole('button', { name: 'Add Stage' }).click();
+
+    await expect.poll(() => server.createRequests).toEqual([
+      { stage_type: 'form', settings: { form: FORM_DEFINITION, timeout_minutes: 30 }, stage_order: 2 },
+    ]);
+  });
+
+  test('leaves the timeout to the server when it is empty', async () => {
+    const server = startServer();
+    await renderDialog();
+
+    await chooseForm();
+    await page.getByLabelText('Form Definition').fill(JSON.stringify(FORM_DEFINITION));
+    await page.getByLabelText('Timeout (minutes)').fill('');
+    await page.getByRole('button', { name: 'Add Stage' }).click();
+
+    await expect.poll(() => server.createRequests).toEqual([
+      { stage_type: 'form', settings: { form: FORM_DEFINITION }, stage_order: 2 },
+    ]);
+  });
+
+  test.each([
+    ['JSON that cannot be read', '{"type": ', '30', 'Invalid JSON in form definition.'],
+    ['JSON that is not an object', '["not", "an", "object"]', '30', 'Form definition must be a JSON object.'],
+    ['a timeout of zero', '{}', '0', 'Timeout must be a whole number of minutes from 1 to 525600.'],
+    ['a timeout past a year', '{}', '525601', 'Timeout must be a whole number of minutes from 1 to 525600.'],
+    ['a timeout that is not whole', '{}', '1.5', 'Timeout must be a whole number of minutes from 1 to 525600.'],
+  ])('does not send %s', async (_name, definition, timeout, message) => {
+    const server = startServer();
+    await renderDialog();
+
+    await chooseForm();
+    await page.getByLabelText('Form Definition').fill(definition);
+    await page.getByLabelText('Timeout (minutes)').fill(timeout);
+    await page.getByRole('button', { name: 'Add Stage' }).click();
+
+    await expect.element(page.getByText(message)).toBeVisible();
+    expect(server.createRequests).toEqual([]);
+  });
+
+  test('shows the reason the server gives for refusing the form definition', async () => {
+    startServer({ createStatus: 400 });
+    await renderDialog();
+
+    await chooseForm();
+    await page.getByRole('button', { name: 'Add Stage' }).click();
+
+    await expect.element(
+      page.getByText("Field 'settings' does not match the task group settings format: $.title is required"),
+    ).toBeVisible();
+  });
+});
